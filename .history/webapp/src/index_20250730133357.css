@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overscroll-behavior: none;
+    overflow-x: hidden;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-ios-blue text-white font-medium py-3 px-6 rounded-ios shadow-ios active:scale-95 transition-all duration-150 ease-out;
+  }
+  
+  .btn-secondary {
+    @apply bg-ios-gray-100 text-ios-gray-800 font-medium py-3 px-6 rounded-ios shadow-ios active:scale-95 transition-all duration-150 ease-out;
+  }
+  
+  .card {
+    @apply bg-white rounded-ios-lg shadow-ios-lg border border-ios-gray-200;
+  }
+  
+  .input {
+    @apply w-full px-4 py-3 bg-ios-gray-50 border border-ios-gray-200 rounded-ios text-ios-gray-900 placeholder-ios-gray-500 focus:outline-none focus:ring-2 focus:ring-ios-blue focus:border-transparent;
+  }
+  
+  .switch {
+    @apply relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-ios-blue focus:ring-offset-2;
+  }
+  
+  .switch-enabled {
+    @apply bg-ios-blue;
+  }
+  
+  .switch-disabled {
+    @apply bg-ios-gray-200;
+  }
+  
+  .switch-thumb {
+    @apply inline-block h-4 w-4 transform rounded-full bg-white transition;
+  }
+  
+  .switch-thumb-enabled {
+    @apply translate-x-6;
+  }
+  
+  .switch-thumb-disabled {
+    @apply translate-x-1;
+  }
+}
