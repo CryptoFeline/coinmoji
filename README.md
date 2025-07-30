@@ -1,116 +1,182 @@
-# Coinmoji 🪙
+# Coinmoji WebApp
 
-A Telegram WebApp for creating custom animated coin emojis with 3D editor, GIF/WebM support, and direct Telegram integration.
+A modern, mobile-first React application for creating custom emoji from 3D coin designs. Built specifically for Telegram Mini Apps with a clean, Apple-inspired design.
 
 ## Features
 
-- **3D Coin Editor**: Real-time coin customization with texture mapping
-- **Animation Support**: GIF→WebM transcoding for animated face textures  
-- **Telegram Integration**: Direct custom emoji creation in Telegram
-- **Export Options**: Download WebM files or create Telegram emojis
-- **Responsive Design**: Optimized for mobile and desktop
+- 🪙 **3D Coin Editor**: Interactive Three.js-based coin designer
+- 🎨 **Customization Options**: 
+  - Solid colors and gradients
+  - Metallic finishes
+  - Custom overlay images
+  - Adjustable rotation speeds
+  - Dynamic lighting
+- 📱 **Mobile-First Design**: Optimized for mobile devices with iOS-style UI
+- 🚀 **Telegram Integration**: Only works within Telegram WebApp environment
+- ⚡ **WebM Export**: Exports VP9 WebM files compliant with Telegram's custom emoji specs
+- 🎯 **Custom Emoji Creation**: Direct integration with Telegram's sticker API
 
-## Tech Stack
+## Technology Stack
 
 - **Frontend**: React 18 + TypeScript + Vite
-- **3D Engine**: THREE.js 0.158.0
-- **Video Processing**: WebCodecs API + webm-muxer  
+- **3D Graphics**: Three.js
+- **Styling**: Tailwind CSS with custom iOS-inspired design tokens
+- **Animations**: Framer Motion
+- **Build**: Vite with optimized production builds
 - **Deployment**: Netlify with serverless functions
-- **Telegram**: WebApp API + Bot API integration
+- **File Processing**: fflate for ZIP compression
 
-## Quick Start
+## Local Development
 
-### Development
+### Prerequisites
 
-```bash
-cd webapp
-npm install
-npm run dev
-```
+- Node.js 18+ 
+- npm or yarn
+- Telegram Bot Token (from @BotFather)
 
-Visit `http://localhost:5173` to test locally.
+### Setup
 
-### Production Build
+1. **Clone and install dependencies:**
+   ```bash
+   cd webapp
+   npm install
+   ```
 
-```bash
-npm run build
-```
+2. **Environment configuration:**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your Telegram bot credentials
+   ```
 
-### CLI Encoder (Optional)
+3. **Start development server:**
+   ```bash
+   npm run dev
+   ```
 
-Encode PNG frame sequences to emoji-compliant WebM:
+4. **Access the app:**
+   - For testing: http://localhost:3000 (will show "Not in Telegram" page)
+   - For Telegram testing: Set up ngrok or similar tunnel and configure webhook
 
-```bash
-node scripts/encode-emoji-cli.js --input "frames/frame_%04d.png" --fps 30 --output coin.webm
-```
+### Testing Outside Telegram
+
+To test the visual design outside Telegram environment, you can temporarily modify the `TelegramProvider.tsx` to force `isInTelegram: true` for development.
 
 ## Deployment
 
-### Netlify
+### Netlify Deployment
 
-1. Connect to GitHub repository
-2. Set build command: `npm run build`
-3. Set publish directory: `dist`
-4. Add environment variables:
-   - `TELEGRAM_BOT_TOKEN`: Your Telegram bot token
-   - `NODE_ENV`: `production`
+1. **Connect repository to Netlify**
+2. **Set environment variables in Netlify dashboard:**
+   - `TELEGRAM_BOT_TOKEN`
+   - `BOT_USERNAME`
+   - `NODE_ENV=production`
 
-### Environment Variables
+3. **Deploy settings:**
+   - Build command: `npm run build`
+   - Publish directory: `dist`
+   - Functions directory: `netlify/functions`
 
-```env
-TELEGRAM_BOT_TOKEN=your_bot_token_here
-NODE_ENV=production
-VITE_ENABLE_NON_TELEGRAM=false
-```
+### Telegram Bot Setup
 
-## Telegram Bot Setup
+1. **Create bot with @BotFather**
+2. **Set commands:**
+   ```
+   /start - Start using Coinmoji
+   ```
 
-1. Create a bot via [@BotFather](https://t.me/BotFather)
-2. Get your bot token
-3. Set webhook URL to your Netlify domain
-4. Configure WebApp URL in bot settings
-
-## File Structure
-
-```
-webapp/
-├── src/
-│   ├── components/
-│   │   ├── CoinEditor.tsx      # Main 3D editor
-│   │   ├── SettingsPanel.tsx   # UI controls
-│   │   └── NotInTelegram.tsx   # Fallback UI
-│   ├── providers/
-│   │   └── TelegramProvider.tsx # Telegram WebApp integration
-│   ├── utils/
-│   │   └── exporter.ts         # Export/encoding utilities
-│   └── types/
-│       └── telegram.d.ts       # Type definitions
-├── netlify/functions/
-│   ├── create-emoji.js         # Telegram emoji creation
-│   └── send-file.js           # File upload handler
-├── scripts/
-│   └── encode-emoji-cli.js     # CLI encoder
-└── public/                     # Static assets
-```
+3. **Set menu button (optional):**
+   ```
+   /setmenubutton
+   Your Bot Name
+   {
+     "type": "web_app",
+     "text": "Open Coinmoji",
+     "web_app": {
+       "url": "https://your-netlify-domain.netlify.app"
+     }
+   }
+   ```
 
 ## API Endpoints
 
-- `POST /api/create-emoji` - Create Telegram custom emoji
-- `POST /api/send-file` - Upload file to Telegram
+### `/api/send-file`
+Sends the generated WebM file to the user via Telegram bot.
+
+**Method:** POST  
+**Headers:** `X-Telegram-InitData: <initData>`  
+**Body:** WebM file (binary)  
+**Query:** `user_id=<telegram_user_id>`
+
+### `/api/create-emoji`
+Creates a custom emoji sticker set in Telegram.
+
+**Method:** POST  
+**Headers:** `Content-Type: application/json`  
+**Body:**
+```json
+{
+  "initData": "telegram_init_data",
+  "user_id": 123456789,
+  "set_title": "My Coinmoji Set",
+  "emoji_list": ["🪙"],
+  "webm_base64": "base64_encoded_webm"
+}
+```
+
+## Architecture
+
+### Frontend Components
+
+- `App.tsx` - Main application component with Telegram integration
+- `TelegramProvider.tsx` - Telegram WebApp SDK integration and user context
+- `NotInTelegram.tsx` - 404-style page for non-Telegram access
+- `CoinEditor.tsx` - Three.js 3D coin editor component
+- `SettingsPanel.tsx` - Mobile-friendly settings drawer
+
+### Serverless Functions
+
+- `send-file.ts` - Handles file sending to Telegram
+- `create-emoji.ts` - Manages custom emoji sticker set creation
+- `utils/telegram-auth.ts` - Telegram WebApp data verification
+
+### 3D Coin Model
+
+The coin model consists of:
+- **Cylinder**: Main rim/edge of the coin
+- **Hemispheres**: Top and bottom faces with configurable bulge
+- **Materials**: PBR materials with metallic/roughness workflow
+- **Overlays**: Transparent overlay meshes for custom images
+- **Lighting**: Hemisphere + directional light setup with environment mapping
+
+## Security
+
+- **Telegram WebApp Verification**: All API calls verify Telegram initData using HMAC-SHA256
+- **User Gating**: App only functions within legitimate Telegram WebApp environment
+- **CORS Protection**: Appropriate headers and origin validation
+- **Input Validation**: Sanitized inputs for all user-provided data
+
+## Performance
+
+- **Code Splitting**: Vite automatically splits code for optimal loading
+- **Asset Optimization**: Images and 3D textures optimized for mobile
+- **Memory Management**: Proper Three.js resource disposal
+- **Mobile Optimization**: Responsive design with touch-friendly interactions
 
 ## Browser Support
 
-- **WebCodecs**: Chrome 94+, Edge 94+ (for GIF transcoding)
-- **WebGL**: All modern browsers (for 3D rendering)
-- **Fallback**: Canvas-based GIF animation for older browsers
+- **Modern Browsers**: Chrome 88+, Safari 14+, Firefox 85+
+- **Mobile**: iOS Safari 14+, Chrome Mobile 88+
+- **WebGL**: Required for 3D functionality
+- **Canvas**: Required for texture generation and export
 
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch
-3. Test locally and in Telegram
-4. Submit a pull request
+3. Make your changes with proper TypeScript types
+4. Test on mobile devices
+5. Submit a pull request
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details
+This project is part of the Coinmoji application suite. See the main repository for licensing information.
