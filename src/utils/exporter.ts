@@ -33,85 +33,34 @@ export class CoinExporter {
     console.log('📹 Starting frame export:', { fps, duration, size, totalFrames });
 
     // Store original settings
+    const originalSize = { 
+      width: this.renderer.domElement.clientWidth, 
+      height: this.renderer.domElement.clientHeight 
+    };
+    const originalAspect = this.camera.aspect;
     const originalRotation = this.turntable.rotation.y;
-    const originalClearColor = this.renderer.getClearColor(new THREE.Color());
-    const originalClearAlpha = this.renderer.getClearAlpha();
 
-    console.log('💾 Stored original settings:', { 
-      originalRotation,
-      originalClearColor: originalClearColor.getHex(),
-      originalClearAlpha
-    });
+    console.log('💾 Stored original settings:', { originalSize, originalAspect, originalRotation });
 
     try {
-      // DON'T change camera or renderer size - capture exactly what user sees
-      // Just ensure transparent background for capture
-      this.renderer.setClearColor(0x000000, 0); // Transparent background
+      // Set capture size
+      this.renderer.setSize(size, size);
+      this.camera.aspect = 1;
+      this.camera.updateProjectionMatrix();
 
-      console.log('🎯 Export settings:', { 
-        currentRendererSize: {
-          width: this.renderer.domElement.width,
-          height: this.renderer.domElement.height
-        },
-        targetSize: size,
-        cameraPosition: this.camera.position,
-        aspect: this.camera.aspect 
-      });
+      console.log('🎯 Set export size:', { width: size, height: size });
 
       for (let i = 0; i < totalFrames; i++) {
         // Set rotation for this frame
         const angle = (2 * Math.PI * i) / totalFrames;
         this.turntable.rotation.y = angle;
 
-        // Force transparent background for this frame
-        this.renderer.setClearColor(0x000000, 0);
-        this.renderer.clear();
-        
-        // Render frame exactly as user sees it
+        // Render frame
         this.renderer.render(this.scene, this.camera);
 
-        // Capture frame as blob with alpha preserved
+        // Capture frame as blob
         const blob = await this.captureFrame();
         frames.push(blob);
-        
-        // For the first frame, let's debug what we captured
-        if (i === 0) {
-          const debugBitmap = await createImageBitmap(blob);
-          console.log(`🔍 First captured frame analysis:`, {
-            size: `${debugBitmap.width}x${debugBitmap.height}`,
-            blobSize: blob.size,
-            rendererSize: `${this.renderer.domElement.width}x${this.renderer.domElement.height}`,
-            cameraPosition: this.camera.position,
-            turntableRotation: this.turntable.rotation.y
-          });
-          
-          // Create a test canvas to check if we actually have content
-          const testCanvas = document.createElement('canvas');
-          testCanvas.width = Math.min(debugBitmap.width, 100);
-          testCanvas.height = Math.min(debugBitmap.height, 100);
-          const testCtx = testCanvas.getContext('2d')!;
-          testCtx.drawImage(debugBitmap, 0, 0, testCanvas.width, testCanvas.height);
-          
-          // Sample some pixels to see if we have actual content
-          const imageData = testCtx.getImageData(0, 0, testCanvas.width, testCanvas.height);
-          const pixels = imageData.data;
-          let nonTransparentPixels = 0;
-          let totalPixels = pixels.length / 4;
-          
-          for (let j = 0; j < pixels.length; j += 4) {
-            const alpha = pixels[j + 3];
-            if (alpha > 0) nonTransparentPixels++;
-          }
-          
-          console.log(`🎨 Frame content analysis:`, {
-            totalPixels,
-            nonTransparentPixels,
-            hasContent: nonTransparentPixels > 0,
-            contentPercentage: ((nonTransparentPixels / totalPixels) * 100).toFixed(1) + '%'
-          });
-          
-          debugBitmap.close();
-        }
         
         if (i === 0 || i === totalFrames - 1 || i % 10 === 0) {
           console.log(`📸 Captured frame ${i + 1}/${totalFrames}, size: ${blob.size} bytes, angle: ${angle.toFixed(2)}`);
@@ -122,8 +71,10 @@ export class CoinExporter {
       return frames;
     } finally {
       // Restore original settings
+      this.renderer.setSize(originalSize.width, originalSize.height);
+      this.camera.aspect = originalAspect;
+      this.camera.updateProjectionMatrix();
       this.turntable.rotation.y = originalRotation;
-      this.renderer.setClearColor(originalClearColor, originalClearAlpha);
       
       console.log('🔄 Restored original settings');
     }
@@ -131,13 +82,9 @@ export class CoinExporter {
 
   private captureFrame(): Promise<Blob> {
     return new Promise((resolve) => {
-      // Make sure we render again to ensure frame is up to date
-      this.renderer.render(this.scene, this.camera);
-      
-      // Capture the entire canvas as it currently appears
       this.renderer.domElement.toBlob((blob) => {
         resolve(blob!);
-      }, 'image/png'); // PNG preserves alpha
+      }, 'image/png');
     });
   }
 
@@ -184,16 +131,13 @@ export class CoinExporter {
     const { Muxer, ArrayBufferTarget } = await import('webm-muxer');
     
     const target = new ArrayBufferTarget();
-    
-    console.log('🔍 Setting up muxer...');
-    
     const muxer = new Muxer({
       target,
       video: {
         codec: 'V_VP9',
         width: size,
         height: size,
-        frameRate: fps
+        frameRate: fps,
       }
     });
 
@@ -207,97 +151,33 @@ export class CoinExporter {
       }
     });
 
-    // Start with the most compatible VP9 configuration
-    console.log('🎬 Configuring VP9 encoder...');
-    const config = {
-      codec: 'vp09.00.10.08', // VP9 Profile 0 - most compatible
+    encoder.configure({
+      codec: 'vp09.00.10.08',
       width: size,
       height: size,
-      bitrate: 800_000, // Stable bitrate
+      bitrate: 2_000_000, // Increased bitrate for better quality
       framerate: fps,
-      latencyMode: 'quality'
-    };
-    
-    try {
-      encoder.configure(config);
-      console.log('✅ VP9 encoder configured successfully');
-    } catch (error) {
-      console.error('❌ Failed to configure encoder:', error);
-      throw new Error('VideoEncoder configuration failed: ' + error);
-    }
+      latencyMode: 'realtime'
+    });
 
-    // Encode frames with simple, direct scaling
+    console.log('🎬 Encoding frames with WebCodecs...');
+
+    // Encode frames
     for (let i = 0; i < frames.length; i++) {
-      // Get the source frame
-      const sourceBitmap = await createImageBitmap(frames[i]);
+      const imageBitmap = await createImageBitmap(frames[i]);
       
-      console.log(`🖼️ Frame ${i + 1} source:`, {
-        width: sourceBitmap.width,
-        height: sourceBitmap.height
+      // Create VideoFrame directly from ImageBitmap
+      const videoFrame = new (window as any).VideoFrame(imageBitmap, {
+        timestamp: (i * 1000000) / fps, // microseconds
+        duration: 1000000 / fps // frame duration in microseconds
       });
       
-      // Create target canvas at exact output size
-      const canvas = document.createElement('canvas');
-      canvas.width = size;
-      canvas.height = size;
-      const ctx = canvas.getContext('2d')!;
+      encoder.encode(videoFrame, { keyFrame: i === 0 });
+      videoFrame.close();
+      imageBitmap.close();
       
-      // Clear canvas (transparent for now, we'll handle background later)
-      ctx.clearRect(0, 0, size, size);
-      
-      // Calculate scaling to fit the coin nicely (80% of frame)
-      const coinFillRatio = 0.8;
-      const targetCoinSize = size * coinFillRatio;
-      const scale = Math.min(targetCoinSize / sourceBitmap.width, targetCoinSize / sourceBitmap.height);
-      
-      const scaledWidth = sourceBitmap.width * scale;
-      const scaledHeight = sourceBitmap.height * scale;
-      const offsetX = (size - scaledWidth) / 2;
-      const offsetY = (size - scaledHeight) / 2;
-      
-      console.log(`📐 Scaling frame ${i + 1}:`, {
-        scale: scale.toFixed(3),
-        scaledSize: `${scaledWidth.toFixed(1)}x${scaledHeight.toFixed(1)}`,
-        offset: `${offsetX.toFixed(1)}, ${offsetY.toFixed(1)}`,
-        targetSize: `${size}x${size}`,
-        coinFillRatio
-      });
-      
-      // Draw with high quality scaling
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(sourceBitmap, offsetX, offsetY, scaledWidth, scaledHeight);
-      sourceBitmap.close();
-      
-      // Debug first frame
-      if (i === 0) {
-        console.log('🔍 First frame processed successfully');
-        
-        // Create preview
-        canvas.toBlob((testBlob) => {
-          if (testBlob) {
-            const url = URL.createObjectURL(testBlob);
-            console.log('🔍 First frame preview URL:', url);
-          }
-        }, 'image/png');
-      }
-      
-      // Create VideoFrame (simplified)
-      try {
-        const videoFrame = new (window as any).VideoFrame(canvas, {
-          timestamp: (i * 1000000) / fps,
-          duration: 1000000 / fps
-        });
-        
-        encoder.encode(videoFrame, { keyFrame: i === 0 });
-        videoFrame.close();
-        
-        if (i % 10 === 0) {
-          console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}`);
-        }
-      } catch (error) {
-        console.error(`❌ Error encoding frame ${i + 1}:`, error);
-        throw error;
+      if (i % 10 === 0) {
+        console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, timestamp: ${videoFrame.timestamp}`);
       }
     }
 
@@ -309,11 +189,7 @@ export class CoinExporter {
     muxer.finalize();
 
     const blob = new Blob([target.buffer], { type: 'video/webm' });
-    console.log('✅ WebCodecs+Muxer WebM complete:', { 
-      size: blob.size, 
-      type: blob.type,
-      targetSize: size
-    });
+    console.log('✅ WebCodecs+Muxer WebM complete:', { size: blob.size, type: blob.type });
     
     return blob;
   }
