@@ -28,8 +28,8 @@ export class CoinExporter {
     const totalFrames = Math.floor(fps * duration);
     
     // Limit frames more aggressively to prevent stack overflow
-    // Max 60 frames (2 seconds at 30fps) for better animation quality
-    const maxFrames = 60;
+    // Max 30 frames (1 second at 30fps) for better animation quality
+    const maxFrames = 30;
     const actualFrames = Math.min(totalFrames, maxFrames);
     const frames: Blob[] = [];
 
