@@ -176,12 +176,31 @@ export class CoinExporter {
     console.log('🎬 Starting WebM export with settings:', settings);
     
     try {
+      // Check if we have valid scene objects
+      if (!this.scene) {
+        const error = 'Scene is null or undefined';
+        console.error('❌ Scene check:', error);
+        alert(`Export failed: ${error}`);
+        throw new Error(error);
+      }
+      
+      if (!this.turntable) {
+        const error = 'Turntable is null or undefined';
+        console.error('❌ Turntable check:', error);
+        alert(`Export failed: ${error}`);
+        throw new Error(error);
+      }
+      
+      console.log('✅ Scene objects validated');
+      
       if (!('VideoEncoder' in window)) {
         const error = 'WebCodecs not supported in this browser';
         console.error('❌ Browser compatibility:', error);
         alert(`Export failed: ${error}`);
         throw new Error(error);
       }
+      
+      console.log('✅ WebCodecs support confirmed');
 
       const { fps, duration, size } = settings;
       

@@ -96,7 +96,9 @@ const AppContent: React.FC = () => {
       
     } catch (error) {
       console.error('Export failed:', error);
-      alert('Export failed. Please try again.');
+      // Don't override the detailed error message from exporter
+      const errorMessage = error instanceof Error ? error.message : 'Export failed. Please try again.';
+      alert(`Export failed: ${errorMessage}`);
     } finally {
       setIsExporting(false);
     }
@@ -159,7 +161,9 @@ const AppContent: React.FC = () => {
       
     } catch (error) {
       console.error('Emoji creation failed:', error);
-      alert('Failed to create emoji. Please try again.');
+      // Don't override the detailed error message from exporter
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create emoji. Please try again.';
+      alert(`Emoji creation failed: ${errorMessage}`);
     } finally {
       setIsExporting(false);
     }
