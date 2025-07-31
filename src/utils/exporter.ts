@@ -39,22 +39,31 @@ export class CoinExporter {
     };
     const originalAspect = this.camera.aspect;
     const originalRotation = this.turntable.rotation.y;
+    const originalCameraZ = this.camera.position.z;
 
-    console.log('💾 Stored original settings:', { originalSize, originalAspect, originalRotation });
+    console.log('💾 Stored original settings:', { originalSize, originalAspect, originalRotation, originalCameraZ });
 
     try {
-      // Set capture size
-      this.renderer.setSize(size, size);
+      // Set high capture size for better quality, will be scaled down by WebCodecs
+      const captureSize = Math.max(size * 2, 512); // At least 512px for quality
+      this.renderer.setSize(captureSize, captureSize);
       this.camera.aspect = 1;
+      
+      // Adjust camera to frame coin better for emoji (tighter framing)
+      this.camera.position.z = 5.5; // Move closer to fill frame better
       this.camera.updateProjectionMatrix();
 
-      console.log('🎯 Set export size:', { width: size, height: size });
+      console.log('🎯 Set export size:', { captureSize, targetSize: size, cameraZ: this.camera.position.z });
 
       for (let i = 0; i < totalFrames; i++) {
         // Set rotation for this frame
         const angle = (2 * Math.PI * i) / totalFrames;
         this.turntable.rotation.y = angle;
 
+        // Clear with transparent background
+        this.renderer.setClearColor(0x000000, 0);
+        this.renderer.clear();
+        
         // Render frame
         this.renderer.render(this.scene, this.camera);
 
@@ -73,6 +82,7 @@ export class CoinExporter {
       // Restore original settings
       this.renderer.setSize(originalSize.width, originalSize.height);
       this.camera.aspect = originalAspect;
+      this.camera.position.z = originalCameraZ;
       this.camera.updateProjectionMatrix();
       this.turntable.rotation.y = originalRotation;
       
@@ -82,9 +92,13 @@ export class CoinExporter {
 
   private captureFrame(): Promise<Blob> {
     return new Promise((resolve) => {
+      // Ensure transparent background is maintained
+      this.renderer.setClearColor(0x000000, 0);
+      this.renderer.clear();
+      
       this.renderer.domElement.toBlob((blob) => {
         resolve(blob!);
-      }, 'image/png');
+      }, 'image/png'); // PNG preserves alpha
     });
   }
 
@@ -138,6 +152,7 @@ export class CoinExporter {
         width: size,
         height: size,
         frameRate: fps,
+        alpha: true // Enable alpha channel in muxer
       }
     });
 
@@ -151,30 +166,54 @@ export class CoinExporter {
       }
     });
 
-    encoder.configure({
-      codec: 'vp09.00.10.08',
+    // Configure encoder with alpha support and optimized settings for Telegram
+    const config: any = {
+      codec: 'vp09.00.10.08', // VP9 Profile 0
       width: size,
       height: size,
-      bitrate: 2_000_000, // Increased bitrate for better quality
+      bitrate: 1_200_000, // Optimized for file size while maintaining quality
       framerate: fps,
-      latencyMode: 'realtime'
-    });
+      latencyMode: 'quality' // Better quality than 'realtime'
+    };
+    
+    // Try to enable alpha if supported
+    try {
+      config.alpha = 'keep';
+      encoder.configure(config);
+      console.log('🎬 Encoding frames with WebCodecs (alpha enabled)...');
+    } catch (error) {
+      console.warn('⚠️ Alpha not supported, using standard encoding:', error);
+      delete config.alpha;
+      encoder.configure(config);
+      console.log('🎬 Encoding frames with WebCodecs (no alpha)...');
+    }
 
-    console.log('🎬 Encoding frames with WebCodecs...');
-
-    // Encode frames
+    // Encode frames with proper alpha handling
     for (let i = 0; i < frames.length; i++) {
+      // Create canvas to properly handle alpha during resize
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d')!;
+      
+      // Clear canvas with transparent background
+      ctx.clearRect(0, 0, size, size);
+      
+      // Load and resize the frame
       const imageBitmap = await createImageBitmap(frames[i]);
       
-      // Create VideoFrame directly from ImageBitmap
-      const videoFrame = new (window as any).VideoFrame(imageBitmap, {
+      // Draw scaled down image maintaining alpha
+      ctx.drawImage(imageBitmap, 0, 0, size, size);
+      imageBitmap.close();
+      
+      // Create VideoFrame from canvas (preserves alpha)
+      const videoFrame = new (window as any).VideoFrame(canvas, {
         timestamp: (i * 1000000) / fps, // microseconds
         duration: 1000000 / fps // frame duration in microseconds
       });
       
       encoder.encode(videoFrame, { keyFrame: i === 0 });
       videoFrame.close();
-      imageBitmap.close();
       
       if (i % 10 === 0) {
         console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, timestamp: ${videoFrame.timestamp}`);
