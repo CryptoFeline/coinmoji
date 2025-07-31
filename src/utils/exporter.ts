@@ -25,59 +25,70 @@ export class CoinExporter {
     this.turntable = turntable;
   }
 
-  async exportFrames(settings: ExportSettings): Promise<Blob[]> {
+  private async exportFrames(settings: ExportSettings): Promise<Blob[]> {
     const { fps, duration, size } = settings;
-    const totalFrames = Math.floor(fps * duration);
+    const totalFrames = Math.round(fps * duration);
+    const rotationsPerSecond = 1; // One full rotation per second
     const frames: Blob[] = [];
-
-    console.log('📹 Starting frame export:', { fps, duration, size, totalFrames });
-
-    // Store original settings
-    const originalSize = { 
-      width: this.renderer.domElement.clientWidth, 
-      height: this.renderer.domElement.clientHeight 
-    };
-    const originalAspect = this.camera.aspect;
+    
+    console.log(`🎬 Exporting ${totalFrames} frames at ${size}x${size}...`);
+    
+    // Create high-resolution canvas for better quality
+    const hiResSize = Math.min(512, size * 2); // 2x resolution, max 512px
+    const canvas = document.createElement('canvas');
+    canvas.width = hiResSize;
+    canvas.height = hiResSize;
+    const ctx = canvas.getContext('2d')!;
+    
+    // Enable image smoothing for better quality
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    
+    // Store original turntable rotation
     const originalRotation = this.turntable.rotation.y;
-
-    console.log('💾 Stored original settings:', { originalSize, originalAspect, originalRotation });
-
-    try {
-      // Set capture size
-      this.renderer.setSize(size, size);
-      this.camera.aspect = 1;
-      this.camera.updateProjectionMatrix();
-
-      console.log('🎯 Set export size:', { width: size, height: size });
-
-      for (let i = 0; i < totalFrames; i++) {
-        // Set rotation for this frame
-        const angle = (2 * Math.PI * i) / totalFrames;
-        this.turntable.rotation.y = angle;
-
-        // Render frame
-        this.renderer.render(this.scene, this.camera);
-
-        // Capture frame as blob
-        const blob = await this.captureFrame();
-        frames.push(blob);
-        
-        if (i === 0 || i === totalFrames - 1 || i % 10 === 0) {
-          console.log(`📸 Captured frame ${i + 1}/${totalFrames}, size: ${blob.size} bytes, angle: ${angle.toFixed(2)}`);
-        }
-      }
-
-      console.log('✅ Frame export complete:', { totalFrames: frames.length });
-      return frames;
-    } finally {
-      // Restore original settings
-      this.renderer.setSize(originalSize.width, originalSize.height);
-      this.camera.aspect = originalAspect;
-      this.camera.updateProjectionMatrix();
-      this.turntable.rotation.y = originalRotation;
+    
+    for (let frame = 0; frame < totalFrames; frame++) {
+      // Calculate rotation for this frame
+      const progress = frame / totalFrames;
+      const rotation = progress * rotationsPerSecond * 2 * Math.PI;
       
-      console.log('🔄 Restored original settings');
+      // Set turntable rotation
+      this.turntable.rotation.y = rotation;
+      
+      // Render the scene
+      this.renderer.setSize(hiResSize, hiResSize, false);
+      this.renderer.render(this.scene, this.camera);
+      
+      // Get the rendered image
+      const coinCanvas = this.renderer.domElement;
+      
+      // Clear with transparent background (not black!)
+      ctx.clearRect(0, 0, hiResSize, hiResSize);
+      
+      // Draw the rendered coin
+      ctx.drawImage(coinCanvas, 0, 0);
+      
+      // Convert to blob with high quality
+      const blob = await new Promise<Blob>((resolve) => {
+        canvas.toBlob(
+          (blob) => resolve(blob!),
+          'image/png', // Use PNG to preserve transparency
+          1.0 // Maximum quality
+        );
+      });
+      
+      frames.push(blob);
+      
+      if (frame % 10 === 0) {
+        console.log(`📸 Exported frame ${frame + 1}/${totalFrames}, rotation: ${(rotation * 180 / Math.PI).toFixed(1)}°`);
+      }
     }
+    
+    // Restore original rotation
+    this.turntable.rotation.y = originalRotation;
+    
+    console.log(`✅ Exported ${frames.length} high-res frames`);
+    return frames;
   }
 
   private captureFrame(): Promise<Blob> {
@@ -134,11 +145,12 @@ export class CoinExporter {
     const muxer = new Muxer({
       target,
       video: {
-        codec: 'V_VP9',
+        codec: 'V_VP8', // Use VP8 for better compatibility
         width: size,
         height: size,
         frameRate: fps,
-      }
+      },
+      firstTimestampBehavior: 'offset'
     });
 
     const encoder = new (window as any).VideoEncoder({
@@ -148,36 +160,42 @@ export class CoinExporter {
       },
       error: (e: any) => {
         console.error('❌ VideoEncoder error:', e);
+        throw e;
       }
     });
 
+    // Use VP8 codec for better compatibility with Telegram
     encoder.configure({
-      codec: 'vp09.00.10.08',
+      codec: 'vp8', // Simpler VP8 instead of VP9
       width: size,
       height: size,
-      bitrate: 2_000_000, // Increased bitrate for better quality
+      bitrate: 1_500_000, // Good quality for small files
       framerate: fps,
-      latencyMode: 'realtime'
+      alpha: 'discard' // Remove alpha channel for smaller files
     });
 
-    console.log('🎬 Encoding frames with WebCodecs...');
+    console.log('🎬 Encoding frames with WebCodecs (VP8)...');
 
-    // Encode frames
+    // Encode frames with proper timing
     for (let i = 0; i < frames.length; i++) {
       const imageBitmap = await createImageBitmap(frames[i]);
       
+      // Calculate precise timestamp in microseconds
+      const timestamp = Math.floor((i * 1000000) / fps);
+      const duration = Math.floor(1000000 / fps);
+      
       // Create VideoFrame directly from ImageBitmap
       const videoFrame = new (window as any).VideoFrame(imageBitmap, {
-        timestamp: (i * 1000000) / fps, // microseconds
-        duration: 1000000 / fps // frame duration in microseconds
+        timestamp,
+        duration
       });
       
-      encoder.encode(videoFrame, { keyFrame: i === 0 });
+      encoder.encode(videoFrame, { keyFrame: i % 30 === 0 }); // Keyframe every 30 frames
       videoFrame.close();
       imageBitmap.close();
       
       if (i % 10 === 0) {
-        console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, timestamp: ${videoFrame.timestamp}`);
+        console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, timestamp: ${timestamp}μs`);
       }
     }
 
@@ -188,7 +206,7 @@ export class CoinExporter {
     console.log('📦 Finalizing muxer...');
     muxer.finalize();
 
-    const blob = new Blob([target.buffer], { type: 'video/webm' });
+    const blob = new Blob([target.buffer], { type: 'video/webm; codecs="vp8"' });
     console.log('✅ WebCodecs+Muxer WebM complete:', { size: blob.size, type: blob.type });
     
     return blob;
