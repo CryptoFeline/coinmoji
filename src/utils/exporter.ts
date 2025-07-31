@@ -49,8 +49,8 @@ export class CoinExporter {
 
       // Create dedicated camera for export with perfect coin framing
       const exportCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
-      // Position camera closer to fill frame better for emoji
-      exportCamera.position.set(0, 0, 3.5); // Closer than default 7 for tighter framing
+      // Position camera much closer to make coin fill more of the frame
+      exportCamera.position.set(0, 0, 3.2); // Even closer than 4.5 for bigger coin
       exportCamera.lookAt(0, 0, 0);
 
       console.log('🎯 Created offscreen renderer:', { 
@@ -68,7 +68,7 @@ export class CoinExporter {
         offscreenRenderer.render(this.scene, exportCamera);
 
         // Capture frame and resize to target size
-        const blob = await this.captureFrameFromRenderer(offscreenRenderer, captureSize, size);
+        const blob = await this.captureFrameFromRenderer(offscreenRenderer, captureSize, captureSize); // Keep high res
         frames.push(blob);
         
         if (i === 0 || i === totalFrames - 1 || i % 10 === 0) {
@@ -153,17 +153,22 @@ export class CoinExporter {
   async exportAsWebM(settings: ExportSettings): Promise<Blob> {
     console.log('🎬 Starting WebM export with settings:', settings);
     
-    const frames = await this.exportFrames(settings);
-    
     if (!('VideoEncoder' in window)) {
       throw new Error('WebCodecs not supported in this browser');
     }
 
-    const { fps, size } = settings;
+    const { fps, duration, size } = settings;
     
-    // Use WebCodecs with webm-muxer approach (more reliable than MediaRecorder)
-    console.log('🎥 Using WebCodecs with webm-muxer approach...');
-    return await this.exportWithWebCodecs(frames, fps, size);
+    // Export frames at HIGH RESOLUTION for quality (always 512px)
+    const highResFrames = await this.exportFrames({
+      fps,
+      duration,
+      size: 512 // Always capture at 512px for quality
+    });
+    
+    // Create WebM directly at target size from high-res frames
+    console.log('🎥 Creating WebM with WebCodecs at target size...');
+    return await this.exportWithWebCodecs(highResFrames, fps, size);
   }
 
   private async exportWithWebCodecs(frames: Blob[], fps: number, size: number): Promise<Blob> {
@@ -197,27 +202,55 @@ export class CoinExporter {
       height: size,
       bitrate: 2_000_000, // Increased bitrate for better quality
       framerate: fps,
-      latencyMode: 'realtime'
+      latencyMode: 'realtime',
+      alpha: 'keep' // CRITICAL: Preserve alpha channel for transparency
     });
 
     console.log('🎬 Encoding frames with WebCodecs...');
 
-    // Encode frames
+    // Encode frames - scale down from high-res to target size during encoding
     for (let i = 0; i < frames.length; i++) {
+      // Create ImageBitmap from high-res frame
       const imageBitmap = await createImageBitmap(frames[i]);
       
-      // Create VideoFrame directly from ImageBitmap
-      const videoFrame = new (window as any).VideoFrame(imageBitmap, {
-        timestamp: (i * 1000000) / fps, // microseconds
-        duration: 1000000 / fps // frame duration in microseconds
-      });
-      
-      encoder.encode(videoFrame, { keyFrame: i === 0 });
-      videoFrame.close();
-      imageBitmap.close();
+      // If we need to scale, create a canvas at target size
+      if (imageBitmap.width !== size || imageBitmap.height !== size) {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d')!;
+        
+        // Clear with transparency
+        ctx.clearRect(0, 0, size, size);
+        
+        // Draw scaled image with high quality
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(imageBitmap, 0, 0, size, size);
+        
+        // Create VideoFrame from canvas
+        const videoFrame = new (window as any).VideoFrame(canvas, {
+          timestamp: (i * 1000000) / fps, // microseconds
+          duration: 1000000 / fps // frame duration in microseconds
+        });
+        
+        encoder.encode(videoFrame, { keyFrame: i === 0 });
+        videoFrame.close();
+        imageBitmap.close();
+      } else {
+        // No scaling needed, use ImageBitmap directly
+        const videoFrame = new (window as any).VideoFrame(imageBitmap, {
+          timestamp: (i * 1000000) / fps, // microseconds
+          duration: 1000000 / fps // frame duration in microseconds
+        });
+        
+        encoder.encode(videoFrame, { keyFrame: i === 0 });
+        videoFrame.close();
+        imageBitmap.close();
+      }
       
       if (i % 10 === 0) {
-        console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, timestamp: ${videoFrame.timestamp}`);
+        console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, timestamp: ${(i * 1000000) / fps}`);
       }
     }
 
