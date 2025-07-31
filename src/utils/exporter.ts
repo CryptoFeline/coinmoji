@@ -38,6 +38,8 @@ export class CoinExporter {
     try {
       // Create OFFSCREEN renderer for export (doesn't affect live view!)
       const captureSize = 512; // High resolution for better quality
+      console.log('🎨 Creating offscreen renderer...');
+      
       const offscreenRenderer = new THREE.WebGLRenderer({ 
         antialias: true, 
         alpha: true,
@@ -60,19 +62,34 @@ export class CoinExporter {
       });
 
       for (let i = 0; i < totalFrames; i++) {
-        // Set rotation for this frame
-        const angle = (2 * Math.PI * i) / totalFrames;
-        this.turntable.rotation.y = angle;
+        try {
+          // Set rotation for this frame
+          const angle = (2 * Math.PI * i) / totalFrames;
+          this.turntable.rotation.y = angle;
 
-        // Render to offscreen canvas with export camera
-        offscreenRenderer.render(this.scene, exportCamera);
+          // Render to offscreen canvas with export camera
+          offscreenRenderer.render(this.scene, exportCamera);
 
-        // Capture frame and resize to target size
-        const blob = await this.captureFrameFromRenderer(offscreenRenderer, captureSize, captureSize); // Keep high res
-        frames.push(blob);
-        
-        if (i === 0 || i === totalFrames - 1 || i % 10 === 0) {
-          console.log(`📸 Captured frame ${i + 1}/${totalFrames}, size: ${blob.size} bytes, angle: ${angle.toFixed(2)}`);
+          // Capture frame and resize to target size
+          const blob = await this.captureFrameFromRenderer(offscreenRenderer, captureSize, captureSize); // Keep high res
+          
+          if (!blob || blob.size === 0) {
+            const error = `Frame ${i} capture failed - empty blob`;
+            console.error('❌', error);
+            alert(error);
+            throw new Error(error);
+          }
+          
+          frames.push(blob);
+          
+          if (i === 0 || i === totalFrames - 1 || i % 10 === 0) {
+            console.log(`📸 Captured frame ${i + 1}/${totalFrames}, size: ${blob.size} bytes, angle: ${angle.toFixed(2)}`);
+          }
+        } catch (frameError) {
+          const error = `Failed to capture frame ${i}: ${frameError instanceof Error ? frameError.message : 'Unknown frame error'}`;
+          console.error('❌', error);
+          alert(error);
+          throw new Error(error);
         }
       }
 
@@ -81,6 +98,11 @@ export class CoinExporter {
 
       console.log('✅ Frame export complete:', { totalFrames: frames.length });
       return frames;
+    } catch (error) {
+      const errorMsg = `Frame export failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      console.error('❌', errorMsg);
+      alert(errorMsg);
+      throw error;
     } finally {
       // Restore original rotation only
       this.turntable.rotation.y = originalRotation;
@@ -153,118 +175,171 @@ export class CoinExporter {
   async exportAsWebM(settings: ExportSettings): Promise<Blob> {
     console.log('🎬 Starting WebM export with settings:', settings);
     
-    if (!('VideoEncoder' in window)) {
-      throw new Error('WebCodecs not supported in this browser');
-    }
+    try {
+      if (!('VideoEncoder' in window)) {
+        const error = 'WebCodecs not supported in this browser';
+        console.error('❌ Browser compatibility:', error);
+        alert(`Export failed: ${error}`);
+        throw new Error(error);
+      }
 
-    const { fps, duration, size } = settings;
-    
-    // Export frames at HIGH RESOLUTION for quality (always 512px)
-    const highResFrames = await this.exportFrames({
-      fps,
-      duration,
-      size: 512 // Always capture at 512px for quality
-    });
-    
-    // Create WebM directly at target size from high-res frames
-    console.log('🎥 Creating WebM with WebCodecs at target size...');
-    return await this.exportWithWebCodecs(highResFrames, fps, size);
+      const { fps, duration, size } = settings;
+      
+      console.log('📹 Exporting frames at high resolution...');
+      // Export frames at HIGH RESOLUTION for quality (always 512px)
+      const highResFrames = await this.exportFrames({
+        fps,
+        duration,
+        size: 512 // Always capture at 512px for quality
+      });
+      
+      console.log(`✅ Got ${highResFrames.length} high-res frames`);
+      
+      // Create WebM directly at target size from high-res frames
+      console.log('🎥 Creating WebM with WebCodecs at target size...');
+      const result = await this.exportWithWebCodecs(highResFrames, fps, size);
+      
+      console.log('✅ WebM export completed successfully');
+      return result;
+    } catch (error) {
+      console.error('❌ WebM export failed:', error);
+      alert(`WebM export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw error;
+    }
   }
 
   private async exportWithWebCodecs(frames: Blob[], fps: number, size: number): Promise<Blob> {
-    // Import webm-muxer dynamically
-    const { Muxer, ArrayBufferTarget } = await import('webm-muxer');
-    
-    const target = new ArrayBufferTarget();
-    const muxer = new Muxer({
-      target,
-      video: {
-        codec: 'V_VP9',
-        width: size,
-        height: size,
-        frameRate: fps,
-      }
-    });
-
-    const encoder = new (window as any).VideoEncoder({
-      output: (chunk: any, meta: any) => {
-        muxer.addVideoChunk(chunk, meta);
-        console.log(`📝 WebCodecs chunk: ${chunk.byteLength} bytes, type: ${chunk.type}, timestamp: ${chunk.timestamp}`);
-      },
-      error: (e: any) => {
-        console.error('❌ VideoEncoder error:', e);
-      }
-    });
-
-    encoder.configure({
-      codec: 'vp09.00.10.08',
-      width: size,
-      height: size,
-      bitrate: 2_000_000, // Increased bitrate for better quality
-      framerate: fps,
-      latencyMode: 'realtime',
-      alpha: 'keep' // CRITICAL: Preserve alpha channel for transparency
-    });
-
-    console.log('🎬 Encoding frames with WebCodecs...');
-
-    // Encode frames - scale down from high-res to target size during encoding
-    for (let i = 0; i < frames.length; i++) {
-      // Create ImageBitmap from high-res frame
-      const imageBitmap = await createImageBitmap(frames[i]);
+    try {
+      console.log(`🎬 Starting WebCodecs encoding: ${frames.length} frames, ${fps}fps, ${size}x${size}`);
       
-      // If we need to scale, create a canvas at target size
-      if (imageBitmap.width !== size || imageBitmap.height !== size) {
-        const canvas = document.createElement('canvas');
-        canvas.width = size;
-        canvas.height = size;
-        const ctx = canvas.getContext('2d')!;
-        
-        // Clear with transparency
-        ctx.clearRect(0, 0, size, size);
-        
-        // Draw scaled image with high quality
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(imageBitmap, 0, 0, size, size);
-        
-        // Create VideoFrame from canvas
-        const videoFrame = new (window as any).VideoFrame(canvas, {
-          timestamp: (i * 1000000) / fps, // microseconds
-          duration: 1000000 / fps // frame duration in microseconds
-        });
-        
-        encoder.encode(videoFrame, { keyFrame: i === 0 });
-        videoFrame.close();
-        imageBitmap.close();
-      } else {
-        // No scaling needed, use ImageBitmap directly
-        const videoFrame = new (window as any).VideoFrame(imageBitmap, {
-          timestamp: (i * 1000000) / fps, // microseconds
-          duration: 1000000 / fps // frame duration in microseconds
-        });
-        
-        encoder.encode(videoFrame, { keyFrame: i === 0 });
-        videoFrame.close();
-        imageBitmap.close();
-      }
+      // Import webm-muxer dynamically
+      const { Muxer, ArrayBufferTarget } = await import('webm-muxer');
       
-      if (i % 10 === 0) {
-        console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, timestamp: ${(i * 1000000) / fps}`);
+      const target = new ArrayBufferTarget();
+      const muxer = new Muxer({
+        target,
+        video: {
+          codec: 'V_VP9',
+          width: size,
+          height: size,
+          frameRate: fps,
+        }
+      });
+
+      console.log('🎥 Creating VideoEncoder...');
+      const encoder = new (window as any).VideoEncoder({
+        output: (chunk: any, meta: any) => {
+          muxer.addVideoChunk(chunk, meta);
+          console.log(`📝 WebCodecs chunk: ${chunk.byteLength} bytes, type: ${chunk.type}, timestamp: ${chunk.timestamp}`);
+        },
+        error: (e: any) => {
+          console.error('❌ VideoEncoder error:', e);
+          alert(`VideoEncoder error: ${e.message || e}`);
+        }
+      });
+
+      try {
+        // Try with alpha support first
+        encoder.configure({
+          codec: 'vp09.00.10.08',
+          width: size,
+          height: size,
+          bitrate: 2_000_000, // Increased bitrate for better quality
+          framerate: fps,
+          latencyMode: 'realtime',
+          alpha: 'keep' // CRITICAL: Preserve alpha channel for transparency
+        });
+        console.log('✅ VideoEncoder configured with alpha support');
+      } catch (alphaError) {
+        console.warn('⚠️ Alpha support failed, trying without alpha:', alphaError);
+        try {
+          // Fallback without alpha
+          encoder.configure({
+            codec: 'vp09.00.10.08',
+            width: size,
+            height: size,
+            bitrate: 2_000_000,
+            framerate: fps,
+            latencyMode: 'realtime'
+          });
+          console.log('✅ VideoEncoder configured without alpha');
+        } catch (configError) {
+          console.error('❌ VideoEncoder configuration completely failed:', configError);
+          alert(`VideoEncoder config failed: ${configError instanceof Error ? configError.message : 'Unknown config error'}`);
+          throw configError;
+        }
       }
+
+      console.log('🎬 Encoding frames with WebCodecs...');
+
+      // Encode frames - scale down from high-res to target size during encoding
+      for (let i = 0; i < frames.length; i++) {
+        try {
+          // Create ImageBitmap from high-res frame
+          const imageBitmap = await createImageBitmap(frames[i]);
+          
+          // If we need to scale, create a canvas at target size
+          if (imageBitmap.width !== size || imageBitmap.height !== size) {
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d')!;
+            
+            // Clear with transparency
+            ctx.clearRect(0, 0, size, size);
+            
+            // Draw scaled image with high quality
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(imageBitmap, 0, 0, size, size);
+            
+            // Create VideoFrame from canvas
+            const videoFrame = new (window as any).VideoFrame(canvas, {
+              timestamp: (i * 1000000) / fps, // microseconds
+              duration: 1000000 / fps // frame duration in microseconds
+            });
+            
+            encoder.encode(videoFrame, { keyFrame: i === 0 });
+            videoFrame.close();
+            imageBitmap.close();
+          } else {
+            // No scaling needed, use ImageBitmap directly
+            const videoFrame = new (window as any).VideoFrame(imageBitmap, {
+              timestamp: (i * 1000000) / fps, // microseconds
+              duration: 1000000 / fps // frame duration in microseconds
+            });
+            
+            encoder.encode(videoFrame, { keyFrame: i === 0 });
+            videoFrame.close();
+            imageBitmap.close();
+          }
+          
+          if (i % 10 === 0) {
+            console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, timestamp: ${(i * 1000000) / fps}`);
+          }
+        } catch (frameError) {
+          console.error(`❌ Error encoding frame ${i}:`, frameError);
+          alert(`Frame encoding error at frame ${i}: ${frameError instanceof Error ? frameError.message : 'Unknown frame error'}`);
+          throw frameError;
+        }
+      }
+
+      console.log('⏳ Flushing encoder...');
+      await encoder.flush();
+      encoder.close();
+      
+      console.log('📦 Finalizing muxer...');
+      muxer.finalize();
+
+      const blob = new Blob([target.buffer], { type: 'video/webm' });
+      console.log('✅ WebCodecs+Muxer WebM complete:', { size: blob.size, type: blob.type });
+      
+      return blob;
+    } catch (error) {
+      console.error('❌ WebCodecs export failed:', error);
+      alert(`WebCodecs encoding failed: ${error instanceof Error ? error.message : 'Unknown WebCodecs error'}`);
+      throw error;
     }
-
-    console.log('⏳ Flushing encoder...');
-    await encoder.flush();
-    encoder.close();
-    
-    console.log('📦 Finalizing muxer...');
-    muxer.finalize();
-
-    const blob = new Blob([target.buffer], { type: 'video/webm' });
-    console.log('✅ WebCodecs+Muxer WebM complete:', { size: blob.size, type: blob.type });
-    
-    return blob;
   }
 
   downloadBlob(blob: Blob, filename: string) {
