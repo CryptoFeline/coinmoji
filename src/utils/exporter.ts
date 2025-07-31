@@ -185,7 +185,7 @@ export class CoinExporter {
     
     const target = new ArrayBufferTarget();
     
-    console.log('🔍 Setting up muxer with alpha support...');
+    console.log('🔍 Setting up muxer...');
     
     const muxer = new Muxer({
       target,
@@ -193,8 +193,7 @@ export class CoinExporter {
         codec: 'V_VP9',
         width: size,
         height: size,
-        frameRate: fps,
-        alpha: true // Force alpha channel
+        frameRate: fps
       }
     });
 
@@ -208,49 +207,26 @@ export class CoinExporter {
       }
     });
 
-    // Try VP9 with alpha first, fallback if needed
-    let encoderConfigured = false;
+    // Start with the most compatible VP9 configuration
+    console.log('🎬 Configuring VP9 encoder...');
+    const config = {
+      codec: 'vp09.00.10.08', // VP9 Profile 0 - most compatible
+      width: size,
+      height: size,
+      bitrate: 800_000, // Stable bitrate
+      framerate: fps,
+      latencyMode: 'quality'
+    };
     
-    // Try VP9 Profile 1 with alpha support
     try {
-      const config = {
-        codec: 'vp09.01.10.08', // VP9 Profile 1 supports alpha
-        width: size,
-        height: size,
-        bitrate: 1_000_000, // Higher bitrate for quality
-        framerate: fps,
-        alpha: 'keep',
-        latencyMode: 'quality'
-      };
-      
       encoder.configure(config);
-      encoderConfigured = true;
-      console.log('🎬 Encoding with VP9 Profile 1 + alpha...');
+      console.log('✅ VP9 encoder configured successfully');
     } catch (error) {
-      console.warn('⚠️ VP9 Profile 1 with alpha failed:', error);
+      console.error('❌ Failed to configure encoder:', error);
+      throw new Error('VideoEncoder configuration failed: ' + error);
     }
 
-    // Fallback to VP9 Profile 0 without explicit alpha
-    if (!encoderConfigured) {
-      try {
-        const config = {
-          codec: 'vp09.00.10.08',
-          width: size,
-          height: size,
-          bitrate: 1_000_000,
-          framerate: fps,
-          latencyMode: 'quality'
-        };
-        
-        encoder.configure(config);
-        encoderConfigured = true;
-        console.log('🎬 Encoding with VP9 Profile 0 (fallback)...');
-      } catch (error) {
-        throw new Error('Failed to configure VP9 encoder: ' + error);
-      }
-    }
-
-    // Encode frames with simple, direct scaling (no 4x upsampling)
+    // Encode frames with simple, direct scaling
     for (let i = 0; i < frames.length; i++) {
       // Get the source frame
       const sourceBitmap = await createImageBitmap(frames[i]);
@@ -264,9 +240,9 @@ export class CoinExporter {
       const canvas = document.createElement('canvas');
       canvas.width = size;
       canvas.height = size;
-      const ctx = canvas.getContext('2d', { alpha: true })!; // Force alpha context
+      const ctx = canvas.getContext('2d')!;
       
-      // CRITICAL: Clear canvas to fully transparent
+      // Clear canvas (transparent for now, we'll handle background later)
       ctx.clearRect(0, 0, size, size);
       
       // Calculate scaling to fit the coin nicely (80% of frame)
@@ -293,46 +269,35 @@ export class CoinExporter {
       ctx.drawImage(sourceBitmap, offsetX, offsetY, scaledWidth, scaledHeight);
       sourceBitmap.close();
       
-      // Debug first frame transparency
+      // Debug first frame
       if (i === 0) {
-        // Check if we have transparency
-        const imageData = ctx.getImageData(0, 0, size, size);
-        const pixels = imageData.data;
-        let transparentPixels = 0;
-        let opaquePixels = 0;
-        
-        for (let j = 0; j < pixels.length; j += 4) {
-          const alpha = pixels[j + 3];
-          if (alpha === 0) transparentPixels++;
-          else if (alpha === 255) opaquePixels++;
-        }
-        
-        console.log('🔍 First frame transparency check:', {
-          totalPixels: pixels.length / 4,
-          transparentPixels,
-          opaquePixels,
-          hasTransparency: transparentPixels > 0
-        });
+        console.log('🔍 First frame processed successfully');
         
         // Create preview
         canvas.toBlob((testBlob) => {
-          const url = URL.createObjectURL(testBlob!);
-          console.log('🔍 First frame preview URL:', url);
+          if (testBlob) {
+            const url = URL.createObjectURL(testBlob);
+            console.log('🔍 First frame preview URL:', url);
+          }
         }, 'image/png');
       }
       
-      // Create VideoFrame with alpha support
-      const videoFrame = new (window as any).VideoFrame(canvas, {
-        timestamp: (i * 1000000) / fps,
-        duration: 1000000 / fps,
-        alpha: 'keep' // Preserve alpha channel
-      });
-      
-      encoder.encode(videoFrame, { keyFrame: i === 0 });
-      videoFrame.close();
-      
-      if (i % 10 === 0) {
-        console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, scale: ${scale.toFixed(2)}`);
+      // Create VideoFrame (simplified)
+      try {
+        const videoFrame = new (window as any).VideoFrame(canvas, {
+          timestamp: (i * 1000000) / fps,
+          duration: 1000000 / fps
+        });
+        
+        encoder.encode(videoFrame, { keyFrame: i === 0 });
+        videoFrame.close();
+        
+        if (i % 10 === 0) {
+          console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}`);
+        }
+      } catch (error) {
+        console.error(`❌ Error encoding frame ${i + 1}:`, error);
+        throw error;
       }
     }
 
@@ -347,7 +312,6 @@ export class CoinExporter {
     console.log('✅ WebCodecs+Muxer WebM complete:', { 
       size: blob.size, 
       type: blob.type,
-      alphaEnabled: true,
       targetSize: size
     });
     
