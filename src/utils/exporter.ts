@@ -38,15 +38,23 @@ export class CoinExporter {
     try {
       // Create OFFSCREEN renderer for export (doesn't affect live view!)
       const captureSize = 1024; // Even higher resolution for maximum quality
+      
+      console.log('🎯 Creating offscreen renderer...');
+      
       const offscreenRenderer = new THREE.WebGLRenderer({ 
         antialias: true, 
         alpha: true,
         preserveDrawingBuffer: true,
         premultipliedAlpha: false // Better transparency handling
       });
+      
+      console.log('✅ Offscreen renderer created');
+      
       offscreenRenderer.setSize(captureSize, captureSize);
       offscreenRenderer.setClearColor(0x000000, 0); // Transparent background
       offscreenRenderer.outputColorSpace = THREE.SRGBColorSpace;
+
+      console.log('✅ Offscreen renderer configured');
 
       // Create dedicated camera for export with perfect coin framing
       const exportCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
@@ -61,20 +69,22 @@ export class CoinExporter {
       });
 
       for (let i = 0; i < totalFrames; i++) {
+        console.log(`🎬 Processing frame ${i + 1}/${totalFrames}`);
+        
         // Set rotation for this frame
         const angle = (2 * Math.PI * i) / totalFrames;
         this.turntable.rotation.y = angle;
 
         // Render to offscreen canvas with export camera
         offscreenRenderer.render(this.scene, exportCamera);
+        
+        console.log(`✅ Rendered frame ${i + 1}`);
 
         // Capture frame and resize to target size
         const blob = await this.captureFrameFromRenderer(offscreenRenderer, captureSize, size);
         frames.push(blob);
         
-        if (i === 0 || i === totalFrames - 1 || i % 10 === 0) {
-          console.log(`📸 Captured frame ${i + 1}/${totalFrames}, size: ${blob.size} bytes, angle: ${angle.toFixed(2)}`);
-        }
+        console.log(`📸 Captured frame ${i + 1}/${totalFrames}, size: ${blob.size} bytes, angle: ${angle.toFixed(2)}`);
       }
 
       // Clean up offscreen renderer
@@ -82,6 +92,9 @@ export class CoinExporter {
 
       console.log('✅ Frame export complete:', { totalFrames: frames.length });
       return frames;
+    } catch (error) {
+      console.error('❌ Error in exportFrames:', error);
+      throw error;
     } finally {
       // Restore original rotation only
       this.turntable.rotation.y = originalRotation;
@@ -156,88 +169,103 @@ export class CoinExporter {
   }
 
   async exportAsWebM(settings: ExportSettings): Promise<Blob> {
-    console.log('🎬 Starting WebM export with settings:', settings);
-    
-    const frames = await this.exportFrames(settings);
-    
-    if (!('VideoEncoder' in window)) {
-      throw new Error('WebCodecs not supported in this browser');
-    }
+    try {
+      console.log('🎬 Starting WebM export with settings:', settings);
+      
+      const frames = await this.exportFrames(settings);
+      
+      if (!('VideoEncoder' in window)) {
+        throw new Error('WebCodecs not supported in this browser');
+      }
 
-    const { fps, size } = settings;
-    
-    // Use WebCodecs with webm-muxer approach (more reliable than MediaRecorder)
-    console.log('🎥 Using WebCodecs with webm-muxer approach...');
-    return await this.exportWithWebCodecs(frames, fps, size);
+      const { fps, size } = settings;
+      
+      // Use WebCodecs with webm-muxer approach (more reliable than MediaRecorder)
+      console.log('🎥 Using WebCodecs with webm-muxer approach...');
+      return await this.exportWithWebCodecs(frames, fps, size);
+    } catch (error) {
+      console.error('❌ Error in exportAsWebM:', error);
+      throw error;
+    }
   }
 
   private async exportWithWebCodecs(frames: Blob[], fps: number, size: number): Promise<Blob> {
-    // Import webm-muxer dynamically
-    const { Muxer, ArrayBufferTarget } = await import('webm-muxer');
-    
-    const target = new ArrayBufferTarget();
-    const muxer = new Muxer({
-      target,
-      video: {
-        codec: 'V_VP9',
+    try {
+      console.log('🎬 Starting WebCodecs export...');
+      
+      // Import webm-muxer dynamically
+      const { Muxer, ArrayBufferTarget } = await import('webm-muxer');
+      
+      const target = new ArrayBufferTarget();
+      const muxer = new Muxer({
+        target,
+        video: {
+          codec: 'V_VP9',
+          width: size,
+          height: size,
+          frameRate: fps
+          // Removed alpha: true as it might not be supported by all versions
+        }
+      });
+
+      console.log('✅ Muxer created');
+
+      const encoder = new (window as any).VideoEncoder({
+        output: (chunk: any, meta: any) => {
+          muxer.addVideoChunk(chunk, meta);
+          console.log(`📝 WebCodecs chunk: ${chunk.byteLength} bytes, type: ${chunk.type}, timestamp: ${chunk.timestamp}`);
+        },
+        error: (e: any) => {
+          console.error('❌ VideoEncoder error:', e);
+        }
+      });
+
+      encoder.configure({
+        codec: 'vp09.00.10.08',
         width: size,
         height: size,
-        frameRate: fps,
-        alpha: true // Enable alpha channel for transparency
-      }
-    });
-
-    const encoder = new (window as any).VideoEncoder({
-      output: (chunk: any, meta: any) => {
-        muxer.addVideoChunk(chunk, meta);
-        console.log(`📝 WebCodecs chunk: ${chunk.byteLength} bytes, type: ${chunk.type}, timestamp: ${chunk.timestamp}`);
-      },
-      error: (e: any) => {
-        console.error('❌ VideoEncoder error:', e);
-      }
-    });
-
-    encoder.configure({
-      codec: 'vp09.00.10.08',
-      width: size,
-      height: size,
-      bitrate: 3_000_000, // Higher bitrate for better quality
-      framerate: fps,
-      latencyMode: 'realtime'
-    });
-
-    console.log('🎬 Encoding frames with WebCodecs...');
-
-    // Encode frames
-    for (let i = 0; i < frames.length; i++) {
-      const imageBitmap = await createImageBitmap(frames[i]);
-      
-      // Create VideoFrame directly from ImageBitmap
-      const videoFrame = new (window as any).VideoFrame(imageBitmap, {
-        timestamp: (i * 1000000) / fps, // microseconds
-        duration: 1000000 / fps // frame duration in microseconds
+        bitrate: 3_000_000, // Higher bitrate for better quality
+        framerate: fps,
+        latencyMode: 'realtime'
       });
-      
-      encoder.encode(videoFrame, { keyFrame: i === 0 });
-      videoFrame.close();
-      imageBitmap.close();
-      
-      if (i % 10 === 0) {
-        console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, timestamp: ${videoFrame.timestamp}`);
+
+      console.log('✅ VideoEncoder configured');
+      console.log('🎬 Encoding frames with WebCodecs...');
+
+      // Encode frames
+      for (let i = 0; i < frames.length; i++) {
+        const imageBitmap = await createImageBitmap(frames[i]);
+        
+        // Create VideoFrame directly from ImageBitmap
+        const videoFrame = new (window as any).VideoFrame(imageBitmap, {
+          timestamp: (i * 1000000) / fps, // microseconds
+          duration: 1000000 / fps // frame duration in microseconds
+        });
+        
+        encoder.encode(videoFrame, { keyFrame: i === 0 });
+        videoFrame.close();
+        imageBitmap.close();
+        
+        if (i % 10 === 0) {
+          console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, timestamp: ${videoFrame.timestamp}`);
+        }
       }
+
+      console.log('⏳ Flushing encoder...');
+      await encoder.flush();
+      encoder.close();
+      
+      console.log('📦 Finalizing muxer...');
+      muxer.finalize();
+
+      const blob = new Blob([target.buffer], { type: 'video/webm' });
+      console.log('✅ WebCodecs+Muxer WebM complete:', { size: blob.size, type: blob.type });
+      
+      return blob;
+    } catch (error) {
+      console.error('❌ Error in exportWithWebCodecs:', error);
+      throw error;
     }
-
-    console.log('⏳ Flushing encoder...');
-    await encoder.flush();
-    encoder.close();
-    
-    console.log('📦 Finalizing muxer...');
-    muxer.finalize();
-
-    const blob = new Blob([target.buffer], { type: 'video/webm' });
-    console.log('✅ WebCodecs+Muxer WebM complete:', { size: blob.size, type: blob.type });
-    
-    return blob;
   }
 
   downloadBlob(blob: Blob, filename: string) {
