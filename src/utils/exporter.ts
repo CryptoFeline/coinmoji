@@ -258,6 +258,26 @@ export class CoinExporter {
   }
 
   private async exportWithWebCodecs(frames: Blob[], fps: number, size: number): Promise<Blob> {
+    // Add timeout to prevent infinite hanging
+    const timeout = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('WebCodecs export timed out after 60 seconds'));
+      }, 60000); // 60 second timeout
+    });
+
+    try {
+      return await Promise.race([
+        this._exportWithWebCodecsImpl(frames, fps, size),
+        timeout
+      ]);
+    } catch (error) {
+      console.error('❌ WebCodecs export failed or timed out:', error);
+      alert(`WebCodecs encoding failed: ${error instanceof Error ? error.message : 'Unknown WebCodecs error'}`);
+      throw error;
+    }
+  }
+
+  private async _exportWithWebCodecsImpl(frames: Blob[], fps: number, size: number): Promise<Blob> {
     try {
       console.log(`🎬 Starting WebCodecs encoding: ${frames.length} frames, ${fps}fps, ${size}x${size}`);
       
@@ -296,6 +316,7 @@ export class CoinExporter {
 
       try {
         // Try with alpha support first for transparency
+        console.log('🔧 Attempting VideoEncoder configuration with alpha...');
         encoder.configure({
           codec: 'vp09.00.10.08',
           width: size,
@@ -307,32 +328,56 @@ export class CoinExporter {
         });
         console.log('✅ VideoEncoder configured with alpha support for transparency');
       } catch (alphaError) {
-        console.error('❌ Alpha not supported by this browser build of WebCodecs/VP9.', alphaError);
-        alert('This browser cannot encode VP9 with alpha. Please switch to Chrome 115+ (or desktop Chromium) and try again.');
-        throw alphaError;
+        console.warn('⚠️ Alpha not supported, trying fallback configuration:', alphaError);
+        try {
+          // Fallback without alpha to avoid hanging
+          encoder.configure({
+            codec: 'vp09.00.10.08',
+            width: size,
+            height: size,
+            bitrate: 1_200_000,
+            framerate: fps,
+            latencyMode: 'realtime'
+          });
+          console.log('⚠️ VideoEncoder configured without alpha (fallback mode)');
+        } catch (fallbackError) {
+          console.error('❌ VideoEncoder configuration completely failed:', fallbackError);
+          alert(`VideoEncoder config failed: ${fallbackError instanceof Error ? fallbackError.message : 'Unknown config error'}`);
+          throw fallbackError;
+        }
       }
 
       console.log('🎬 Encoding frames with WebCodecs...');
-
+      
       // Encode frames in small batches to prevent stack overflow
       const batchSize = 5; // Process only 5 frames at a time
+      console.log(`📊 Starting encoding process: ${frames.length} frames in batches of ${batchSize}`);
+
       for (let batchStart = 0; batchStart < frames.length; batchStart += batchSize) {
         const batchEnd = Math.min(batchStart + batchSize, frames.length);
-        console.log(`🎬 Processing batch ${Math.floor(batchStart / batchSize) + 1}/${Math.ceil(frames.length / batchSize)}: frames ${batchStart}-${batchEnd - 1}`);
+        const batchNumber = Math.floor(batchStart / batchSize) + 1;
+        const totalBatches = Math.ceil(frames.length / batchSize);
+        
+        console.log(`🎬 Processing batch ${batchNumber}/${totalBatches}: frames ${batchStart}-${batchEnd - 1}`);
         
         // Process batch sequentially with delays
         for (let i = batchStart; i < batchEnd; i++) {
           try {
+            console.log(`🎞️ Starting frame ${i + 1}/${frames.length}...`);
+            
             // Add delay between every frame to prevent stack overflow
             if (i > 0) {
               await new Promise(resolve => setTimeout(resolve, 20));
             }
             
             // Create ImageBitmap from high-res frame
+            console.log(`📸 Creating ImageBitmap for frame ${i + 1}...`);
             const imageBitmap = await createImageBitmap(frames[i]);
+            console.log(`✅ ImageBitmap created: ${imageBitmap.width}x${imageBitmap.height}`);
             
             // If we need to scale, create a canvas at target size
             if (imageBitmap.width !== size || imageBitmap.height !== size) {
+              console.log(`📐 Scaling frame ${i + 1} from ${imageBitmap.width}x${imageBitmap.height} to ${size}x${size}`);
               const canvas = document.createElement('canvas');
               canvas.width = size;
               canvas.height = size;
@@ -348,27 +393,31 @@ export class CoinExporter {
               ctx.drawImage(imageBitmap, 0, 0, size, size);
               
               // Create VideoFrame from canvas
+              console.log(`🎥 Creating VideoFrame from canvas for frame ${i + 1}...`);
               const videoFrame = new (window as any).VideoFrame(canvas, {
                 timestamp: (i * 1000000) / fps, // microseconds
                 duration: 1000000 / fps // frame duration in microseconds
               });
               
+              console.log(`📤 Encoding scaled frame ${i + 1}...`);
               encoder.encode(videoFrame, { keyFrame: i === 0 });
               videoFrame.close();
               imageBitmap.close();
             } else {
               // Use ImageBitmap directly (it should have transparency from THREE.js renderer)
+              console.log(`🎥 Creating VideoFrame directly from ImageBitmap for frame ${i + 1}...`);
               const videoFrame = new (window as any).VideoFrame(imageBitmap, {
                 timestamp: (i * 1000000) / fps, // microseconds
                 duration: 1000000 / fps // frame duration in microseconds
               });
               
+              console.log(`📤 Encoding direct frame ${i + 1}...`);
               encoder.encode(videoFrame, { keyFrame: i === 0 });
               videoFrame.close();
               imageBitmap.close();
             }
             
-            console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, timestamp: ${(i * 1000000) / fps}`);
+            console.log(`✅ Frame ${i + 1}/${frames.length} encoded successfully, timestamp: ${(i * 1000000) / fps}`);
           } catch (frameError) {
             console.error(`❌ Error encoding frame ${i}:`, frameError);
             alert(`Frame encoding error at frame ${i}: ${frameError instanceof Error ? frameError.message : 'Unknown frame error'}`);
@@ -378,17 +427,39 @@ export class CoinExporter {
         
         // Add longer delay between batches to let the call stack clear
         if (batchEnd < frames.length) {
-          console.log('⏱️ Pausing between batches to prevent stack overflow...');
+          console.log(`⏱️ Batch ${batchNumber} complete. Pausing between batches to prevent stack overflow...`);
           await new Promise(resolve => setTimeout(resolve, 100));
+        } else {
+          console.log(`🎉 All batches complete! Processed ${frames.length} frames.`);
         }
       }
 
       console.log('⏳ Flushing encoder...');
-      await encoder.flush();
-      encoder.close();
+      try {
+        await encoder.flush();
+        console.log('✅ Encoder flushed successfully');
+      } catch (flushError) {
+        console.error('❌ Encoder flush failed:', flushError);
+        throw flushError;
+      }
+      
+      console.log('🔒 Closing encoder...');
+      try {
+        encoder.close();
+        console.log('✅ Encoder closed successfully');
+      } catch (closeError) {
+        console.error('❌ Encoder close failed:', closeError);
+        throw closeError;
+      }
       
       console.log('📦 Finalizing muxer...');
-      muxer.finalize();
+      try {
+        muxer.finalize();
+        console.log('✅ Muxer finalized successfully');
+      } catch (finalizeError) {
+        console.error('❌ Muxer finalize failed:', finalizeError);
+        throw finalizeError;
+      }
 
       const blob = new Blob([target.buffer], { type: 'video/webm' });
       console.log('✅ WebCodecs+Muxer WebM complete:', { 
