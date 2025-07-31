@@ -124,92 +124,118 @@ export class CoinExporter {
   async exportAsWebM(settings: ExportSettings): Promise<Blob> {
     console.log('🎬 Starting WebM export with settings:', settings);
     
-    const frames = await this.exportFrames(settings);
-    
-    if (!('VideoEncoder' in window)) {
-      throw new Error('WebCodecs not supported in this browser');
-    }
-
-    const { fps, size } = settings;
-    
-    // Use WebCodecs with webm-muxer approach (more reliable than MediaRecorder)
-    console.log('🎥 Using WebCodecs with webm-muxer approach...');
-    return await this.exportWithWebCodecs(frames, fps, size);
+    // Use MediaRecorder directly on canvas stream for guaranteed WebM compatibility
+    return await this.exportWithDirectCanvas(settings);
   }
 
-  private async exportWithWebCodecs(frames: Blob[], fps: number, size: number): Promise<Blob> {
-    // Import webm-muxer dynamically
-    const { Muxer, ArrayBufferTarget } = await import('webm-muxer');
+  private async exportWithDirectCanvas(settings: ExportSettings): Promise<Blob> {
+    const { fps, duration, size } = settings;
+    const totalFrames = Math.round(fps * duration);
     
-    const target = new ArrayBufferTarget();
-    const muxer = new Muxer({
-      target,
-      video: {
-        codec: 'V_VP8', // Use VP8 for better compatibility
-        width: size,
-        height: size,
-        frameRate: fps,
-      },
-      firstTimestampBehavior: 'offset'
-    });
-
-    const encoder = new (window as any).VideoEncoder({
-      output: (chunk: any, meta: any) => {
-        muxer.addVideoChunk(chunk, meta);
-        console.log(`📝 WebCodecs chunk: ${chunk.byteLength} bytes, type: ${chunk.type}, timestamp: ${chunk.timestamp}`);
-      },
-      error: (e: any) => {
-        console.error('❌ VideoEncoder error:', e);
-        throw e;
-      }
-    });
-
-    // Use VP8 codec for better compatibility with Telegram
-    encoder.configure({
-      codec: 'vp8', // Simpler VP8 instead of VP9
-      width: size,
-      height: size,
-      bitrate: 1_500_000, // Good quality for small files
-      framerate: fps,
-      alpha: 'discard' // Remove alpha channel for smaller files
-    });
-
-    console.log('🎬 Encoding frames with WebCodecs (VP8)...');
-
-    // Encode frames with proper timing
-    for (let i = 0; i < frames.length; i++) {
-      const imageBitmap = await createImageBitmap(frames[i]);
-      
-      // Calculate precise timestamp in microseconds
-      const timestamp = Math.floor((i * 1000000) / fps);
-      const duration = Math.floor(1000000 / fps);
-      
-      // Create VideoFrame directly from ImageBitmap
-      const videoFrame = new (window as any).VideoFrame(imageBitmap, {
-        timestamp,
-        duration
-      });
-      
-      encoder.encode(videoFrame, { keyFrame: i % 30 === 0 }); // Keyframe every 30 frames
-      videoFrame.close();
-      imageBitmap.close();
-      
-      if (i % 10 === 0) {
-        console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, timestamp: ${timestamp}μs`);
+    console.log(`🎬 Direct canvas recording: ${totalFrames} frames at ${fps}fps for ${duration}s`);
+    
+    // Create high-resolution canvas
+    const canvas = document.createElement('canvas');
+    canvas.width = size * 2; // 2x for quality
+    canvas.height = size * 2;
+    const ctx = canvas.getContext('2d')!;
+    
+    // Get canvas stream
+    const stream = canvas.captureStream(fps);
+    
+    // Check MediaRecorder support for different codecs
+    const supportedTypes = [
+      'video/webm;codecs=vp8',
+      'video/webm;codecs=vp9', 
+      'video/webm'
+    ];
+    
+    let mimeType = '';
+    for (const type of supportedTypes) {
+      if (MediaRecorder.isTypeSupported(type)) {
+        mimeType = type;
+        console.log(`✅ Using supported MIME type: ${type}`);
+        break;
       }
     }
-
-    console.log('⏳ Flushing encoder...');
-    await encoder.flush();
-    encoder.close();
     
-    console.log('📦 Finalizing muxer...');
-    muxer.finalize();
-
-    const blob = new Blob([target.buffer], { type: 'video/webm; codecs="vp8"' });
-    console.log('✅ WebCodecs+Muxer WebM complete:', { size: blob.size, type: blob.type });
+    if (!mimeType) {
+      throw new Error('No supported WebM codec found');
+    }
     
-    return blob;
+    // Set up MediaRecorder with Telegram-compatible settings
+    const mediaRecorder = new MediaRecorder(stream, {
+      mimeType,
+      videoBitsPerSecond: 800000 // Lower bitrate for smaller files
+    });
+
+    const chunks: BlobPart[] = [];
+    
+    return new Promise((resolve, reject) => {
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunks.push(event.data);
+          console.log(`📝 MediaRecorder chunk: ${event.data.size} bytes`);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunks, { type: mimeType });
+        console.log('✅ Direct canvas WebM complete:', { size: blob.size, type: blob.type, mimeType });
+        resolve(blob);
+      };
+
+      mediaRecorder.onerror = (error) => {
+        console.error('❌ MediaRecorder error:', error);
+        reject(error);
+      };
+
+      // Start recording
+      mediaRecorder.start(100); // Collect data every 100ms
+      console.log('� MediaRecorder started, animating coin...');
+
+      // Store original turntable rotation
+      const originalRotation = this.turntable.rotation.y;
+      
+      // Animate the turntable and draw frames
+      let frameIndex = 0;
+      const frameDuration = 1000 / fps; // ms per frame
+      
+      const animate = () => {
+        if (frameIndex < totalFrames) {
+          // Calculate rotation for this frame
+          const progress = frameIndex / totalFrames;
+          const rotation = progress * 2 * Math.PI; // One full rotation
+          
+          // Set turntable rotation
+          this.turntable.rotation.y = rotation;
+          
+          // Render the scene to offscreen canvas
+          this.renderer.setSize(size * 2, size * 2, false);
+          this.renderer.render(this.scene, this.camera);
+          
+          // Draw to our recording canvas with WHITE background (no transparency!)
+          ctx.fillStyle = '#ffffff'; // White background for sticker compatibility
+          ctx.fillRect(0, 0, size * 2, size * 2);
+          ctx.drawImage(this.renderer.domElement, 0, 0);
+          
+          if (frameIndex % 10 === 0) {
+            console.log(`🎞️ Frame ${frameIndex + 1}/${totalFrames}, rotation: ${(rotation * 180 / Math.PI).toFixed(1)}°`);
+          }
+          
+          frameIndex++;
+          setTimeout(animate, frameDuration);
+        } else {
+          console.log('🛑 Animation complete, stopping recording...');
+          // Restore original rotation
+          this.turntable.rotation.y = originalRotation;
+          mediaRecorder.stop();
+        }
+      };
+
+      // Start animation
+      animate();
+    });
   }
 
   downloadBlob(blob: Blob, filename: string) {
