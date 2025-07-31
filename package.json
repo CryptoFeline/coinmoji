@@ -15,17 +15,19 @@
     "autoprefixer": "^10.4.16",
     "fflate": "^0.8.1",
     "framer-motion": "^10.16.16",
+    "gif.js": "^0.2.0",
     "gifuct-js": "^2.1.2",
     "postcss": "^8.4.32",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "tailwindcss": "^3.3.6",
     "three": "^0.158.0",
-    "webm-muxer": "^5.1.4",
-    "vite": "^5.0.8"
+    "vite": "^5.0.8",
+    "webm-muxer": "^5.1.4"
   },
   "devDependencies": {
     "@netlify/functions": "^4.2.1",
+    "@types/gif.js": "^0.2.5",
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
     "@typescript-eslint/eslint-plugin": "^6.14.0",
