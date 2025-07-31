@@ -27,17 +27,19 @@ export class CoinExporter {
     const { fps, duration, size } = settings;
     const totalFrames = Math.floor(fps * duration);
     
-    // Limit frames to prevent stack overflow (max 3 seconds at 30fps = 90 frames)
-    const maxFrames = 90;
+    // Limit frames more aggressively to prevent stack overflow
+    // Max 30 frames (1 second at 30fps) to be extra safe
+    const maxFrames = 30;
     const actualFrames = Math.min(totalFrames, maxFrames);
     const frames: Blob[] = [];
 
-    console.log('📹 Starting frame export:', { 
+    console.log('📹 Starting frame export (reduced frame count for stability):', { 
       fps, 
       duration, 
       size, 
       requestedFrames: totalFrames, 
-      actualFrames 
+      actualFrames,
+      maxAllowed: maxFrames
     });
 
     // Store original rotation (we don't touch the live renderer anymore)
@@ -249,10 +251,17 @@ export class CoinExporter {
       });
 
       console.log('🎥 Creating VideoEncoder...');
+      let chunksReceived = 0;
       const encoder = new (window as any).VideoEncoder({
         output: (chunk: any, meta: any) => {
-          muxer.addVideoChunk(chunk, meta);
-          console.log(`📝 WebCodecs chunk: ${chunk.byteLength} bytes, type: ${chunk.type}, timestamp: ${chunk.timestamp}`);
+          try {
+            muxer.addVideoChunk(chunk, meta);
+            chunksReceived++;
+            console.log(`📝 WebCodecs chunk ${chunksReceived}: ${chunk.byteLength} bytes, type: ${chunk.type}`);
+          } catch (chunkError) {
+            console.error('❌ Error processing chunk:', chunkError);
+            alert(`Chunk processing error: ${chunkError instanceof Error ? chunkError.message : 'Unknown chunk error'}`);
+          }
         },
         error: (e: any) => {
           console.error('❌ VideoEncoder error:', e);
@@ -294,60 +303,71 @@ export class CoinExporter {
 
       console.log('🎬 Encoding frames with WebCodecs...');
 
-      // Encode frames - scale down from high-res to target size during encoding
-      for (let i = 0; i < frames.length; i++) {
-        try {
-          // Add small delay every few frames to prevent stack overflow
-          if (i > 0 && i % 5 === 0) {
-            await new Promise(resolve => setTimeout(resolve, 10));
-          }
-          
-          // Create ImageBitmap from high-res frame
-          const imageBitmap = await createImageBitmap(frames[i]);
-          
-          // If we need to scale, create a canvas at target size
-          if (imageBitmap.width !== size || imageBitmap.height !== size) {
-            const canvas = document.createElement('canvas');
-            canvas.width = size;
-            canvas.height = size;
-            const ctx = canvas.getContext('2d')!;
+      // Encode frames in small batches to prevent stack overflow
+      const batchSize = 5; // Process only 5 frames at a time
+      for (let batchStart = 0; batchStart < frames.length; batchStart += batchSize) {
+        const batchEnd = Math.min(batchStart + batchSize, frames.length);
+        console.log(`🎬 Processing batch ${Math.floor(batchStart / batchSize) + 1}/${Math.ceil(frames.length / batchSize)}: frames ${batchStart}-${batchEnd - 1}`);
+        
+        // Process batch sequentially with delays
+        for (let i = batchStart; i < batchEnd; i++) {
+          try {
+            // Add delay between every frame to prevent stack overflow
+            if (i > 0) {
+              await new Promise(resolve => setTimeout(resolve, 20));
+            }
             
-            // Clear with transparency
-            ctx.clearRect(0, 0, size, size);
+            // Create ImageBitmap from high-res frame
+            const imageBitmap = await createImageBitmap(frames[i]);
             
-            // Draw scaled image with high quality
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-            ctx.drawImage(imageBitmap, 0, 0, size, size);
+            // If we need to scale, create a canvas at target size
+            if (imageBitmap.width !== size || imageBitmap.height !== size) {
+              const canvas = document.createElement('canvas');
+              canvas.width = size;
+              canvas.height = size;
+              const ctx = canvas.getContext('2d')!;
+              
+              // Clear with transparency
+              ctx.clearRect(0, 0, size, size);
+              
+              // Draw scaled image with high quality
+              ctx.imageSmoothingEnabled = true;
+              ctx.imageSmoothingQuality = 'high';
+              ctx.drawImage(imageBitmap, 0, 0, size, size);
+              
+              // Create VideoFrame from canvas
+              const videoFrame = new (window as any).VideoFrame(canvas, {
+                timestamp: (i * 1000000) / fps, // microseconds
+                duration: 1000000 / fps // frame duration in microseconds
+              });
+              
+              encoder.encode(videoFrame, { keyFrame: i === 0 });
+              videoFrame.close();
+              imageBitmap.close();
+            } else {
+              // No scaling needed, use ImageBitmap directly
+              const videoFrame = new (window as any).VideoFrame(imageBitmap, {
+                timestamp: (i * 1000000) / fps, // microseconds
+                duration: 1000000 / fps // frame duration in microseconds
+              });
+              
+              encoder.encode(videoFrame, { keyFrame: i === 0 });
+              videoFrame.close();
+              imageBitmap.close();
+            }
             
-            // Create VideoFrame from canvas
-            const videoFrame = new (window as any).VideoFrame(canvas, {
-              timestamp: (i * 1000000) / fps, // microseconds
-              duration: 1000000 / fps // frame duration in microseconds
-            });
-            
-            encoder.encode(videoFrame, { keyFrame: i === 0 });
-            videoFrame.close();
-            imageBitmap.close();
-          } else {
-            // No scaling needed, use ImageBitmap directly
-            const videoFrame = new (window as any).VideoFrame(imageBitmap, {
-              timestamp: (i * 1000000) / fps, // microseconds
-              duration: 1000000 / fps // frame duration in microseconds
-            });
-            
-            encoder.encode(videoFrame, { keyFrame: i === 0 });
-            videoFrame.close();
-            imageBitmap.close();
-          }
-          
-          if (i % 10 === 0) {
             console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, timestamp: ${(i * 1000000) / fps}`);
+          } catch (frameError) {
+            console.error(`❌ Error encoding frame ${i}:`, frameError);
+            alert(`Frame encoding error at frame ${i}: ${frameError instanceof Error ? frameError.message : 'Unknown frame error'}`);
+            throw frameError;
           }
-        } catch (frameError) {
-          console.error(`❌ Error encoding frame ${i}:`, frameError);
-          alert(`Frame encoding error at frame ${i}: ${frameError instanceof Error ? frameError.message : 'Unknown frame error'}`);
-          throw frameError;
+        }
+        
+        // Add longer delay between batches to let the call stack clear
+        if (batchEnd < frames.length) {
+          console.log('⏱️ Pausing between batches to prevent stack overflow...');
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
 
@@ -359,7 +379,17 @@ export class CoinExporter {
       muxer.finalize();
 
       const blob = new Blob([target.buffer], { type: 'video/webm' });
-      console.log('✅ WebCodecs+Muxer WebM complete:', { size: blob.size, type: blob.type });
+      console.log('✅ WebCodecs+Muxer WebM complete:', { 
+        size: blob.size, 
+        type: blob.type,
+        chunksProcessed: chunksReceived,
+        framesEncoded: frames.length
+      });
+      
+      // Force garbage collection hint (browser may ignore)
+      if ('gc' in window) {
+        (window as any).gc();
+      }
       
       return blob;
     } catch (error) {
