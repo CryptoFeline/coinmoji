@@ -10,6 +10,7 @@ export interface ExportSettings {
 export class CoinExporter {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
+  private renderer: THREE.WebGLRenderer;
   private turntable: THREE.Group;
 
   constructor(
@@ -20,7 +21,7 @@ export class CoinExporter {
   ) {
     this.scene = scene;
     this.camera = camera;
-    // Note: renderer parameter kept for API compatibility but not stored
+    this.renderer = renderer;
     this.turntable = turntable;
   }
 
@@ -31,80 +32,82 @@ export class CoinExporter {
 
     console.log('📹 Starting frame export:', { fps, duration, size, totalFrames });
 
-    // Store original rotation for restoration
+    // Store original settings
+    const originalSize = { 
+      width: this.renderer.domElement.clientWidth, 
+      height: this.renderer.domElement.clientHeight 
+    };
+    const originalAspect = this.camera.aspect;
     const originalRotation = this.turntable.rotation.y;
-    console.log('💾 Stored original rotation:', originalRotation);
+    const originalCameraPosition = this.camera.position.clone();
 
-    // Create offscreen renderer to avoid affecting the main display
-    const captureSize = Math.max(size * 4, 512); // High resolution for quality
-    const offscreenCanvas = document.createElement('canvas');
-    offscreenCanvas.width = captureSize;
-    offscreenCanvas.height = captureSize;
-    
-    const offscreenRenderer = new THREE.WebGLRenderer({ 
-      canvas: offscreenCanvas, 
-      alpha: true, 
-      antialias: true,
-      preserveDrawingBuffer: true 
+    console.log('💾 Stored original settings:', { 
+      originalSize, 
+      originalAspect, 
+      originalRotation, 
+      originalCameraPosition 
     });
-    offscreenRenderer.setSize(captureSize, captureSize, false);
-    offscreenRenderer.setClearColor(0x000000, 0); // Transparent background
-    
-    // Create camera for capture with perfect framing for emoji
-    const captureCamera = this.camera.clone();
-    captureCamera.aspect = 1;
-    captureCamera.position.z = 4.2; // Optimal distance to fill emoji frame without clipping
-    captureCamera.updateProjectionMatrix();
-
-    console.log('🎯 Created offscreen renderer:', { captureSize, targetSize: size, cameraZ: captureCamera.position.z });
 
     try {
+      // Set export size for capture - high quality capture
+      const captureSize = Math.max(size * 4, 800); // Higher resolution for better quality
+      this.renderer.setSize(captureSize, captureSize);
+      this.camera.aspect = 1;
+      
+      // Keep same camera distance as normal view to maintain coin scale
+      // Normal view is at z=7, so maintain that for consistency
+      this.camera.position.set(0, 0, 7);
+      this.camera.updateProjectionMatrix();
+
+      console.log('🎯 Set export settings:', { 
+        captureSize, 
+        targetSize: size, 
+        cameraPosition: this.camera.position,
+        aspect: this.camera.aspect 
+      });
+
       for (let i = 0; i < totalFrames; i++) {
         // Set rotation for this frame
         const angle = (2 * Math.PI * i) / totalFrames;
         this.turntable.rotation.y = angle;
 
-        // Render frame with offscreen renderer - clear with alpha
-        offscreenRenderer.setClearColor(0x000000, 0);
-        offscreenRenderer.clear();
-        offscreenRenderer.render(this.scene, captureCamera);
+        // Force transparent background
+        this.renderer.setClearColor(0x000000, 0); // Black with 0 alpha
+        this.renderer.clear();
+        
+        // Render frame
+        this.renderer.render(this.scene, this.camera);
 
-        // Capture frame as blob with error handling
-        try {
-          const blob = await this.captureOffscreenFrame(offscreenCanvas);
-          if (!blob || blob.size === 0) {
-            throw new Error(`Frame ${i} capture failed - empty blob`);
-          }
-          frames.push(blob);
-          
-          if (i === 0 || i === totalFrames - 1 || i % 10 === 0) {
-            console.log(`📸 Captured frame ${i + 1}/${totalFrames}, size: ${blob.size} bytes, angle: ${angle.toFixed(2)}`);
-          }
-        } catch (frameError) {
-          console.error(`❌ Frame ${i} capture failed:`, frameError);
-          throw new Error(`Failed to capture frame ${i}: ${frameError instanceof Error ? frameError.message : String(frameError)}`);
+        // Capture frame as blob with alpha preserved
+        const blob = await this.captureFrame();
+        frames.push(blob);
+        
+        if (i === 0 || i === totalFrames - 1 || i % 10 === 0) {
+          console.log(`📸 Captured frame ${i + 1}/${totalFrames}, size: ${blob.size} bytes, angle: ${angle.toFixed(2)}`);
         }
-      }
-
-      if (frames.length === 0) {
-        throw new Error('No frames were captured');
       }
 
       console.log('✅ Frame export complete:', { totalFrames: frames.length });
       return frames;
     } finally {
-      // Clean up offscreen renderer
-      offscreenRenderer.dispose();
-      
-      // Restore original rotation only (don't touch main display settings)
+      // Restore ALL original settings
+      this.renderer.setSize(originalSize.width, originalSize.height);
+      this.camera.aspect = originalAspect;
+      this.camera.position.copy(originalCameraPosition);
+      this.camera.updateProjectionMatrix();
       this.turntable.rotation.y = originalRotation;
-      console.log('🔄 Restored original rotation and cleaned up offscreen renderer');
+      
+      console.log('🔄 Restored original settings');
     }
   }
 
-  private captureOffscreenFrame(canvas: HTMLCanvasElement): Promise<Blob> {
+  private captureFrame(): Promise<Blob> {
     return new Promise((resolve) => {
-      canvas.toBlob((blob) => {
+      // Ensure transparent background is maintained
+      this.renderer.setClearColor(0x000000, 0);
+      this.renderer.clear();
+      
+      this.renderer.domElement.toBlob((blob) => {
         resolve(blob!);
       }, 'image/png'); // PNG preserves alpha
     });
@@ -135,152 +138,112 @@ export class CoinExporter {
   async exportAsWebM(settings: ExportSettings): Promise<Blob> {
     console.log('🎬 Starting WebM export with settings:', settings);
     
-    try {
-      const frames = await this.exportFrames(settings);
-      
-      if (!frames || frames.length === 0) {
-        throw new Error('No frames generated for WebM export');
-      }
-      
-      if (!('VideoEncoder' in window)) {
-        throw new Error('WebCodecs not supported in this browser');
-      }
-
-      const { fps, size } = settings;
-      
-      // Use WebCodecs with webm-muxer approach (more reliable than MediaRecorder)
-      console.log('🎥 Using WebCodecs with webm-muxer approach...');
-      return await this.exportWithWebCodecs(frames, fps, size);
-      
-    } catch (error) {
-      console.error('❌ WebM export failed:', error);
-      throw new Error(`WebM export failed: ${error instanceof Error ? error.message : String(error)}`);
+    const frames = await this.exportFrames(settings);
+    
+    if (!('VideoEncoder' in window)) {
+      throw new Error('WebCodecs not supported in this browser');
     }
+
+    const { fps, size } = settings;
+    
+    // Use WebCodecs with webm-muxer approach (more reliable than MediaRecorder)
+    console.log('🎥 Using WebCodecs with webm-muxer approach...');
+    return await this.exportWithWebCodecs(frames, fps, size);
   }
 
   private async exportWithWebCodecs(frames: Blob[], fps: number, size: number): Promise<Blob> {
-    try {
-      // Import webm-muxer dynamically
-      const { Muxer, ArrayBufferTarget } = await import('webm-muxer');
-      
-      const target = new ArrayBufferTarget();
-      const muxer = new Muxer({
-        target,
-        video: {
-          codec: 'V_VP9',
-          width: size,
-          height: size,
-          frameRate: fps,
-          alpha: true // Enable alpha channel in muxer
-        }
-      });
-
-      let encoderError: Error | null = null;
-      const encoder = new (window as any).VideoEncoder({
-        output: (chunk: any, meta: any) => {
-          try {
-            muxer.addVideoChunk(chunk, meta);
-            console.log(`📝 WebCodecs chunk: ${chunk.byteLength} bytes, type: ${chunk.type}, timestamp: ${chunk.timestamp}`);
-          } catch (error) {
-            console.error('❌ Muxer error:', error);
-            encoderError = new Error(`Muxer failed: ${error instanceof Error ? error.message : String(error)}`);
-          }
-        },
-        error: (e: any) => {
-          console.error('❌ VideoEncoder error:', e);
-          encoderError = new Error(`VideoEncoder failed: ${e instanceof Error ? e.message : String(e)}`);
-        }
-      });
-
-      // Configure encoder with alpha support and optimized settings for Telegram
-      const config: any = {
-        codec: 'vp09.00.10.08', // VP9 Profile 0
+    // Import webm-muxer dynamically
+    const { Muxer, ArrayBufferTarget } = await import('webm-muxer');
+    
+    const target = new ArrayBufferTarget();
+    const muxer = new Muxer({
+      target,
+      video: {
+        codec: 'V_VP9',
         width: size,
         height: size,
-        bitrate: 1_200_000, // Optimized for file size while maintaining quality
-        framerate: fps,
-        latencyMode: 'quality' // Better quality than 'realtime'
-      };
-      
-      // Try to enable alpha if supported
-      try {
-        config.alpha = 'keep';
-        encoder.configure(config);
-        console.log('🎬 Encoding frames with WebCodecs (alpha enabled)...');
-      } catch (error) {
-        console.warn('⚠️ Alpha not supported, using standard encoding:', error);
-        delete config.alpha;
-        encoder.configure(config);
-        console.log('🎬 Encoding frames with WebCodecs (no alpha)...');
+        frameRate: fps,
+        alpha: true // Enable alpha channel in muxer
       }
+    });
 
-      // Encode frames with proper alpha handling
-      for (let i = 0; i < frames.length; i++) {
-        if (encoderError) {
-          throw encoderError;
-        }
-
-        try {
-          // Create canvas to properly handle alpha during resize
-          const canvas = document.createElement('canvas');
-          canvas.width = size;
-          canvas.height = size;
-          const ctx = canvas.getContext('2d')!;
-          
-          // Clear canvas with transparent background
-          ctx.clearRect(0, 0, size, size);
-          
-          // Load and resize the frame
-          const imageBitmap = await createImageBitmap(frames[i]);
-          
-          // Draw scaled down image maintaining alpha
-          ctx.drawImage(imageBitmap, 0, 0, size, size);
-          imageBitmap.close();
-          
-          // Create VideoFrame from canvas (preserves alpha)
-          const videoFrame = new (window as any).VideoFrame(canvas, {
-            timestamp: (i * 1000000) / fps, // microseconds
-            duration: 1000000 / fps // frame duration in microseconds
-          });
-          
-          encoder.encode(videoFrame, { keyFrame: i === 0 });
-          videoFrame.close();
-          
-          if (i % 10 === 0) {
-            console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, timestamp: ${videoFrame.timestamp}`);
-          }
-        } catch (frameError) {
-          console.error(`❌ Frame ${i} encoding failed:`, frameError);
-          encoder.close();
-          throw new Error(`Frame ${i} encoding failed: ${frameError instanceof Error ? frameError.message : String(frameError)}`);
-        }
+    const encoder = new (window as any).VideoEncoder({
+      output: (chunk: any, meta: any) => {
+        muxer.addVideoChunk(chunk, meta);
+        console.log(`📝 WebCodecs chunk: ${chunk.byteLength} bytes, type: ${chunk.type}, timestamp: ${chunk.timestamp}`);
+      },
+      error: (e: any) => {
+        console.error('❌ VideoEncoder error:', e);
       }
+    });
 
-      console.log('⏳ Flushing encoder...');
-      await encoder.flush();
-      
-      if (encoderError) {
-        throw encoderError;
-      }
-      
-      encoder.close();
-      
-      console.log('📦 Finalizing muxer...');
-      muxer.finalize();
-
-      const blob = new Blob([target.buffer], { type: 'video/webm' });
-      console.log('✅ WebCodecs+Muxer WebM complete:', { size: blob.size, type: blob.type });
-      
-      if (blob.size === 0) {
-        throw new Error('Generated WebM file is empty');
-      }
-      
-      return blob;
-      
+    // Configure encoder with alpha support and optimized settings for Telegram
+    const config: any = {
+      codec: 'vp09.00.10.08', // VP9 Profile 0
+      width: size,
+      height: size,
+      bitrate: 800_000, // Lower bitrate to prevent corruption
+      framerate: fps,
+      latencyMode: 'quality' // Better quality than 'realtime'
+    };
+    
+    // Try to enable alpha if supported
+    try {
+      config.alpha = 'keep';
+      encoder.configure(config);
+      console.log('🎬 Encoding frames with WebCodecs (alpha enabled)...');
     } catch (error) {
-      console.error('❌ WebCodecs export failed:', error);
-      throw new Error(`WebCodecs export failed: ${error instanceof Error ? error.message : String(error)}`);
+      console.warn('⚠️ Alpha not supported, using standard encoding:', error);
+      delete config.alpha;
+      encoder.configure(config);
+      console.log('🎬 Encoding frames with WebCodecs (no alpha)...');
     }
+
+    // Encode frames with proper scaling and alpha handling
+    for (let i = 0; i < frames.length; i++) {
+      // Create canvas to properly scale and handle alpha
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d')!;
+      
+      // Clear canvas with transparent background
+      ctx.clearRect(0, 0, size, size);
+      
+      // Load the original high-res frame
+      const imageBitmap = await createImageBitmap(frames[i]);
+      
+      // Draw scaled image maintaining aspect ratio and alpha
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(imageBitmap, 0, 0, size, size);
+      imageBitmap.close();
+      
+      // Create VideoFrame from canvas (preserves alpha)
+      const videoFrame = new (window as any).VideoFrame(canvas, {
+        timestamp: (i * 1000000) / fps, // microseconds
+        duration: 1000000 / fps // frame duration in microseconds
+      });
+      
+      encoder.encode(videoFrame, { keyFrame: i === 0 });
+      videoFrame.close();
+      
+      if (i % 10 === 0) {
+        console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, timestamp: ${videoFrame.timestamp}`);
+      }
+    }
+
+    console.log('⏳ Flushing encoder...');
+    await encoder.flush();
+    encoder.close();
+    
+    console.log('📦 Finalizing muxer...');
+    muxer.finalize();
+
+    const blob = new Blob([target.buffer], { type: 'video/webm' });
+    console.log('✅ WebCodecs+Muxer WebM complete:', { size: blob.size, type: blob.type });
+    
+    return blob;
   }
 
   downloadBlob(blob: Blob, filename: string) {

@@ -45,10 +45,13 @@ const AppContent: React.FC = () => {
   }
 
   const handleExport = async () => {
-    if (!coinEditorRef.current) return;
+    if (!coinEditorRef.current || !initData) return;
     
     setIsExporting(true);
     try {
+      // Add small delay to allow UI to settle before capturing
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       const scene = coinEditorRef.current.getScene();
       const camera = coinEditorRef.current.getCamera();
       const renderer = coinEditorRef.current.getRenderer();
@@ -107,6 +110,9 @@ const AppContent: React.FC = () => {
     
     setIsExporting(true);
     try {
+      // Add small delay to allow UI to settle before capturing
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       const scene = coinEditorRef.current.getScene();
       const camera = coinEditorRef.current.getCamera();
       const renderer = coinEditorRef.current.getRenderer();
