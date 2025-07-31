@@ -93,7 +93,7 @@ const handler: Handler = async (event) => {
       const base = title.toLowerCase()
         .replace(/[^a-z0-9]+/g, '_')
         .replace(/^_+|_+$/g, '');
-      return `${base}_by_@${BOT_USERNAME}`.slice(0, 64);
+      return `${base}_by_${BOT_USERNAME}`.slice(0, 64);
     };
 
     const stickerSetName = set_slug || slugifyTitle(set_title);

@@ -62,20 +62,12 @@ export class CoinExporter {
       
       const offscreenRenderer = new THREE.WebGLRenderer({ 
         antialias: true, 
-        alpha: true, // Enable alpha channel
-        preserveDrawingBuffer: true, // Required for toBlob()
-        premultipliedAlpha: false // Don't premultiply alpha for better transparency
+        alpha: true,
+        preserveDrawingBuffer: true 
       });
       offscreenRenderer.setSize(captureSize, captureSize);
-      offscreenRenderer.setClearColor(0x000000, 0); // Completely transparent background (alpha = 0)
+      offscreenRenderer.setClearColor(0x000000, 0); // Completely transparent background
       offscreenRenderer.outputColorSpace = THREE.SRGBColorSpace;
-      
-      console.log('🎨 Offscreen renderer transparency settings:', {
-        alpha: true,
-        premultipliedAlpha: false,
-        clearAlpha: 0,
-        preserveDrawingBuffer: true
-      });
 
       // Create dedicated camera for export with perfect coin framing
       const exportCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
@@ -147,16 +139,13 @@ export class CoinExporter {
   private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, sourceSize: number, targetSize: number): Promise<Blob> {
     return new Promise((resolve) => {
       try {
-        // CRITICAL: Capture with PNG format to preserve alpha channel
+        // First capture at high resolution
         renderer.domElement.toBlob((highResBlob) => {
           if (!highResBlob) {
-            console.warn('⚠️ Frame capture failed - got null blob');
             resolve(new Blob());
             return;
           }
 
-          console.log(`📸 Captured PNG frame: ${highResBlob.size} bytes, type: ${highResBlob.type}`);
-          
           // If target size equals source size, return directly (avoid unnecessary processing)
           if (sourceSize === targetSize) {
             resolve(highResBlob);
@@ -166,7 +155,7 @@ export class CoinExporter {
           // For now, just return high res directly to avoid complex resizing
           // WebCodecs will handle the scaling
           resolve(highResBlob);
-        }, 'image/png'); // EXPLICITLY use PNG to preserve transparency
+        }, 'image/png');
       } catch (error) {
         console.error('Frame capture error:', error);
         resolve(new Blob());
@@ -270,15 +259,7 @@ export class CoinExporter {
           width: size,
           height: size,
           frameRate: fps,
-          alpha: true // CRITICAL: Enable alpha channel in muxer
         }
-      });
-      
-      console.log('🎥 Muxer configured with alpha support:', { 
-        codec: 'V_VP9', 
-        size: `${size}x${size}`, 
-        fps,
-        alpha: true 
       });
 
       console.log('🎥 Creating VideoEncoder...');
@@ -348,44 +329,45 @@ export class CoinExporter {
               await new Promise(resolve => setTimeout(resolve, 20));
             }
             
-            // Create ImageBitmap from high-res frame with transparency preserved
-            const imageBitmap = await createImageBitmap(frames[i], {
-              premultiplyAlpha: 'none', // Don't premultiply alpha to preserve transparency
-              colorSpaceConversion: 'none' // Keep original color space
-            });
+            // Create ImageBitmap from high-res frame
+            const imageBitmap = await createImageBitmap(frames[i]);
             
-            console.log(`🖼️ Created ImageBitmap: ${imageBitmap.width}x${imageBitmap.height} from frame ${i}`);
-            
-            // Always process through canvas to ensure transparency is handled correctly
-            const canvas = document.createElement('canvas');
-            canvas.width = size;
-            canvas.height = size;
-            const ctx = canvas.getContext('2d', { alpha: true })!;
-            
-            // CRITICAL: Do NOT clear or fill - this removes transparency!
-            // The canvas starts transparent by default with alpha: true
-            
-            // Draw the ImageBitmap with proper scaling and transparency preservation
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-            ctx.globalCompositeOperation = 'source-over';
-            
-            // Scale the image to target size while preserving transparency
+            // If we need to scale, create a canvas at target size
             if (imageBitmap.width !== size || imageBitmap.height !== size) {
+              const canvas = document.createElement('canvas');
+              canvas.width = size;
+              canvas.height = size;
+              const ctx = canvas.getContext('2d', { alpha: true })!;
+              
+              // Keep transparent background - don't fill with any color
+              ctx.clearRect(0, 0, size, size);
+              
+              // Draw scaled image with high quality, preserving transparency
+              ctx.imageSmoothingEnabled = true;
+              ctx.imageSmoothingQuality = 'high';
+              ctx.globalCompositeOperation = 'source-over';
               ctx.drawImage(imageBitmap, 0, 0, size, size);
+              
+              // Create VideoFrame from canvas
+              const videoFrame = new (window as any).VideoFrame(canvas, {
+                timestamp: (i * 1000000) / fps, // microseconds
+                duration: 1000000 / fps // frame duration in microseconds
+              });
+              
+              encoder.encode(videoFrame, { keyFrame: i === 0 });
+              videoFrame.close();
+              imageBitmap.close();
             } else {
-              ctx.drawImage(imageBitmap, 0, 0);
+              // Use ImageBitmap directly (it should have transparency from THREE.js renderer)
+              const videoFrame = new (window as any).VideoFrame(imageBitmap, {
+                timestamp: (i * 1000000) / fps, // microseconds
+                duration: 1000000 / fps // frame duration in microseconds
+              });
+              
+              encoder.encode(videoFrame, { keyFrame: i === 0 });
+              videoFrame.close();
+              imageBitmap.close();
             }
-            
-            // Create VideoFrame from canvas
-            const videoFrame = new (window as any).VideoFrame(canvas, {
-              timestamp: (i * 1000000) / fps, // microseconds
-              duration: 1000000 / fps // frame duration in microseconds
-            });
-            
-            encoder.encode(videoFrame, { keyFrame: i === 0 });
-            videoFrame.close();
-            imageBitmap.close();
             
             console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, timestamp: ${(i * 1000000) / fps}`);
           } catch (frameError) {
