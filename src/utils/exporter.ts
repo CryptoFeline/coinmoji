@@ -80,7 +80,7 @@ export class CoinExporter {
       // Create dedicated camera for export with perfect coin framing
       const exportCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
       // Position camera much closer to make coin fill more of the frame
-      exportCamera.position.set(0, 0, 2.8); // Always keep at 2.8
+      exportCamera.position.set(0, 0, 2.8); // Even closer for bigger coin in frame
       exportCamera.lookAt(0, 0, 0);
 
       console.log('🎯 Created offscreen renderer:', { 
@@ -102,14 +102,6 @@ export class CoinExporter {
 
           // Render to offscreen canvas with export camera
           offscreenRenderer.render(this.scene, exportCamera);
-          
-          // Debug: Check if scene has any background elements
-          console.log(`🔍 Scene debug for frame ${i}:`, {
-            sceneChildren: this.scene.children.length,
-            turntableRotation: this.turntable.rotation.y.toFixed(3),
-            rendererClearAlpha: offscreenRenderer.getClearAlpha(),
-            rendererSize: [offscreenRenderer.getSize(new THREE.Vector2()).x, offscreenRenderer.getSize(new THREE.Vector2()).y]
-          });
 
           // Capture frame and resize to target size
           const blob = await this.captureFrameFromRenderer(offscreenRenderer, captureSize, captureSize); // Keep high res
