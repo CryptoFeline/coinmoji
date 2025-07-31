@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@types/three": "^0.158.0",
+    "@vitejs/plugin-react": "^4.2.1",
     "fflate": "^0.8.1",
     "framer-motion": "^10.16.16",
     "gifuct-js": "^2.1.2",
@@ -26,7 +27,6 @@
     "@types/react-dom": "^18.2.17",
     "@typescript-eslint/eslint-plugin": "^6.14.0",
     "@typescript-eslint/parser": "^6.14.0",
-    "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.16",
     "eslint": "^8.55.0",
     "eslint-plugin-react-hooks": "^4.6.0",
