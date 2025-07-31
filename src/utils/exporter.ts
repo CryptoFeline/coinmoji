@@ -50,7 +50,7 @@ export class CoinExporter {
       // Create dedicated camera for export with perfect coin framing
       const exportCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
       // Position camera closer to fill frame better for emoji
-      exportCamera.position.set(0, 0, 1); // Closer than default 7 for tighter framing
+      exportCamera.position.set(0, 0, 3); // Closer than default 7 for tighter framing
       exportCamera.lookAt(0, 0, 0);
 
       console.log('🎯 Created offscreen renderer:', { 
