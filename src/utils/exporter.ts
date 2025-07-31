@@ -302,6 +302,8 @@ export class CoinExporter {
 
       await debugLog('🎥 Creating VideoEncoder...');
       let chunksReceived = 0;
+      let encoderError: Error | null = null;
+      
       const encoder = new (window as any).VideoEncoder({
         output: (chunk: any, meta: any) => {
           try {
@@ -311,35 +313,45 @@ export class CoinExporter {
               console.log(`📝 WebCodecs chunk ${chunksReceived}: ${chunk.byteLength} bytes, type: ${chunk.type}`);
             }
           } catch (chunkError) {
-            console.error('❌ Error processing chunk:', chunkError);
-            alert(`Chunk processing error: ${chunkError instanceof Error ? chunkError.message : 'Unknown chunk error'}`);
+            const error = `Chunk processing error: ${chunkError instanceof Error ? chunkError.message : 'Unknown chunk error'}`;
+            console.error('❌', error);
+            encoderError = new Error(error);
           }
         },
         error: (e: any) => {
-          console.error('❌ VideoEncoder error:', e);
-          alert(`VideoEncoder error: ${e.message || e}`);
+          const error = `VideoEncoder error: ${e.message || e}`;
+          console.error('❌', error);
+          encoderError = new Error(error);
+          debugLog('❌ VideoEncoder async error:', { error: e.message || e });
         }
       });
       await debugLog('✅ VideoEncoder created successfully');
 
       await debugLog('⚙️ Configuring VideoEncoder with alpha support...');
+      
+      let encoderConfigured = false;
+      
+      // Try VP9 Profile 2 first (best alpha support)
       try {
-        // Try VP9 Profile 2 which supports alpha transparency
+        await debugLog('🔧 Attempting VP9 Profile 2 configuration...');
         encoder.configure({
           codec: 'vp09.02.10.08', // Profile 2 supports alpha
           width: size,
           height: size,
-          bitrate: 1_000_000, // Lower bitrate for stability
+          bitrate: 1_000_000,
           framerate: fps,
           latencyMode: 'realtime',
-          alpha: 'keep', // CRITICAL: Keep alpha channel
+          alpha: 'keep',
           bitrateMode: 'constant'
         });
+        encoderConfigured = true;
         await debugLog('✅ VideoEncoder configured with VP9 Profile 2 alpha support');
-      } catch (alphaError) {
-        await debugLog('❌ VP9 Profile 2 alpha not supported, trying fallback...');
+      } catch (profile2Error) {
+        await debugLog('❌ VP9 Profile 2 failed:', { error: profile2Error instanceof Error ? profile2Error.message : 'Unknown error' });
+        
+        // Try VP9 Profile 0 as fallback
         try {
-          // Fallback to Profile 0 with alpha
+          await debugLog('🔧 Attempting VP9 Profile 0 fallback...');
           encoder.configure({
             codec: 'vp09.00.10.08',
             width: size,
@@ -348,12 +360,40 @@ export class CoinExporter {
             framerate: fps,
             alpha: 'keep'
           });
+          encoderConfigured = true;
           await debugLog('✅ VideoEncoder configured with VP9 Profile 0 alpha support');
-        } catch (fallbackError) {
-          await debugLog('❌ Alpha not supported by this browser build of WebCodecs/VP9.', { error: fallbackError });
-          alert('This browser cannot encode VP9 with alpha. Please switch to Chrome 115+ (or desktop Chromium) and try again.');
-          throw fallbackError;
+        } catch (profile0Error) {
+          await debugLog('❌ VP9 Profile 0 failed:', { error: profile0Error instanceof Error ? profile0Error.message : 'Unknown error' });
+          
+          // Try basic VP9 without explicit alpha as last resort
+          try {
+            await debugLog('🔧 Attempting basic VP9 configuration...');
+            encoder.configure({
+              codec: 'vp09.00.10.08',
+              width: size,
+              height: size,
+              bitrate: 1_000_000,
+              framerate: fps
+              // No alpha parameter - browser may still support it implicitly
+            });
+            encoderConfigured = true;
+            await debugLog('⚠️ VideoEncoder configured with basic VP9 (alpha support uncertain)');
+          } catch (basicError) {
+            await debugLog('❌ All VP9 configurations failed:', { error: basicError instanceof Error ? basicError.message : 'Unknown error' });
+            throw new Error('VP9 encoding not supported in this browser/environment');
+          }
         }
+      }
+      
+      if (!encoderConfigured) {
+        throw new Error('Failed to configure VideoEncoder with any VP9 profile');
+      }
+
+      // Wait a moment and check for async encoder errors
+      await new Promise(resolve => setTimeout(resolve, 100));
+      if (encoderError !== null) {
+        // await debugLog('❌ VideoEncoder had async error after configuration:', { error: encoderError.message });
+        throw encoderError;
       }
 
       await debugLog('🎬 Starting frame encoding process...');
@@ -368,6 +408,11 @@ export class CoinExporter {
         for (let i = batchStart; i < batchEnd; i++) {
           try {
             await debugLog(`🖼️ Processing frame ${i + 1}/${frames.length}...`);
+            
+            // Check for encoder errors before processing
+            if (encoderError !== null) {
+              throw encoderError;
+            }
             
             // Add delay between every frame to prevent stack overflow
             if (i > 0) {
@@ -507,7 +552,7 @@ export const createCustomEmoji = async (
   blob: Blob, 
   initData: string, 
   emojiList: string[] = ['🪙'],
-  setTitle: string = 'Custom Coinmoji'
+  setTitle: string = 'Custom Coinmoji' // TODO: Allow user to set title in webapp or bot UI
 ) => {
   await debugLog('🎭 Creating custom emoji:', { 
     blobSize: blob.size, 
