@@ -344,10 +344,18 @@ export class CoinExporter {
           alpha: 'keep',
           bitrateMode: 'constant'
         });
+        
+        // Wait longer to catch async errors for Profile 2
+        await new Promise(resolve => setTimeout(resolve, 200));
+        if (encoderError !== null) {
+          throw encoderError;
+        }
+        
         encoderConfigured = true;
         await debugLog('✅ VideoEncoder configured with VP9 Profile 2 alpha support');
       } catch (profile2Error) {
         await debugLog('❌ VP9 Profile 2 failed:', { error: profile2Error instanceof Error ? profile2Error.message : 'Unknown error' });
+        encoderError = null; // Reset error for next attempt
         
         // Try VP9 Profile 0 as fallback
         try {
@@ -360,10 +368,18 @@ export class CoinExporter {
             framerate: fps,
             alpha: 'keep'
           });
+          
+          // Wait to catch async errors for Profile 0
+          await new Promise(resolve => setTimeout(resolve, 200));
+          if (encoderError !== null) {
+            throw encoderError;
+          }
+          
           encoderConfigured = true;
           await debugLog('✅ VideoEncoder configured with VP9 Profile 0 alpha support');
         } catch (profile0Error) {
           await debugLog('❌ VP9 Profile 0 failed:', { error: profile0Error instanceof Error ? profile0Error.message : 'Unknown error' });
+          encoderError = null; // Reset error for next attempt
           
           // Try basic VP9 without explicit alpha as last resort
           try {
@@ -376,6 +392,13 @@ export class CoinExporter {
               framerate: fps
               // No alpha parameter - browser may still support it implicitly
             });
+            
+            // Wait to catch async errors for basic VP9
+            await new Promise(resolve => setTimeout(resolve, 200));
+            if (encoderError !== null) {
+              throw encoderError;
+            }
+            
             encoderConfigured = true;
             await debugLog('⚠️ VideoEncoder configured with basic VP9 (alpha support uncertain)');
           } catch (basicError) {
@@ -387,13 +410,6 @@ export class CoinExporter {
       
       if (!encoderConfigured) {
         throw new Error('Failed to configure VideoEncoder with any VP9 profile');
-      }
-
-      // Wait a moment and check for async encoder errors
-      await new Promise(resolve => setTimeout(resolve, 100));
-      if (encoderError !== null) {
-        // await debugLog('❌ VideoEncoder had async error after configuration:', { error: encoderError.message });
-        throw encoderError;
       }
 
       await debugLog('🎬 Starting frame encoding process...');
