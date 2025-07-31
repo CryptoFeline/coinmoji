@@ -55,15 +55,19 @@ export class CoinExporter {
 
     console.log('💾 Stored original rotation:', originalRotation);
 
+    const prevBackground = this.scene.background;
     try {
+      this.scene.background = null; // ensure transparent renders
+      
       // Create OFFSCREEN renderer for export (doesn't affect live view!)
       const captureSize = 512; // High resolution for better quality
       console.log('🎨 Creating offscreen renderer...');
       
-      const offscreenRenderer = new THREE.WebGLRenderer({ 
-        antialias: true, 
+      const offscreenRenderer = new THREE.WebGLRenderer({
+        antialias: true,
         alpha: true,
-        preserveDrawingBuffer: true 
+        preserveDrawingBuffer: true,
+        premultipliedAlpha: false
       });
       offscreenRenderer.setSize(captureSize, captureSize);
       offscreenRenderer.setClearColor(0x000000, 0); // Completely transparent background
@@ -129,10 +133,11 @@ export class CoinExporter {
       alert(errorMsg);
       throw error;
     } finally {
+      this.scene.background = prevBackground;
       // Restore original rotation only
       this.turntable.rotation.y = originalRotation;
       
-      console.log('🔄 Restored original rotation');
+      console.log('🔄 Restored original rotation and scene background');
     }
   }
 
@@ -236,6 +241,20 @@ export class CoinExporter {
       const result = await this.exportWithWebCodecs(highResFrames, effectiveFPS, size);
       
       console.log('✅ WebM export completed successfully');
+      
+      // Verify alpha channel is preserved (may look black in preview but should contain alpha)
+      try {
+        const hasAlpha = await verifyWebMHasAlpha(result);
+        console.log(`🔍 WebM alpha verification: ${hasAlpha ? '✅ Contains transparency' : '❌ No alpha detected'}`);
+        if (hasAlpha) {
+          console.log('🎉 Success! WebM contains alpha channel - transparency preserved for emoji use');
+        } else {
+          console.warn('⚠️ WebM may not contain alpha - but could still work in Telegram');
+        }
+      } catch (verifyError) {
+        console.warn('⚠️ Could not verify alpha channel:', verifyError);
+      }
+      
       return result;
     } catch (error) {
       console.error('❌ WebM export failed:', error);
@@ -294,23 +313,9 @@ export class CoinExporter {
         });
         console.log('✅ VideoEncoder configured with alpha support for transparency');
       } catch (alphaError) {
-        console.warn('⚠️ Alpha support failed, using basic VP9:', alphaError);
-        try {
-          // Fallback without alpha
-          encoder.configure({
-            codec: 'vp09.00.10.08',
-            width: size,
-            height: size,
-            bitrate: 1_200_000,
-            framerate: fps,
-            latencyMode: 'realtime'
-          });
-          console.log('⚠️ VideoEncoder configured without alpha (may have solid background)');
-        } catch (configError) {
-          console.error('❌ VideoEncoder configuration failed:', configError);
-          alert(`VideoEncoder config failed: ${configError instanceof Error ? configError.message : 'Unknown config error'}`);
-          throw configError;
-        }
+        console.error('❌ Alpha not supported by this browser build of WebCodecs/VP9.', alphaError);
+        alert('This browser cannot encode VP9 with alpha. Please switch to Chrome 115+ (or desktop Chromium) and try again.');
+        throw alphaError;
       }
 
       console.log('🎬 Encoding frames with WebCodecs...');
@@ -546,3 +551,35 @@ const getTelegramUserId = (initData: string): number => {
   const user = JSON.parse(params.get('user') || '{}');
   return user.id;
 };
+
+// Verify WebM has alpha channel by decoding first frame
+export async function verifyWebMHasAlpha(blob: Blob): Promise<boolean> {
+  if (!('VideoDecoder' in window)) return false;
+
+  const url = URL.createObjectURL(blob);
+  try {
+    const v = document.createElement('video');
+    v.src = url; 
+    v.muted = true; 
+    v.loop = false; 
+    v.playsInline = true;
+    
+    await v.play().catch(()=>{});
+    await new Promise(r => v.addEventListener('loadeddata', r, { once: true }));
+    
+    // Draw to 2D canvas and read a pixel that should be transparent
+    const c = document.createElement('canvas'); 
+    c.width = v.videoWidth; 
+    c.height = v.videoHeight;
+    const ctx = c.getContext('2d', { willReadFrequently: true, alpha: true })!;
+    ctx.clearRect(0,0,c.width,c.height);
+    ctx.drawImage(v, 0, 0);
+    const px = ctx.getImageData(0,0,1,1).data; // sample top-left
+    
+    // If alpha channel is present and the top-left is transparent in your render, A will be < 255
+    console.log('🔍 Alpha verification - top-left pixel RGBA:', px);
+    return px[3] < 255;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
