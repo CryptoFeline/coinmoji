@@ -261,14 +261,8 @@ export class CoinExporter {
       
       await debugLog('✅ WebCodecs encoding completed');
       
-      // Verify the WebM actually contains alpha transparency
-      await debugLog('🔍 Starting alpha verification phase...');
-      const hasAlpha = await verifyWebMHasAlpha(result);
-      if (hasAlpha) {
-        await debugLog('✅ WebM contains alpha transparency (may look black in video preview but will work as emoji)');
-      } else {
-        await debugLog('⚠️ WebM may not contain alpha transparency - check browser compatibility');
-      }
+      // Skip alpha verification in Telegram environment - it can hang
+      await debugLog('⏭️ Skipping alpha verification (can hang in Telegram) - WebM should have transparency based on VP9 alpha encoding');
       
       await debugLog('✅ WebM export completed successfully - total size:', { size: result.size });
       return result;
