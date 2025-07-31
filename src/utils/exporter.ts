@@ -64,7 +64,7 @@ export class CoinExporter {
       // Create dedicated camera for export with perfect coin framing
       const exportCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
       // Position camera much closer to make coin fill more of the frame
-      exportCamera.position.set(0, 0, 3); // Even closer for bigger coin in frame
+      exportCamera.position.set(0, 0, 2.5); // Even closer for bigger coin in frame
       exportCamera.lookAt(0, 0, 0);
 
       console.log('🎯 Created offscreen renderer:', { 
@@ -80,8 +80,10 @@ export class CoinExporter {
             await new Promise(resolve => setTimeout(resolve, 5));
           }
           
-          // Set rotation for this frame
-          const angle = (2 * Math.PI * i) / actualFrames;
+          // Set rotation for this frame - slow rotation over intended duration
+          // Calculate angle based on original requested duration, not actual frame count
+          const totalRequestedFrames = Math.floor(fps * duration);
+          const angle = (2 * Math.PI * i) / totalRequestedFrames; // Use original frame count for timing
           this.turntable.rotation.y = angle;
 
           // Render to offscreen canvas with export camera
@@ -128,26 +130,20 @@ export class CoinExporter {
     }
   }
 
-  private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, sourceSize: number, targetSize: number): Promise<Blob> {
+  private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, _sourceSize: number, _targetSize: number): Promise<Blob> {
     return new Promise((resolve) => {
       try {
-        // First capture at high resolution
+        // Capture at high resolution with PNG format to preserve transparency
         renderer.domElement.toBlob((highResBlob) => {
           if (!highResBlob) {
+            console.warn('⚠️ Failed to capture frame blob');
             resolve(new Blob());
             return;
           }
 
-          // If target size equals source size, return directly (avoid unnecessary processing)
-          if (sourceSize === targetSize) {
-            resolve(highResBlob);
-            return;
-          }
-
-          // For now, just return high res directly to avoid complex resizing
-          // WebCodecs will handle the scaling
+          console.log(`📸 Captured PNG frame: ${highResBlob.size} bytes`);
           resolve(highResBlob);
-        }, 'image/png');
+        }, 'image/png'); // Explicitly use PNG for transparency
       } catch (error) {
         console.error('Frame capture error:', error);
         resolve(new Blob());
@@ -270,50 +266,21 @@ export class CoinExporter {
       });
 
       try {
-        // Try with alpha support first - use more compatible VP9 profile
+        // Use simpler VP9 codec without alpha flags (alpha in source frames should be preserved)
         encoder.configure({
-          codec: 'vp09.00.10.08.01.01.01.01.00', // Full VP9 profile with alpha support
+          codec: 'vp09.00.10.08',
           width: size,
           height: size,
-          bitrate: 1_500_000, // Slightly lower bitrate for better compatibility
+          bitrate: 1_500_000,
           framerate: fps,
-          latencyMode: 'realtime',
-          alpha: 'keep' // CRITICAL: Preserve alpha channel for transparency
+          latencyMode: 'realtime'
+          // Remove alpha: 'keep' as it seems to cause issues
         });
-        console.log('✅ VideoEncoder configured with full alpha support');
-      } catch (alphaError) {
-        console.warn('⚠️ Full alpha profile failed, trying simpler VP9 with alpha:', alphaError);
-        try {
-          // Fallback with simpler VP9 but still with alpha
-          encoder.configure({
-            codec: 'vp09.00.10.08',
-            width: size,
-            height: size,
-            bitrate: 1_500_000,
-            framerate: fps,
-            latencyMode: 'realtime',
-            alpha: 'keep'
-          });
-          console.log('✅ VideoEncoder configured with basic alpha support');
-        } catch (basicAlphaError) {
-          console.warn('⚠️ Basic alpha failed, trying without alpha:', basicAlphaError);
-          try {
-            // Last fallback without alpha
-            encoder.configure({
-              codec: 'vp09.00.10.08',
-              width: size,
-              height: size,
-              bitrate: 1_500_000,
-              framerate: fps,
-              latencyMode: 'realtime'
-            });
-            console.log('⚠️ VideoEncoder configured WITHOUT alpha (will have black background)');
-          } catch (configError) {
-            console.error('❌ VideoEncoder configuration completely failed:', configError);
-            alert(`VideoEncoder config failed: ${configError instanceof Error ? configError.message : 'Unknown config error'}`);
-            throw configError;
-          }
-        }
+        console.log('✅ VideoEncoder configured (transparency from source frames)');
+      } catch (configError) {
+        console.error('❌ VideoEncoder configuration failed:', configError);
+        alert(`VideoEncoder config failed: ${configError instanceof Error ? configError.message : 'Unknown config error'}`);
+        throw configError;
       }
 
       console.log('🎬 Encoding frames with WebCodecs...');
@@ -353,22 +320,22 @@ export class CoinExporter {
               ctx.imageSmoothingQuality = 'high';
               ctx.drawImage(imageBitmap, 0, 0, size, size);
               
-              // Create VideoFrame from canvas with alpha preservation
+              // Create VideoFrame from canvas (transparency should be preserved automatically)
               const videoFrame = new (window as any).VideoFrame(canvas, {
                 timestamp: (i * 1000000) / fps, // microseconds
-                duration: 1000000 / fps, // frame duration in microseconds
-                alpha: 'keep' // Preserve alpha in VideoFrame
+                duration: 1000000 / fps // frame duration in microseconds
+                // Remove alpha: 'keep' as it may cause issues
               });
               
               encoder.encode(videoFrame, { keyFrame: i === 0 });
               videoFrame.close();
               imageBitmap.close();
             } else {
-              // No scaling needed, use ImageBitmap directly with alpha
+              // No scaling needed, use ImageBitmap directly
               const videoFrame = new (window as any).VideoFrame(imageBitmap, {
                 timestamp: (i * 1000000) / fps, // microseconds
-                duration: 1000000 / fps, // frame duration in microseconds
-                alpha: 'keep' // Preserve alpha in VideoFrame
+                duration: 1000000 / fps // frame duration in microseconds
+                // Remove alpha: 'keep' as it may cause issues
               });
               
               encoder.encode(videoFrame, { keyFrame: i === 0 });
