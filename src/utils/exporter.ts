@@ -121,83 +121,9 @@ export class CoinExporter {
 
     const { fps, size } = settings;
     
-    // Try MediaRecorder first (more reliable)
-    if ('MediaRecorder' in window) {
-      try {
-        console.log('🎥 Trying MediaRecorder approach...');
-        return await this.exportWithMediaRecorder(frames, fps, size);
-      } catch (error) {
-        console.warn('⚠️ MediaRecorder failed, falling back to WebCodecs:', error);
-      }
-    }
-    
-    // Fallback to WebCodecs with webm-muxer
-    console.log('🎥 Using WebCodecs with webm-muxer fallback...');
+    // Use WebCodecs with webm-muxer approach (more reliable than MediaRecorder)
+    console.log('🎥 Using WebCodecs with webm-muxer approach...');
     return await this.exportWithWebCodecs(frames, fps, size);
-  }
-
-  private async exportWithMediaRecorder(frames: Blob[], fps: number, size: number): Promise<Blob> {
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d')!;
-    
-    // Use MediaRecorder
-    const stream = canvas.captureStream(fps);
-    const mediaRecorder = new MediaRecorder(stream, {
-      mimeType: 'video/webm;codecs=vp9',
-      videoBitsPerSecond: 1000000
-    });
-
-    const chunks: BlobPart[] = [];
-    
-    return new Promise((resolve, reject) => {
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          chunks.push(event.data);
-          console.log(`📝 MediaRecorder chunk: ${event.data.size} bytes`);
-        }
-      };
-
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(chunks, { type: 'video/webm' });
-        console.log('✅ MediaRecorder WebM complete:', { size: blob.size, type: blob.type });
-        resolve(blob);
-      };
-
-      mediaRecorder.onerror = (error) => {
-        console.error('❌ MediaRecorder error:', error);
-        reject(error);
-      };
-
-      // Start recording
-      mediaRecorder.start();
-      console.log('🎬 MediaRecorder started, drawing frames...');
-
-      // Draw frames at the specified FPS
-      let frameIndex = 0;
-      const drawFrame = async () => {
-        if (frameIndex < frames.length) {
-          // Convert frame blob to image
-          const imageBitmap = await createImageBitmap(frames[frameIndex]);
-          ctx.clearRect(0, 0, size, size);
-          ctx.drawImage(imageBitmap, 0, 0);
-          imageBitmap.close();
-          
-          if (frameIndex % 10 === 0) {
-            console.log(`🎞️ Drew frame ${frameIndex + 1}/${frames.length}`);
-          }
-          
-          frameIndex++;
-          setTimeout(drawFrame, 1000 / fps);
-        } else {
-          console.log('🛑 All frames drawn, stopping recording...');
-          mediaRecorder.stop();
-        }
-      };
-
-      drawFrame();
-    });
   }
 
   private async exportWithWebCodecs(frames: Blob[], fps: number, size: number): Promise<Blob> {
@@ -218,7 +144,7 @@ export class CoinExporter {
     const encoder = new (window as any).VideoEncoder({
       output: (chunk: any, meta: any) => {
         muxer.addVideoChunk(chunk, meta);
-        console.log(`📝 WebCodecs chunk: ${chunk.byteLength} bytes`);
+        console.log(`📝 WebCodecs chunk: ${chunk.byteLength} bytes, type: ${chunk.type}, timestamp: ${chunk.timestamp}`);
       },
       error: (e: any) => {
         console.error('❌ VideoEncoder error:', e);
@@ -229,23 +155,21 @@ export class CoinExporter {
       codec: 'vp09.00.10.08',
       width: size,
       height: size,
-      bitrate: 1_000_000,
+      bitrate: 2_000_000, // Increased bitrate for better quality
       framerate: fps,
       latencyMode: 'realtime'
     });
+
+    console.log('🎬 Encoding frames with WebCodecs...');
 
     // Encode frames
     for (let i = 0; i < frames.length; i++) {
       const imageBitmap = await createImageBitmap(frames[i]);
       
-      const canvas = document.createElement('canvas');
-      canvas.width = size;
-      canvas.height = size;
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(imageBitmap, 0, 0);
-      
-      const videoFrame = new (window as any).VideoFrame(canvas, {
-        timestamp: (i * 1000000) / fps
+      // Create VideoFrame directly from ImageBitmap
+      const videoFrame = new (window as any).VideoFrame(imageBitmap, {
+        timestamp: (i * 1000000) / fps, // microseconds
+        duration: 1000000 / fps // frame duration in microseconds
       });
       
       encoder.encode(videoFrame, { keyFrame: i === 0 });
@@ -253,12 +177,15 @@ export class CoinExporter {
       imageBitmap.close();
       
       if (i % 10 === 0) {
-        console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}`);
+        console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, timestamp: ${videoFrame.timestamp}`);
       }
     }
 
+    console.log('⏳ Flushing encoder...');
     await encoder.flush();
     encoder.close();
+    
+    console.log('📦 Finalizing muxer...');
     muxer.finalize();
 
     const blob = new Blob([target.buffer], { type: 'video/webm' });

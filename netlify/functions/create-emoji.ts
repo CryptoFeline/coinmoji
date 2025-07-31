@@ -161,12 +161,19 @@ const handler: Handler = async (event) => {
       }),
     });
 
+    console.log('📡 Create sticker set response:', { 
+      status: createResponse.status, 
+      statusText: createResponse.statusText 
+    });
+
     let result = await createResponse.json();
+    console.log('📄 Create sticker set result:', result);
 
     // If set already exists, add to existing set
     if (!result.ok && result.description && 
         /STICKERSET_INVALID|name is already occupied/i.test(result.description)) {
       
+      console.log('⚠️ Sticker set exists, trying to add to existing set...');
       createResponse = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/addStickerToSet`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -177,8 +184,20 @@ const handler: Handler = async (event) => {
         }),
       });
 
+      console.log('📡 Add to sticker set response:', { 
+        status: createResponse.status, 
+        statusText: createResponse.statusText 
+      });
+
       result = await createResponse.json();
+      console.log('📄 Add to sticker set result:', result);
     }
+
+    console.log('🎉 Final result preparation:', { 
+      success: result.ok, 
+      hasError: !result.ok,
+      description: result.description 
+    });
 
     return {
       statusCode: 200,
