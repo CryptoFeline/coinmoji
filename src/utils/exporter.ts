@@ -32,9 +32,10 @@ export class CoinExporter {
 
     // Store original settings
     const originalSize = { 
-      width: this.renderer.domElement.width, 
-      height: this.renderer.domElement.height 
+      width: this.renderer.domElement.clientWidth, 
+      height: this.renderer.domElement.clientHeight 
     };
+    const originalAspect = this.camera.aspect;
     const originalRotation = this.turntable.rotation.y;
 
     try {
@@ -60,7 +61,7 @@ export class CoinExporter {
     } finally {
       // Restore original settings
       this.renderer.setSize(originalSize.width, originalSize.height);
-      this.camera.aspect = originalSize.width / originalSize.height;
+      this.camera.aspect = originalAspect;
       this.camera.updateProjectionMatrix();
       this.turntable.rotation.y = originalRotation;
     }
@@ -172,14 +173,21 @@ export class CoinExporter {
 
 // Telegram WebApp API helpers
 export const sendToTelegram = async (blob: Blob, initData: string) => {
-  const formData = new FormData();
-  formData.append('file', blob, 'coin_emoji.webm');
-  formData.append('initData', initData);
+  // Extract user ID from initData
+  const userId = getTelegramUserId(initData);
+  
+  // Convert blob to base64
+  const arrayBuffer = await blob.arrayBuffer();
+  const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
 
   try {
-    const response = await fetch('/api/send-file', {
+    const response = await fetch(`/.netlify/functions/send-file?user_id=${userId}`, {
       method: 'POST',
-      body: formData,
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-Telegram-InitData': initData,
+      },
+      body: base64,
     });
 
     if (!response.ok) {
@@ -211,7 +219,7 @@ export const createCustomEmoji = async (
   };
 
   try {
-    const response = await fetch('/api/create-emoji', {
+    const response = await fetch('/.netlify/functions/create-emoji', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

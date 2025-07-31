@@ -44,24 +44,44 @@ const handler: Handler = async (event) => {
       };
     }
 
-    // Get file from body (base64 encoded)
-    if (!event.body || !event.isBase64Encoded) {
+    // Get file from body (base64 string)
+    if (!event.body) {
       return {
         statusCode: 400,
         body: JSON.stringify({ error: 'Missing file data' }),
       };
     }
 
-    // Send file to Telegram
-    const fileBuffer = Buffer.from(event.body, 'base64');
+    // Send file to Telegram - handle base64 string in body
+    const fileBuffer = event.isBase64Encoded 
+      ? Buffer.from(event.body, 'base64')
+      : Buffer.from(event.body, 'base64'); // Body contains base64 string
     
-    const formData = new FormData();
-    formData.append('chat_id', userId);
-    formData.append('document', new Blob([fileBuffer], { type: 'video/webm' }), 'coin_emoji.webm');
+    // Create multipart form data manually
+    const boundary = '----formdata-netlify-' + Math.random().toString(16);
+    const delimiter = '\r\n--' + boundary;
+    const closeDelimiter = delimiter + '--';
+    
+    let body = '';
+    body += delimiter + '\r\n';
+    body += 'Content-Disposition: form-data; name="chat_id"\r\n\r\n';
+    body += userId + '\r\n';
+    body += delimiter + '\r\n';
+    body += 'Content-Disposition: form-data; name="document"; filename="coin_emoji.webm"\r\n';
+    body += 'Content-Type: video/webm\r\n\r\n';
+    
+    const bodyBuffer = Buffer.concat([
+      Buffer.from(body, 'utf8'),
+      fileBuffer,
+      Buffer.from(closeDelimiter, 'utf8')
+    ]);
 
     const telegramResponse = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
       method: 'POST',
-      body: formData,
+      headers: {
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      },
+      body: bodyBuffer,
     });
 
     const result = await telegramResponse.json();

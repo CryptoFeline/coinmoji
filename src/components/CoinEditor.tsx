@@ -125,7 +125,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
 
     const camera = new THREE.PerspectiveCamera(
       45,
-      window.innerWidth / window.innerHeight,
+      mountRef.current.clientWidth / mountRef.current.clientHeight,
       0.1,
       100
     );
@@ -323,6 +323,9 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     };
 
     window.addEventListener('resize', handleResize);
+    
+    // Call handleResize immediately to fix initial aspect ratio
+    handleResize();
 
     return () => {
       window.removeEventListener('resize', handleResize);

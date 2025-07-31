@@ -3,10 +3,10 @@ import { TelegramProvider, useTelegram } from './providers/TelegramProvider';
 import NotInTelegram from './components/NotInTelegram';
 import CoinEditor, { CoinEditorRef } from './components/CoinEditor';
 import SettingsPanel, { CoinSettings } from './components/SettingsPanel';
-import { CoinExporter, createCustomEmoji } from './utils/exporter';
+import { CoinExporter, createCustomEmoji, sendToTelegram } from './utils/exporter';
 
 const AppContent: React.FC = () => {
-  const { isInTelegram, initData } = useTelegram();
+  const { isInTelegram, initData, isLoading } = useTelegram();
   const [showSettings, setShowSettings] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const coinEditorRef = useRef<CoinEditorRef>(null);
@@ -26,6 +26,19 @@ const AppContent: React.FC = () => {
     lightColor: '#cecece',
     lightStrength: 'medium',
   });
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 mx-auto mb-4 relative">
+            <div className="w-16 h-16 border-4 border-gray-300 border-t-blue-500 rounded-full animate-spin"></div>
+          </div>
+          <p className="text-gray-700 font-medium">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!isInTelegram) {
     return <NotInTelegram />;
@@ -54,8 +67,14 @@ const AppContent: React.FC = () => {
         size: 100
       });
       
-      // Download the WebM file
-      exporter.downloadBlob(webmBlob, 'coin_emoji.webm');
+      // Send file to Telegram via bot
+      const result = await sendToTelegram(webmBlob, initData);
+      
+      if (result.success) {
+        alert('File sent successfully! Check your Telegram chat.');
+      } else {
+        throw new Error('Failed to send file to Telegram');
+      }
       
     } catch (error) {
       console.error('Export failed:', error);

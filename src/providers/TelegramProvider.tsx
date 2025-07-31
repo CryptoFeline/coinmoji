@@ -13,6 +13,7 @@ interface TelegramContextType {
   user: TelegramUser | null;
   initData: string;
   webApp: any;
+  isLoading: boolean;
 }
 
 const TelegramContext = createContext<TelegramContextType | null>(null);
@@ -34,6 +35,7 @@ export const TelegramProvider: React.FC<TelegramProviderProps> = ({ children }) 
   const [user, setUser] = useState<TelegramUser | null>(null);
   const [initData, setInitData] = useState('');
   const [webApp, setWebApp] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Development mode - set this to true to test visuals outside Telegram
   const DEV_MODE = import.meta.env.DEV && import.meta.env.VITE_ENABLE_NON_TELEGRAM === 'true';
@@ -75,6 +77,7 @@ export const TelegramProvider: React.FC<TelegramProviderProps> = ({ children }) 
       } else {
         setIsInTelegram(false);
       }
+      setIsLoading(false);
     };
 
     // Check immediately
@@ -91,6 +94,7 @@ export const TelegramProvider: React.FC<TelegramProviderProps> = ({ children }) 
     user,
     initData,
     webApp,
+    isLoading,
   };
 
   return (
