@@ -39,32 +39,16 @@ export class CoinExporter {
     };
     const originalAspect = this.camera.aspect;
     const originalRotation = this.turntable.rotation.y;
-    const originalPosition = this.camera.position.clone();
-    const originalFov = this.camera.fov;
 
-    console.log('💾 Stored original settings:', { originalSize, originalAspect, originalRotation, originalPosition, originalFov });
+    console.log('💾 Stored original settings:', { originalSize, originalAspect, originalRotation });
 
     try {
-      // Set high-resolution capture size for better quality
-      const exportSize = Math.max(512, size * 2); // Use at least 512px for quality
-      this.renderer.setSize(exportSize, exportSize);
+      // Set capture size
+      this.renderer.setSize(size, size);
       this.camera.aspect = 1;
-      
-      // Adjust camera for emoji framing - zoom in to fill the frame better
-      if (size <= 100) {
-        // For emoji export, zoom in closer and adjust FOV for tighter framing
-        this.camera.fov = 35; // Tighter FOV to fill frame better
-        this.camera.position.set(0, 0, 5.5); // Move closer
-      }
-      
       this.camera.updateProjectionMatrix();
 
-      console.log('🎯 Set export size:', { 
-        exportSize, 
-        finalOutputSize: size,
-        fov: this.camera.fov,
-        position: this.camera.position.toArray()
-      });
+      console.log('🎯 Set export size:', { width: size, height: size });
 
       for (let i = 0; i < totalFrames; i++) {
         // Set rotation for this frame
@@ -74,8 +58,8 @@ export class CoinExporter {
         // Render frame
         this.renderer.render(this.scene, this.camera);
 
-        // Capture frame as blob with transparency preserved
-        const blob = await this.captureFrame(size, exportSize);
+        // Capture frame as blob
+        const blob = await this.captureFrame();
         frames.push(blob);
         
         if (i === 0 || i === totalFrames - 1 || i % 10 === 0) {
@@ -89,8 +73,6 @@ export class CoinExporter {
       // Restore original settings
       this.renderer.setSize(originalSize.width, originalSize.height);
       this.camera.aspect = originalAspect;
-      this.camera.fov = originalFov;
-      this.camera.position.copy(originalPosition);
       this.camera.updateProjectionMatrix();
       this.turntable.rotation.y = originalRotation;
       
@@ -98,43 +80,11 @@ export class CoinExporter {
     }
   }
 
-  private captureFrame(targetSize?: number, renderSize?: number): Promise<Blob> {
+  private captureFrame(): Promise<Blob> {
     return new Promise((resolve) => {
-      if (targetSize && renderSize && targetSize !== renderSize) {
-        // Need to resize the captured frame
-        const canvas = document.createElement('canvas');
-        canvas.width = targetSize;
-        canvas.height = targetSize;
-        const ctx = canvas.getContext('2d')!;
-        
-        this.renderer.domElement.toBlob((blob) => {
-          if (!blob) {
-            resolve(blob!);
-            return;
-          }
-          
-          const img = new Image();
-          img.onload = () => {
-            // Clear with transparent background
-            ctx.clearRect(0, 0, targetSize, targetSize);
-            
-            // Draw the high-res image scaled down with anti-aliasing
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-            ctx.drawImage(img, 0, 0, targetSize, targetSize);
-            
-            canvas.toBlob((resizedBlob) => {
-              resolve(resizedBlob!);
-            }, 'image/png');
-          };
-          img.src = URL.createObjectURL(blob);
-        }, 'image/png');
-      } else {
-        // Direct capture
-        this.renderer.domElement.toBlob((blob) => {
-          resolve(blob!);
-        }, 'image/png');
-      }
+      this.renderer.domElement.toBlob((blob) => {
+        resolve(blob!);
+      }, 'image/png');
     });
   }
 
@@ -188,7 +138,6 @@ export class CoinExporter {
         width: size,
         height: size,
         frameRate: fps,
-        alpha: true, // Enable alpha channel for transparency
       }
     });
 
@@ -202,28 +151,25 @@ export class CoinExporter {
       }
     });
 
-    // Use VP9 profile 1 with alpha support for transparency
     encoder.configure({
-      codec: 'vp09.01.10.08', // VP9 Profile 1 with alpha support
+      codec: 'vp09.00.10.08',
       width: size,
       height: size,
-      alpha: 'keep', // Preserve alpha channel
-      bitrate: 1_500_000, // Balanced bitrate for good quality and file size
+      bitrate: 2_000_000, // Increased bitrate for better quality
       framerate: fps,
-      latencyMode: 'quality' // Prioritize quality over speed
+      latencyMode: 'realtime'
     });
 
-    console.log('🎬 Encoding frames with WebCodecs (VP9 + Alpha)...');
+    console.log('🎬 Encoding frames with WebCodecs...');
 
     // Encode frames
     for (let i = 0; i < frames.length; i++) {
       const imageBitmap = await createImageBitmap(frames[i]);
       
-      // Create VideoFrame directly from ImageBitmap with alpha preservation
+      // Create VideoFrame directly from ImageBitmap
       const videoFrame = new (window as any).VideoFrame(imageBitmap, {
         timestamp: (i * 1000000) / fps, // microseconds
-        duration: 1000000 / fps, // frame duration in microseconds
-        alpha: 'keep' // Preserve transparency
+        duration: 1000000 / fps // frame duration in microseconds
       });
       
       encoder.encode(videoFrame, { keyFrame: i === 0 });
@@ -243,12 +189,7 @@ export class CoinExporter {
     muxer.finalize();
 
     const blob = new Blob([target.buffer], { type: 'video/webm' });
-    console.log('✅ WebCodecs+Muxer WebM complete (with alpha):', { 
-      size: blob.size, 
-      type: blob.type,
-      hasAlpha: true,
-      targetSize: size
-    });
+    console.log('✅ WebCodecs+Muxer WebM complete:', { size: blob.size, type: blob.type });
     
     return blob;
   }
