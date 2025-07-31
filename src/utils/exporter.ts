@@ -74,6 +74,45 @@ export class CoinExporter {
         const blob = await this.captureFrame();
         frames.push(blob);
         
+        // For the first frame, let's debug what we captured
+        if (i === 0) {
+          const debugBitmap = await createImageBitmap(blob);
+          console.log(`🔍 First captured frame analysis:`, {
+            size: `${debugBitmap.width}x${debugBitmap.height}`,
+            blobSize: blob.size,
+            rendererSize: `${this.renderer.domElement.width}x${this.renderer.domElement.height}`,
+            cameraPosition: this.camera.position,
+            turntableRotation: this.turntable.rotation.y
+          });
+          
+          // Create a test canvas to check if we actually have content
+          const testCanvas = document.createElement('canvas');
+          testCanvas.width = Math.min(debugBitmap.width, 100);
+          testCanvas.height = Math.min(debugBitmap.height, 100);
+          const testCtx = testCanvas.getContext('2d')!;
+          testCtx.drawImage(debugBitmap, 0, 0, testCanvas.width, testCanvas.height);
+          
+          // Sample some pixels to see if we have actual content
+          const imageData = testCtx.getImageData(0, 0, testCanvas.width, testCanvas.height);
+          const pixels = imageData.data;
+          let nonTransparentPixels = 0;
+          let totalPixels = pixels.length / 4;
+          
+          for (let j = 0; j < pixels.length; j += 4) {
+            const alpha = pixels[j + 3];
+            if (alpha > 0) nonTransparentPixels++;
+          }
+          
+          console.log(`🎨 Frame content analysis:`, {
+            totalPixels,
+            nonTransparentPixels,
+            hasContent: nonTransparentPixels > 0,
+            contentPercentage: ((nonTransparentPixels / totalPixels) * 100).toFixed(1) + '%'
+          });
+          
+          debugBitmap.close();
+        }
+        
         if (i === 0 || i === totalFrames - 1 || i % 10 === 0) {
           console.log(`📸 Captured frame ${i + 1}/${totalFrames}, size: ${blob.size} bytes, angle: ${angle.toFixed(2)}`);
         }
@@ -92,10 +131,10 @@ export class CoinExporter {
 
   private captureFrame(): Promise<Blob> {
     return new Promise((resolve) => {
-      // Ensure transparent background is maintained
-      this.renderer.setClearColor(0x000000, 0);
-      this.renderer.clear();
+      // Make sure we render again to ensure frame is up to date
+      this.renderer.render(this.scene, this.camera);
       
+      // Capture the entire canvas as it currently appears
       this.renderer.domElement.toBlob((blob) => {
         resolve(blob!);
       }, 'image/png'); // PNG preserves alpha
@@ -211,6 +250,11 @@ export class CoinExporter {
       // Get the actual source frame size first
       const sourceBitmap = await createImageBitmap(frames[i]);
       
+      console.log(`🖼️ Frame ${i + 1} source:`, {
+        width: sourceBitmap.width,
+        height: sourceBitmap.height
+      });
+      
       // Create target canvas at exact output size
       const canvas = document.createElement('canvas');
       canvas.width = size;
@@ -220,20 +264,47 @@ export class CoinExporter {
       // Clear with transparent background if we have alpha
       if (hasAlpha) {
         ctx.clearRect(0, 0, size, size);
+      } else {
+        // Fill with white background if no alpha
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, size, size);
       }
       
-      // Calculate scaling to fit and center the coin
-      const scale = Math.min(size / sourceBitmap.width, size / sourceBitmap.height);
+      // For debugging: let's try direct scaling without centering first
+      // This will show us if the coin is actually in the source frames
+      
+      // Method 1: Simple direct scale to fill entire target (might crop)
+      const scaleX = size / sourceBitmap.width;
+      const scaleY = size / sourceBitmap.height;
+      const scale = Math.max(scaleX, scaleY); // Fill entire area, might crop
+      
       const scaledWidth = sourceBitmap.width * scale;
       const scaledHeight = sourceBitmap.height * scale;
       const offsetX = (size - scaledWidth) / 2;
       const offsetY = (size - scaledHeight) / 2;
+      
+      console.log(`📐 Scaling frame ${i + 1}:`, {
+        scale: scale.toFixed(3),
+        scaledSize: `${scaledWidth.toFixed(1)}x${scaledHeight.toFixed(1)}`,
+        offset: `${offsetX.toFixed(1)}, ${offsetY.toFixed(1)}`,
+        targetSize: `${size}x${size}`
+      });
       
       // Draw with high quality scaling
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(sourceBitmap, offsetX, offsetY, scaledWidth, scaledHeight);
       sourceBitmap.close();
+      
+      // For debugging the first frame, let's save what we're actually encoding
+      if (i === 0) {
+        // Create a test image to see what we're encoding
+        canvas.toBlob((testBlob) => {
+          const url = URL.createObjectURL(testBlob!);
+          console.log('🔍 First frame preview URL (for debugging):', url);
+          // In browser console, you can open this URL to see what's being encoded
+        }, 'image/png');
+      }
       
       // Create VideoFrame from canvas
       const videoFrame = new (window as any).VideoFrame(canvas, {
