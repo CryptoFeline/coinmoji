@@ -27,68 +27,57 @@ export class CoinExporter {
 
   async exportFrames(settings: ExportSettings): Promise<Blob[]> {
     const { fps, duration, size } = settings;
-    const totalFrames = Math.round(fps * duration);
-    const rotationsPerSecond = 1; // One full rotation per second
+    const totalFrames = Math.floor(fps * duration);
     const frames: Blob[] = [];
-    
-    console.log(`🎬 Exporting ${totalFrames} frames at ${size}x${size}...`);
-    
-    // Create high-resolution canvas for better quality
-    const hiResSize = Math.min(512, size * 2); // 2x resolution, max 512px
-    const canvas = document.createElement('canvas');
-    canvas.width = hiResSize;
-    canvas.height = hiResSize;
-    const ctx = canvas.getContext('2d')!;
-    
-    // Enable image smoothing for better quality
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    
-    // Store original turntable rotation
+
+    console.log('📹 Starting frame export:', { fps, duration, size, totalFrames });
+
+    // Store original settings
+    const originalSize = { 
+      width: this.renderer.domElement.clientWidth, 
+      height: this.renderer.domElement.clientHeight 
+    };
+    const originalAspect = this.camera.aspect;
     const originalRotation = this.turntable.rotation.y;
-    
-    for (let frame = 0; frame < totalFrames; frame++) {
-      // Calculate rotation for this frame
-      const progress = frame / totalFrames;
-      const rotation = progress * rotationsPerSecond * 2 * Math.PI;
-      
-      // Set turntable rotation
-      this.turntable.rotation.y = rotation;
-      
-      // Render the scene
-      this.renderer.setSize(hiResSize, hiResSize, false);
-      this.renderer.render(this.scene, this.camera);
-      
-      // Get the rendered image
-      const coinCanvas = this.renderer.domElement;
-      
-      // Clear with transparent background (not black!)
-      ctx.clearRect(0, 0, hiResSize, hiResSize);
-      
-      // Draw the rendered coin
-      ctx.drawImage(coinCanvas, 0, 0);
-      
-      // Convert to blob with high quality
-      const blob = await new Promise<Blob>((resolve) => {
-        canvas.toBlob(
-          (blob) => resolve(blob!),
-          'image/png', // Use PNG to preserve transparency
-          1.0 // Maximum quality
-        );
-      });
-      
-      frames.push(blob);
-      
-      if (frame % 10 === 0) {
-        console.log(`📸 Exported frame ${frame + 1}/${totalFrames}, rotation: ${(rotation * 180 / Math.PI).toFixed(1)}°`);
+
+    console.log('💾 Stored original settings:', { originalSize, originalAspect, originalRotation });
+
+    try {
+      // Set capture size
+      this.renderer.setSize(size, size);
+      this.camera.aspect = 1;
+      this.camera.updateProjectionMatrix();
+
+      console.log('🎯 Set export size:', { width: size, height: size });
+
+      for (let i = 0; i < totalFrames; i++) {
+        // Set rotation for this frame
+        const angle = (2 * Math.PI * i) / totalFrames;
+        this.turntable.rotation.y = angle;
+
+        // Render frame
+        this.renderer.render(this.scene, this.camera);
+
+        // Capture frame as blob
+        const blob = await this.captureFrame();
+        frames.push(blob);
+        
+        if (i === 0 || i === totalFrames - 1 || i % 10 === 0) {
+          console.log(`📸 Captured frame ${i + 1}/${totalFrames}, size: ${blob.size} bytes, angle: ${angle.toFixed(2)}`);
+        }
       }
+
+      console.log('✅ Frame export complete:', { totalFrames: frames.length });
+      return frames;
+    } finally {
+      // Restore original settings
+      this.renderer.setSize(originalSize.width, originalSize.height);
+      this.camera.aspect = originalAspect;
+      this.camera.updateProjectionMatrix();
+      this.turntable.rotation.y = originalRotation;
+      
+      console.log('🔄 Restored original settings');
     }
-    
-    // Restore original rotation
-    this.turntable.rotation.y = originalRotation;
-    
-    console.log(`✅ Exported ${frames.length} high-res frames`);
-    return frames;
   }
 
   private captureFrame(): Promise<Blob> {
@@ -124,308 +113,85 @@ export class CoinExporter {
   async exportAsWebM(settings: ExportSettings): Promise<Blob> {
     console.log('🎬 Starting WebM export with settings:', settings);
     
-    // Create animated WebM using simpler canvas-to-WebM approach
-    return await this.createSimpleWebM(settings);
+    const frames = await this.exportFrames(settings);
+    
+    if (!('VideoEncoder' in window)) {
+      throw new Error('WebCodecs not supported in this browser');
+    }
+
+    const { fps, size } = settings;
+    
+    // Use WebCodecs with webm-muxer approach (more reliable than MediaRecorder)
+    console.log('🎥 Using WebCodecs with webm-muxer approach...');
+    return await this.exportWithWebCodecs(frames, fps, size);
   }
 
-  private async createSimpleWebM(settings: ExportSettings): Promise<Blob> {
-    const { fps, duration, size } = settings;
-    const totalFrames = Math.round(fps * duration);
+  private async exportWithWebCodecs(frames: Blob[], fps: number, size: number): Promise<Blob> {
+    // Import webm-muxer dynamically
+    const { Muxer, ArrayBufferTarget } = await import('webm-muxer');
     
-    console.log(`🎬 Creating WebM: ${totalFrames} frames at ${fps}fps for ${duration}s`);
-    
-    // Create a single canvas for the entire animation
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d')!;
-    
-    // Check if MediaRecorder is available and supports WebM
-    if (!('MediaRecorder' in window)) {
-      throw new Error('MediaRecorder not supported');
-    }
-    
-    const stream = canvas.captureStream(fps);
-    
-    // Find supported WebM codec
-    const mimeTypes = [
-      'video/webm;codecs=vp8',
-      'video/webm;codecs=vp9',
-      'video/webm'
-    ];
-    
-    let mimeType = '';
-    for (const type of mimeTypes) {
-      if (MediaRecorder.isTypeSupported(type)) {
-        mimeType = type;
-        console.log(`✅ Using supported codec: ${type}`);
-        break;
+    const target = new ArrayBufferTarget();
+    const muxer = new Muxer({
+      target,
+      video: {
+        codec: 'V_VP9',
+        width: size,
+        height: size,
+        frameRate: fps,
       }
-    }
-    
-    if (!mimeType) {
-      throw new Error('No supported WebM codec found');
-    }
-    
-    const mediaRecorder = new MediaRecorder(stream, {
-      mimeType,
-      videoBitsPerSecond: 500000 // 500kbps for small files
     });
-    
-    const chunks: BlobPart[] = [];
-    
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        console.error('❌ WebM recording timeout');
-        reject(new Error('Recording timeout'));
-      }, (duration + 5) * 1000);
-      
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          chunks.push(event.data);
-          console.log(`📹 Recorded chunk: ${event.data.size} bytes`);
-        }
-      };
-      
-      mediaRecorder.onstop = () => {
-        clearTimeout(timeout);
-        const blob = new Blob(chunks, { type: mimeType });
-        console.log(`✅ WebM created: ${blob.size} bytes, type: ${blob.type}`);
-        resolve(blob);
-      };
-      
-      mediaRecorder.onerror = (error) => {
-        clearTimeout(timeout);
-        console.error('❌ MediaRecorder error:', error);
-        reject(error);
-      };
-      
-      // Store original rotation
-      const originalRotation = this.turntable.rotation.y;
-      
-      // Start recording
-      mediaRecorder.start();
-      console.log('🎬 Recording started...');
-      
-      let frameCount = 0;
-      const startTime = Date.now();
-      
-      const animate = () => {
-        const elapsed = Date.now() - startTime;
-        const progress = Math.min(elapsed / (duration * 1000), 1);
-        
-        if (progress < 1) {
-          // Calculate rotation based on time elapsed
-          const rotation = progress * 2 * Math.PI; // One full rotation
-          this.turntable.rotation.y = rotation;
-          
-          // Clear canvas with white background (important for stickers!)
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, size, size);
-          
-          // Render THREE.js scene to temporary canvas
-          this.renderer.setSize(size, size, false);
-          this.renderer.render(this.scene, this.camera);
-          
-          // Draw the rendered scene onto our recording canvas
-          ctx.drawImage(this.renderer.domElement, 0, 0);
-          
-          frameCount++;
-          if (frameCount % 10 === 0) {
-            console.log(`🎞️ Frame ${frameCount}, progress: ${(progress * 100).toFixed(1)}%`);
-          }
-          
-          // Continue animation
-          requestAnimationFrame(animate);
-        } else {
-          // Animation complete
-          console.log(`🛑 Animation complete after ${frameCount} frames`);
-          this.turntable.rotation.y = originalRotation;
-          
-          // Stop recording after a short delay to ensure last frames are captured
-          setTimeout(() => {
-            mediaRecorder.stop();
-          }, 100);
-        }
-      };
-      
-      // Start the animation
-      animate();
-    });
-  }
 
-  private async exportFramesAsWebM(settings: ExportSettings): Promise<Blob> {
-    const { fps, duration, size } = settings;
-    const totalFrames = Math.round(fps * duration);
-    
-    console.log(`📸 Frame-based export: ${totalFrames} frames`);
-    
-    // Create canvas for individual frames
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d')!;
-    
-    // Store original turntable rotation
-    const originalRotation = this.turntable.rotation.y;
-    
-    const frames: string[] = [];
-    
-    for (let frame = 0; frame < totalFrames; frame++) {
-      // Calculate rotation for this frame
-      const progress = frame / totalFrames;
-      const rotation = progress * 2 * Math.PI; // One full rotation
+    const encoder = new (window as any).VideoEncoder({
+      output: (chunk: any, meta: any) => {
+        muxer.addVideoChunk(chunk, meta);
+        console.log(`📝 WebCodecs chunk: ${chunk.byteLength} bytes, type: ${chunk.type}, timestamp: ${chunk.timestamp}`);
+      },
+      error: (e: any) => {
+        console.error('❌ VideoEncoder error:', e);
+      }
+    });
+
+    encoder.configure({
+      codec: 'vp09.00.10.08',
+      width: size,
+      height: size,
+      bitrate: 2_000_000, // Increased bitrate for better quality
+      framerate: fps,
+      latencyMode: 'realtime'
+    });
+
+    console.log('🎬 Encoding frames with WebCodecs...');
+
+    // Encode frames
+    for (let i = 0; i < frames.length; i++) {
+      const imageBitmap = await createImageBitmap(frames[i]);
       
-      // Set turntable rotation
-      this.turntable.rotation.y = rotation;
+      // Create VideoFrame directly from ImageBitmap
+      const videoFrame = new (window as any).VideoFrame(imageBitmap, {
+        timestamp: (i * 1000000) / fps, // microseconds
+        duration: 1000000 / fps // frame duration in microseconds
+      });
       
-      // Render the scene
-      this.renderer.setSize(size, size, false);
-      this.renderer.render(this.scene, this.camera);
+      encoder.encode(videoFrame, { keyFrame: i === 0 });
+      videoFrame.close();
+      imageBitmap.close();
       
-      // Draw to canvas with white background
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, size, size);
-      ctx.drawImage(this.renderer.domElement, 0, 0, size, size);
-      
-      // Convert to base64
-      const dataUrl = canvas.toDataURL('image/png', 1.0);
-      frames.push(dataUrl);
-      
-      if (frame % 10 === 0) {
-        console.log(`📸 Captured frame ${frame + 1}/${totalFrames}`);
+      if (i % 10 === 0) {
+        console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, timestamp: ${videoFrame.timestamp}`);
       }
     }
+
+    console.log('⏳ Flushing encoder...');
+    await encoder.flush();
+    encoder.close();
     
-    // Restore original rotation
-    this.turntable.rotation.y = originalRotation;
+    console.log('📦 Finalizing muxer...');
+    muxer.finalize();
+
+    const blob = new Blob([target.buffer], { type: 'video/webm' });
+    console.log('✅ WebCodecs+Muxer WebM complete:', { size: blob.size, type: blob.type });
     
-    // Create a simple WebM-like file (actually will be a series of PNGs)
-    // For now, let's just return the last frame as PNG since WebM creation is complex
-    const lastFrameData = frames[frames.length - 1];
-    const response = await fetch(lastFrameData);
-    const blob = await response.blob();
-    
-    console.log('✅ Frame-based export complete (PNG fallback):', blob.size);
     return blob;
-  }
-
-  private async exportWithDirectCanvas(settings: ExportSettings): Promise<Blob> {
-    const { fps, duration, size } = settings;
-    const totalFrames = Math.round(fps * duration);
-    
-    console.log(`🎬 Direct canvas recording: ${totalFrames} frames at ${fps}fps for ${duration}s`);
-    
-    // Create high-resolution canvas
-    const canvas = document.createElement('canvas');
-    canvas.width = size * 2; // 2x for quality
-    canvas.height = size * 2;
-    const ctx = canvas.getContext('2d')!;
-    
-    // Get canvas stream
-    const stream = canvas.captureStream(fps);
-    
-    // Check MediaRecorder support for different codecs
-    const supportedTypes = [
-      'video/webm;codecs=vp8',
-      'video/webm;codecs=vp9', 
-      'video/webm'
-    ];
-    
-    let mimeType = '';
-    for (const type of supportedTypes) {
-      if (MediaRecorder.isTypeSupported(type)) {
-        mimeType = type;
-        console.log(`✅ Using supported MIME type: ${type}`);
-        break;
-      }
-    }
-    
-    if (!mimeType) {
-      throw new Error('No supported WebM codec found');
-    }
-    
-    // Set up MediaRecorder with Telegram-compatible settings
-    const mediaRecorder = new MediaRecorder(stream, {
-      mimeType,
-      videoBitsPerSecond: 800000 // Lower bitrate for smaller files
-    });
-
-    const chunks: BlobPart[] = [];
-    
-    return new Promise((resolve, reject) => {
-      // Add timeout to prevent hanging
-      const timeout = setTimeout(() => {
-        console.error('❌ MediaRecorder timeout after', (duration + 3), 'seconds');
-        reject(new Error('MediaRecorder timeout'));
-      }, (duration + 3) * 1000); // duration + 3 seconds buffer
-      
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          chunks.push(event.data);
-          console.log(`📝 MediaRecorder chunk: ${event.data.size} bytes`);
-        }
-      };
-
-      mediaRecorder.onstop = () => {
-        clearTimeout(timeout);
-        const blob = new Blob(chunks, { type: mimeType });
-        console.log('✅ Direct canvas WebM complete:', { size: blob.size, type: blob.type, mimeType });
-        resolve(blob);
-      };
-
-      mediaRecorder.onerror = (error) => {
-        clearTimeout(timeout);
-        console.error('❌ MediaRecorder error:', error);
-        reject(error);
-      };
-
-      // Start recording
-      mediaRecorder.start(100); // Collect data every 100ms
-      console.log('� MediaRecorder started, animating coin...');
-
-      // Store original turntable rotation
-      const originalRotation = this.turntable.rotation.y;
-      
-      // Animate the turntable and draw frames
-      let frameIndex = 0;
-      const frameDuration = 1000 / fps; // ms per frame
-      
-      const animate = () => {
-        if (frameIndex < totalFrames) {
-          // Calculate rotation for this frame
-          const progress = frameIndex / totalFrames;
-          const rotation = progress * 2 * Math.PI; // One full rotation
-          
-          // Set turntable rotation
-          this.turntable.rotation.y = rotation;
-          
-          // Render the scene to offscreen canvas
-          this.renderer.setSize(size * 2, size * 2, false);
-          this.renderer.render(this.scene, this.camera);
-          
-          // Draw to our recording canvas with WHITE background (no transparency!)
-          ctx.fillStyle = '#ffffff'; // White background for sticker compatibility
-          ctx.fillRect(0, 0, size * 2, size * 2);
-          ctx.drawImage(this.renderer.domElement, 0, 0);
-          
-          if (frameIndex % 10 === 0) {
-            console.log(`🎞️ Frame ${frameIndex + 1}/${totalFrames}, rotation: ${(rotation * 180 / Math.PI).toFixed(1)}°`);
-          }
-          
-          frameIndex++;
-          setTimeout(animate, frameDuration);
-        } else {
-          console.log('🛑 Animation complete, stopping recording...');
-          // Restore original rotation
-          this.turntable.rotation.y = originalRotation;
-          mediaRecorder.stop();
-        }
-      };
-
-      // Start animation
-      animate();
-    });
   }
 
   downloadBlob(blob: Blob, filename: string) {

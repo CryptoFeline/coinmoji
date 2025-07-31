@@ -152,10 +152,7 @@ const AppContent: React.FC = () => {
       );
       
       if (result.success) {
-        const message = result.set_url 
-          ? `Emoji created successfully! 🎉\n\nView your emoji pack:\n${result.set_url}`
-          : 'Emoji created successfully! Check your custom emojis in Telegram.';
-        alert(message);
+        alert('Emoji created successfully! Check your custom emojis in Telegram.');
       } else {
         throw new Error(result.error || 'Failed to create emoji');
       }
