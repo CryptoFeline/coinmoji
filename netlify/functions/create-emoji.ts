@@ -88,6 +88,7 @@ const handler: Handler = async (event) => {
     console.log('✅ Telegram WebApp data verified');
 
     // Create sticker set name
+    console.log('📝 Creating sticker set name...');
     const slugifyTitle = (title: string): string => {
       const base = title.toLowerCase()
         .replace(/[^a-z0-9]+/g, '_')
@@ -96,33 +97,58 @@ const handler: Handler = async (event) => {
     };
 
     const stickerSetName = set_slug || slugifyTitle(set_title);
+    console.log('📛 Sticker set name:', stickerSetName);
 
     // Step 1: Upload sticker file
+    console.log('📤 Uploading sticker file...');
     const fileBuffer = Buffer.from(webm_base64, 'base64');
+    console.log('📁 File buffer created:', { size: fileBuffer.length });
+    
     const formData = new FormData();
     formData.append('user_id', String(user_id));
     formData.append('sticker_format', 'video');
     formData.append('sticker', new Blob([fileBuffer], { type: 'video/webm' }), 'coin.webm');
 
+    console.log('📡 Sending upload request to Telegram...');
     const uploadResponse = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/uploadStickerFile`, {
       method: 'POST',
       body: formData,
     });
 
+    console.log('📡 Upload response:', { 
+      status: uploadResponse.status, 
+      statusText: uploadResponse.statusText 
+    });
+
     const uploadResult = await uploadResponse.json();
+    console.log('📄 Upload result:', uploadResult);
+    
     if (!uploadResult.ok) {
+      console.error('❌ Upload failed:', uploadResult);
       throw new Error(`Failed to upload sticker: ${uploadResult.description}`);
     }
 
     const fileId = uploadResult.result.file_id;
+    console.log('✅ File uploaded successfully:', { fileId });
 
     // Step 2: Try to create new sticker set
+    console.log('🎭 Creating new sticker set...');
     const inputSticker = {
       sticker: fileId,
       format: 'video',
       emoji_list: emoji_list,
     };
 
+    console.log('📋 Input sticker object:', inputSticker);
+    console.log('📋 Create sticker set payload:', {
+      user_id,
+      name: stickerSetName,
+      title: set_title,
+      sticker_type: 'custom_emoji',
+      stickers: [inputSticker],
+    });
+
+    console.log('📡 Sending create sticker set request...');
     let createResponse = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/createNewStickerSet`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

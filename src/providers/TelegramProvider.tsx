@@ -42,8 +42,15 @@ export const TelegramProvider: React.FC<TelegramProviderProps> = ({ children }) 
 
   useEffect(() => {
     const checkTelegram = () => {
-      if (window.Telegram?.WebApp) {
+      console.log('🔍 Checking Telegram environment...', {
+        hasTelegramWebApp: !!window.Telegram?.WebApp,
+        hasInitData: !!window.Telegram?.WebApp?.initData,
+        DEV_MODE
+      });
+      
+      if (window.Telegram?.WebApp && window.Telegram.WebApp.initData) {
         const tg = window.Telegram.WebApp;
+        console.log('✅ Telegram WebApp found with initData');
         setIsInTelegram(true);
         setWebApp(tg);
         setInitData(tg.initData);
@@ -65,6 +72,7 @@ export const TelegramProvider: React.FC<TelegramProviderProps> = ({ children }) 
         console.log('✅ Telegram environment detected');
       } else if (DEV_MODE) {
         // Development mode - simulate Telegram environment
+        console.log('🔧 DEV_MODE enabled, simulating Telegram');
         setIsInTelegram(true);
         setUser({
           id: 123456789,
@@ -76,8 +84,8 @@ export const TelegramProvider: React.FC<TelegramProviderProps> = ({ children }) 
         setWebApp(null);
         console.log('🔧 Development mode: Simulating Telegram environment');
       } else {
+        console.log('❌ Not in Telegram environment - no WebApp or initData');
         setIsInTelegram(false);
-        console.log('❌ Not in Telegram environment');
       }
       setIsLoading(false);
     };
