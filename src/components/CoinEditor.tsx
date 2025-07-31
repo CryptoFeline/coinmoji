@@ -27,6 +27,7 @@ export interface CoinSettings {
 }
 
 export interface CoinEditorRef {
+  exportAsWebM: (settings: any) => Promise<Blob>;
   exportFrames: (settings: any) => Promise<Blob[]>;
   getScene: () => THREE.Scene | null;
   getCamera: () => THREE.PerspectiveCamera | null;
@@ -80,6 +81,16 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
 
   // Expose methods via ref
   useImperativeHandle(ref, () => ({
+    exportAsWebM: async (settings: any) => {
+      if (!sceneRef.current) throw new Error('Scene not initialized');
+      const exporter = new CoinExporter(
+        sceneRef.current.scene,
+        sceneRef.current.camera,
+        sceneRef.current.renderer,
+        sceneRef.current.turntable
+      );
+      return await exporter.exportAsWebM(settings);
+    },
     exportFrames: async (settings: any) => {
       if (!sceneRef.current) return [];
       const exporter = new CoinExporter(
