@@ -58,7 +58,6 @@ export class CoinExporter {
     const prevBackground = this.scene.background;
     try {
       this.scene.background = null; // ensure transparent renders
-      
       // Create OFFSCREEN renderer for export (doesn't affect live view!)
       const captureSize = 512; // High resolution for better quality
       console.log('🎨 Creating offscreen renderer...');
@@ -137,7 +136,7 @@ export class CoinExporter {
       // Restore original rotation only
       this.turntable.rotation.y = originalRotation;
       
-      console.log('🔄 Restored original rotation and scene background');
+      console.log('🔄 Restored original rotation');
     }
   }
 
@@ -240,21 +239,16 @@ export class CoinExporter {
       console.log('🎥 Creating WebM with WebCodecs at target size...');
       const result = await this.exportWithWebCodecs(highResFrames, effectiveFPS, size);
       
-      console.log('✅ WebM export completed successfully');
-      
-      // Verify alpha channel is preserved (may look black in preview but should contain alpha)
-      try {
-        const hasAlpha = await verifyWebMHasAlpha(result);
-        console.log(`🔍 WebM alpha verification: ${hasAlpha ? '✅ Contains transparency' : '❌ No alpha detected'}`);
-        if (hasAlpha) {
-          console.log('🎉 Success! WebM contains alpha channel - transparency preserved for emoji use');
-        } else {
-          console.warn('⚠️ WebM may not contain alpha - but could still work in Telegram');
-        }
-      } catch (verifyError) {
-        console.warn('⚠️ Could not verify alpha channel:', verifyError);
+      // Verify the WebM actually contains alpha transparency
+      console.log('🔍 Verifying alpha transparency in exported WebM...');
+      const hasAlpha = await verifyWebMHasAlpha(result);
+      if (hasAlpha) {
+        console.log('✅ WebM contains alpha transparency (may look black in video preview but will work as emoji)');
+      } else {
+        console.warn('⚠️ WebM may not contain alpha transparency - check browser compatibility');
       }
       
+      console.log('✅ WebM export completed successfully');
       return result;
     } catch (error) {
       console.error('❌ WebM export failed:', error);
@@ -552,12 +546,16 @@ const getTelegramUserId = (initData: string): number => {
   return user.id;
 };
 
-// Verify WebM has alpha channel by decoding first frame
+// Verify that the WebM actually contains alpha transparency
 export async function verifyWebMHasAlpha(blob: Blob): Promise<boolean> {
-  if (!('VideoDecoder' in window)) return false;
+  if (!('VideoDecoder' in window)) {
+    console.log('🔍 VideoDecoder not available for alpha verification');
+    return false;
+  }
 
   const url = URL.createObjectURL(blob);
   try {
+    console.log('🔍 Verifying WebM alpha channel...');
     const v = document.createElement('video');
     v.src = url; 
     v.muted = true; 
@@ -572,13 +570,29 @@ export async function verifyWebMHasAlpha(blob: Blob): Promise<boolean> {
     c.width = v.videoWidth; 
     c.height = v.videoHeight;
     const ctx = c.getContext('2d', { willReadFrequently: true, alpha: true })!;
-    ctx.clearRect(0,0,c.width,c.height);
+    ctx.clearRect(0, 0, c.width, c.height);
     ctx.drawImage(v, 0, 0);
-    const px = ctx.getImageData(0,0,1,1).data; // sample top-left
     
-    // If alpha channel is present and the top-left is transparent in your render, A will be < 255
-    console.log('🔍 Alpha verification - top-left pixel RGBA:', px);
-    return px[3] < 255;
+    // Sample multiple edge pixels that should be transparent
+    const samples = [
+      ctx.getImageData(0, 0, 1, 1).data, // top-left
+      ctx.getImageData(c.width - 1, 0, 1, 1).data, // top-right
+      ctx.getImageData(0, c.height - 1, 1, 1).data, // bottom-left
+      ctx.getImageData(c.width - 1, c.height - 1, 1, 1).data // bottom-right
+    ];
+    
+    // Check if any corner pixels have transparency (alpha < 255)
+    const hasTransparency = samples.some(px => px[3] < 255);
+    console.log('🔍 Alpha verification result:', {
+      videoSize: `${v.videoWidth}x${v.videoHeight}`,
+      cornerAlphaValues: samples.map(px => px[3]),
+      hasTransparency
+    });
+    
+    return hasTransparency;
+  } catch (error) {
+    console.error('🔍 Alpha verification failed:', error);
+    return false;
   } finally {
     URL.revokeObjectURL(url);
   }
