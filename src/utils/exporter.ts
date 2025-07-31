@@ -66,13 +66,13 @@ export class CoinExporter {
         preserveDrawingBuffer: true 
       });
       offscreenRenderer.setSize(captureSize, captureSize);
-      offscreenRenderer.setClearColor(0x000000, 0); // Transparent background
+      offscreenRenderer.setClearColor(0x000000, 0); // Completely transparent background
       offscreenRenderer.outputColorSpace = THREE.SRGBColorSpace;
 
       // Create dedicated camera for export with perfect coin framing
       const exportCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
       // Position camera much closer to make coin fill more of the frame
-      exportCamera.position.set(0, 0, 2.5); // Even closer for bigger coin in frame
+      exportCamera.position.set(0, 0, 2.8); // Even closer for bigger coin in frame
       exportCamera.lookAt(0, 0, 0);
 
       console.log('🎯 Created offscreen renderer:', { 
@@ -282,21 +282,35 @@ export class CoinExporter {
       });
 
       try {
-        // Start with basic VP9 configuration (more reliable than alpha variants)
+        // Try with alpha support first for transparency
         encoder.configure({
           codec: 'vp09.00.10.08',
           width: size,
           height: size,
           bitrate: 1_200_000, // Lower bitrate for better stability
           framerate: fps,
-          latencyMode: 'realtime'
-          // NO alpha parameter - we'll handle transparency in the frames themselves
+          latencyMode: 'realtime',
+          alpha: 'keep' // Try to preserve alpha channel
         });
-        console.log('✅ VideoEncoder configured with basic VP9 (transparency via frame processing)');
-      } catch (configError) {
-        console.error('❌ VideoEncoder configuration failed:', configError);
-        alert(`VideoEncoder config failed: ${configError instanceof Error ? configError.message : 'Unknown config error'}`);
-        throw configError;
+        console.log('✅ VideoEncoder configured with alpha support for transparency');
+      } catch (alphaError) {
+        console.warn('⚠️ Alpha support failed, using basic VP9:', alphaError);
+        try {
+          // Fallback without alpha
+          encoder.configure({
+            codec: 'vp09.00.10.08',
+            width: size,
+            height: size,
+            bitrate: 1_200_000,
+            framerate: fps,
+            latencyMode: 'realtime'
+          });
+          console.log('⚠️ VideoEncoder configured without alpha (may have solid background)');
+        } catch (configError) {
+          console.error('❌ VideoEncoder configuration failed:', configError);
+          alert(`VideoEncoder config failed: ${configError instanceof Error ? configError.message : 'Unknown config error'}`);
+          throw configError;
+        }
       }
 
       console.log('🎬 Encoding frames with WebCodecs...');
@@ -323,18 +337,18 @@ export class CoinExporter {
               const canvas = document.createElement('canvas');
               canvas.width = size;
               canvas.height = size;
-              const ctx = canvas.getContext('2d')!;
+              const ctx = canvas.getContext('2d', { alpha: true })!;
               
-              // Use WHITE background instead of transparent (works better for WebM)
-              ctx.fillStyle = '#FFFFFF';
-              ctx.fillRect(0, 0, size, size);
+              // Keep transparent background - don't fill with any color
+              ctx.clearRect(0, 0, size, size);
               
-              // Draw scaled image with high quality
+              // Draw scaled image with high quality, preserving transparency
               ctx.imageSmoothingEnabled = true;
               ctx.imageSmoothingQuality = 'high';
+              ctx.globalCompositeOperation = 'source-over';
               ctx.drawImage(imageBitmap, 0, 0, size, size);
               
-              // Create VideoFrame from canvas (no alpha needed)
+              // Create VideoFrame from canvas
               const videoFrame = new (window as any).VideoFrame(canvas, {
                 timestamp: (i * 1000000) / fps, // microseconds
                 duration: 1000000 / fps // frame duration in microseconds
@@ -344,20 +358,8 @@ export class CoinExporter {
               videoFrame.close();
               imageBitmap.close();
             } else {
-              // For direct ImageBitmap, we need to process it through canvas for white background
-              const canvas = document.createElement('canvas');
-              canvas.width = size;
-              canvas.height = size;
-              const ctx = canvas.getContext('2d')!;
-              
-              // White background
-              ctx.fillStyle = '#FFFFFF';
-              ctx.fillRect(0, 0, size, size);
-              
-              // Draw the ImageBitmap on white background
-              ctx.drawImage(imageBitmap, 0, 0, size, size);
-              
-              const videoFrame = new (window as any).VideoFrame(canvas, {
+              // Use ImageBitmap directly (it should have transparency from THREE.js renderer)
+              const videoFrame = new (window as any).VideoFrame(imageBitmap, {
                 timestamp: (i * 1000000) / fps, // microseconds
                 duration: 1000000 / fps // frame duration in microseconds
               });
