@@ -32,43 +32,46 @@ export class CoinExporter {
 
     console.log('📹 Starting frame export:', { fps, duration, size, totalFrames });
 
-    // Store original settings
-    const originalSize = { 
-      width: this.renderer.domElement.clientWidth, 
-      height: this.renderer.domElement.clientHeight 
-    };
-    const originalAspect = this.camera.aspect;
+    // Store original rotation for restoration
     const originalRotation = this.turntable.rotation.y;
-    const originalCameraZ = this.camera.position.z;
+    console.log('💾 Stored original rotation:', originalRotation);
 
-    console.log('💾 Stored original settings:', { originalSize, originalAspect, originalRotation, originalCameraZ });
+    // Create offscreen renderer to avoid affecting the main display
+    const captureSize = Math.max(size * 4, 512); // High resolution for quality
+    const offscreenCanvas = document.createElement('canvas');
+    offscreenCanvas.width = captureSize;
+    offscreenCanvas.height = captureSize;
+    
+    const offscreenRenderer = new THREE.WebGLRenderer({ 
+      canvas: offscreenCanvas, 
+      alpha: true, 
+      antialias: true,
+      preserveDrawingBuffer: true 
+    });
+    offscreenRenderer.setSize(captureSize, captureSize, false);
+    offscreenRenderer.setClearColor(0x000000, 0); // Transparent background
+    
+    // Create camera for capture with perfect framing for emoji
+    const captureCamera = this.camera.clone();
+    captureCamera.aspect = 1;
+    captureCamera.position.z = 4.2; // Optimal distance to fill emoji frame without clipping
+    captureCamera.updateProjectionMatrix();
+
+    console.log('🎯 Created offscreen renderer:', { captureSize, targetSize: size, cameraZ: captureCamera.position.z });
 
     try {
-      // Set high capture size for better quality, will be scaled down by WebCodecs
-      const captureSize = Math.max(size * 2, 512); // At least 512px for quality
-      this.renderer.setSize(captureSize, captureSize);
-      this.camera.aspect = 1;
-      
-      // Adjust camera to frame coin better for emoji (tighter framing)
-      this.camera.position.z = 5.5; // Move closer to fill frame better
-      this.camera.updateProjectionMatrix();
-
-      console.log('🎯 Set export size:', { captureSize, targetSize: size, cameraZ: this.camera.position.z });
-
       for (let i = 0; i < totalFrames; i++) {
         // Set rotation for this frame
         const angle = (2 * Math.PI * i) / totalFrames;
         this.turntable.rotation.y = angle;
 
-        // Clear with transparent background
-        this.renderer.setClearColor(0x000000, 0);
-        this.renderer.clear();
-        
-        // Render frame
-        this.renderer.render(this.scene, this.camera);
+        // Render frame with offscreen renderer - clear with alpha
+        offscreenRenderer.setClearColor(0x000000, 0);
+        offscreenRenderer.clear();
+        offscreenRenderer.render(this.scene, captureCamera);
 
         // Capture frame as blob
-        const blob = await this.captureFrame();
+        const blob = await this.captureOffscreenFrame(offscreenCanvas);
         frames.push(blob);
         
         if (i === 0 || i === totalFrames - 1 || i % 10 === 0) {
@@ -79,24 +82,18 @@ export class CoinExporter {
       console.log('✅ Frame export complete:', { totalFrames: frames.length });
       return frames;
     } finally {
-      // Restore original settings
-      this.renderer.setSize(originalSize.width, originalSize.height);
-      this.camera.aspect = originalAspect;
-      this.camera.position.z = originalCameraZ;
-      this.camera.updateProjectionMatrix();
-      this.turntable.rotation.y = originalRotation;
+      // Clean up offscreen renderer
+      offscreenRenderer.dispose();
       
-      console.log('🔄 Restored original settings');
+      // Restore original rotation only (don't touch main display settings)
+      this.turntable.rotation.y = originalRotation;
+      console.log('🔄 Restored original rotation and cleaned up offscreen renderer');
     }
   }
 
-  private captureFrame(): Promise<Blob> {
+  private captureOffscreenFrame(canvas: HTMLCanvasElement): Promise<Blob> {
     return new Promise((resolve) => {
-      // Ensure transparent background is maintained
-      this.renderer.setClearColor(0x000000, 0);
-      this.renderer.clear();
-      
-      this.renderer.domElement.toBlob((blob) => {
+      canvas.toBlob((blob) => {
         resolve(blob!);
       }, 'image/png'); // PNG preserves alpha
     });
