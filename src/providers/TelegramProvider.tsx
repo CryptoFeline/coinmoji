@@ -62,6 +62,7 @@ export const TelegramProvider: React.FC<TelegramProviderProps> = ({ children }) 
           '--tg-theme-text-color',
           tg.themeParams.text_color || '#000000'
         );
+        console.log('✅ Telegram environment detected');
       } else if (DEV_MODE) {
         // Development mode - simulate Telegram environment
         setIsInTelegram(true);
@@ -76,6 +77,7 @@ export const TelegramProvider: React.FC<TelegramProviderProps> = ({ children }) 
         console.log('🔧 Development mode: Simulating Telegram environment');
       } else {
         setIsInTelegram(false);
+        console.log('❌ Not in Telegram environment');
       }
       setIsLoading(false);
     };

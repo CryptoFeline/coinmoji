@@ -11,7 +11,14 @@ interface CreateEmojiPayload {
 }
 
 const handler: Handler = async (event) => {
+  console.log('🎭 Create-emoji function called:', {
+    httpMethod: event.httpMethod,
+    headers: Object.keys(event.headers),
+    bodyLength: event.body?.length || 0
+  });
+
   if (event.httpMethod !== 'POST') {
+    console.log('❌ Method not allowed:', event.httpMethod);
     return {
       statusCode: 405,
       body: JSON.stringify({ error: 'Method not allowed' }),
@@ -22,21 +29,47 @@ const handler: Handler = async (event) => {
     const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
     const BOT_USERNAME = process.env.BOT_USERNAME;
     
+    console.log('🔑 Environment check:', {
+      hasBotToken: !!BOT_TOKEN,
+      botTokenLength: BOT_TOKEN?.length || 0,
+      hasBotUsername: !!BOT_USERNAME,
+      botUsername: BOT_USERNAME
+    });
+    
     if (!BOT_TOKEN || !BOT_USERNAME) {
+      console.error('❌ Missing environment variables');
       throw new Error('TELEGRAM_BOT_TOKEN or BOT_USERNAME not configured');
     }
 
     if (!event.body) {
+      console.error('❌ Missing request body');
       return {
         statusCode: 400,
         body: JSON.stringify({ error: 'Missing request body' }),
       };
     }
 
+    console.log('📝 Parsing request body...');
     const payload: CreateEmojiPayload = JSON.parse(event.body);
     const { initData, user_id, set_title, set_slug, emoji_list = ['🪙'], webm_base64 } = payload;
 
+    console.log('📋 Payload received:', {
+      hasInitData: !!initData,
+      initDataLength: initData?.length || 0,
+      user_id,
+      set_title,
+      set_slug,
+      emoji_list,
+      webm_base64_length: webm_base64?.length || 0
+    });
+
     if (!initData || !user_id || !set_title || !webm_base64) {
+      console.error('❌ Missing required fields:', {
+        hasInitData: !!initData,
+        hasUserId: !!user_id,
+        hasSetTitle: !!set_title,
+        hasWebmBase64: !!webm_base64
+      });
       return {
         statusCode: 400,
         body: JSON.stringify({ error: 'Missing required fields' }),
@@ -44,12 +77,15 @@ const handler: Handler = async (event) => {
     }
 
     // Verify Telegram WebApp data
+    console.log('🔐 Verifying Telegram WebApp data...');
     if (!verifyTelegramWebAppData(initData, BOT_TOKEN)) {
+      console.error('❌ Invalid Telegram WebApp data');
       return {
         statusCode: 401,
         body: JSON.stringify({ error: 'Invalid Telegram WebApp data' }),
       };
     }
+    console.log('✅ Telegram WebApp data verified');
 
     // Create sticker set name
     const slugifyTitle = (title: string): string => {

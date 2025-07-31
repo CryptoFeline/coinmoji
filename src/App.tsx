@@ -60,10 +60,28 @@ const AppContent: React.FC = () => {
 
       const exporter = new CoinExporter(scene, camera, renderer, turntable);
       
-      // Export as WebM for emoji use (100x100, 30fps, 2 seconds)
+      // Calculate perfect rotation timing based on current rotation speed
+      const speedMap = {
+        slow: 0.01,
+        medium: 0.02,
+        fast: 0.035,
+      };
+      
+      const rotationSpeed = speedMap[coinSettings.rotationSpeed];
+      // Calculate time for one full rotation (2π radians)
+      const timeForFullRotation = (2 * Math.PI) / rotationSpeed / 60; // Convert to seconds (assuming 60fps)
+      
+      console.log('🎬 Export settings:', {
+        rotationSpeed: coinSettings.rotationSpeed,
+        speedValue: rotationSpeed,
+        timeForFullRotation: timeForFullRotation,
+        fps: 30
+      });
+      
+      // Export as WebM for emoji use (100x100, 30fps, perfect rotation)
       const webmBlob = await exporter.exportAsWebM({
         fps: 30,
-        duration: 2,
+        duration: Math.max(1, Math.min(3, timeForFullRotation)), // Clamp between 1-3 seconds
         size: 100
       });
       
@@ -100,10 +118,28 @@ const AppContent: React.FC = () => {
 
       const exporter = new CoinExporter(scene, camera, renderer, turntable);
       
-      // Export as WebM for Telegram emoji (100x100, 30fps, 2 seconds)
+      // Calculate perfect rotation timing based on current rotation speed (same as download)
+      const speedMap = {
+        slow: 0.01,
+        medium: 0.02,
+        fast: 0.035,
+      };
+      
+      const rotationSpeed = speedMap[coinSettings.rotationSpeed];
+      // Calculate time for one full rotation (2π radians)
+      const timeForFullRotation = (2 * Math.PI) / rotationSpeed / 60; // Convert to seconds (assuming 60fps)
+      
+      console.log('🎭 Emoji export settings:', {
+        rotationSpeed: coinSettings.rotationSpeed,
+        speedValue: rotationSpeed,
+        timeForFullRotation: timeForFullRotation,
+        fps: 30
+      });
+      
+      // Export as WebM for Telegram emoji (100x100, 30fps, perfect rotation)
       const webmBlob = await exporter.exportAsWebM({
         fps: 30,
-        duration: 2,
+        duration: Math.max(1, Math.min(3, timeForFullRotation)), // Clamp between 1-3 seconds
         size: 100
       });
       
