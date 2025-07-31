@@ -80,7 +80,7 @@ export class CoinExporter {
       // Create dedicated camera for export with perfect coin framing
       const exportCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
       // Position camera much closer to make coin fill more of the frame
-      exportCamera.position.set(0, 0, 2.2); // Much closer for maximum coin size
+      exportCamera.position.set(0, 0, 2.8); // Always keep at 2.8
       exportCamera.lookAt(0, 0, 0);
 
       console.log('🎯 Created offscreen renderer:', { 
