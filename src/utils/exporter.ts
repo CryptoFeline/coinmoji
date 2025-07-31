@@ -33,35 +33,27 @@ export class CoinExporter {
     console.log('📹 Starting frame export:', { fps, duration, size, totalFrames });
 
     // Store original settings
-    const originalSize = { 
-      width: this.renderer.domElement.clientWidth, 
-      height: this.renderer.domElement.clientHeight 
-    };
-    const originalAspect = this.camera.aspect;
     const originalRotation = this.turntable.rotation.y;
-    const originalCameraPosition = this.camera.position.clone();
+    const originalClearColor = this.renderer.getClearColor(new THREE.Color());
+    const originalClearAlpha = this.renderer.getClearAlpha();
 
     console.log('💾 Stored original settings:', { 
-      originalSize, 
-      originalAspect, 
-      originalRotation, 
-      originalCameraPosition 
+      originalRotation,
+      originalClearColor: originalClearColor.getHex(),
+      originalClearAlpha
     });
 
     try {
-      // Set export size for capture - high quality capture
-      const captureSize = Math.max(size * 4, 800); // Higher resolution for better quality
-      this.renderer.setSize(captureSize, captureSize);
-      this.camera.aspect = 1;
-      
-      // Keep same camera distance as normal view to maintain coin scale
-      // Normal view is at z=7, so maintain that for consistency
-      this.camera.position.set(0, 0, 7);
-      this.camera.updateProjectionMatrix();
+      // DON'T change camera or renderer size - capture exactly what user sees
+      // Just ensure transparent background for capture
+      this.renderer.setClearColor(0x000000, 0); // Transparent background
 
-      console.log('🎯 Set export settings:', { 
-        captureSize, 
-        targetSize: size, 
+      console.log('🎯 Export settings:', { 
+        currentRendererSize: {
+          width: this.renderer.domElement.width,
+          height: this.renderer.domElement.height
+        },
+        targetSize: size,
         cameraPosition: this.camera.position,
         aspect: this.camera.aspect 
       });
@@ -71,11 +63,11 @@ export class CoinExporter {
         const angle = (2 * Math.PI * i) / totalFrames;
         this.turntable.rotation.y = angle;
 
-        // Force transparent background
-        this.renderer.setClearColor(0x000000, 0); // Black with 0 alpha
+        // Force transparent background for this frame
+        this.renderer.setClearColor(0x000000, 0);
         this.renderer.clear();
         
-        // Render frame
+        // Render frame exactly as user sees it
         this.renderer.render(this.scene, this.camera);
 
         // Capture frame as blob with alpha preserved
@@ -90,12 +82,9 @@ export class CoinExporter {
       console.log('✅ Frame export complete:', { totalFrames: frames.length });
       return frames;
     } finally {
-      // Restore ALL original settings
-      this.renderer.setSize(originalSize.width, originalSize.height);
-      this.camera.aspect = originalAspect;
-      this.camera.position.copy(originalCameraPosition);
-      this.camera.updateProjectionMatrix();
+      // Restore original settings
       this.turntable.rotation.y = originalRotation;
+      this.renderer.setClearColor(originalClearColor, originalClearAlpha);
       
       console.log('🔄 Restored original settings');
     }
@@ -156,6 +145,19 @@ export class CoinExporter {
     const { Muxer, ArrayBufferTarget } = await import('webm-muxer');
     
     const target = new ArrayBufferTarget();
+    
+    // Check if frames have transparency by examining the first frame
+    const firstFrameData = await createImageBitmap(frames[0]);
+    const testCanvas = document.createElement('canvas');
+    testCanvas.width = testCanvas.height = 1;
+    const testCtx = testCanvas.getContext('2d')!;
+    testCtx.drawImage(firstFrameData, 0, 0, 1, 1);
+    const pixel = testCtx.getImageData(0, 0, 1, 1).data;
+    const hasAlpha = pixel[3] < 255; // Check if alpha channel is used
+    firstFrameData.close();
+    
+    console.log('🔍 Alpha channel detection:', { hasAlpha, alphaValue: pixel[3] });
+    
     const muxer = new Muxer({
       target,
       video: {
@@ -163,7 +165,7 @@ export class CoinExporter {
         width: size,
         height: size,
         frameRate: fps,
-        alpha: true // Enable alpha channel in muxer
+        alpha: hasAlpha // Only enable alpha if actually needed
       }
     });
 
@@ -177,49 +179,63 @@ export class CoinExporter {
       }
     });
 
-    // Configure encoder with alpha support and optimized settings for Telegram
+    // Configure encoder with simpler, more compatible settings
     const config: any = {
       codec: 'vp09.00.10.08', // VP9 Profile 0
       width: size,
       height: size,
-      bitrate: 800_000, // Lower bitrate to prevent corruption
+      bitrate: 500_000, // Much lower bitrate to prevent corruption
       framerate: fps,
-      latencyMode: 'quality' // Better quality than 'realtime'
+      latencyMode: 'quality'
     };
     
-    // Try to enable alpha if supported
-    try {
-      config.alpha = 'keep';
+    // Only add alpha if we detected it and try to configure
+    if (hasAlpha) {
+      try {
+        config.alpha = 'keep';
+        encoder.configure(config);
+        console.log('🎬 Encoding with alpha support...');
+      } catch (error) {
+        console.warn('⚠️ Alpha not supported, using standard encoding:', error);
+        delete config.alpha;
+        encoder.configure(config);
+        console.log('🎬 Encoding without alpha...');
+      }
+    } else {
       encoder.configure(config);
-      console.log('🎬 Encoding frames with WebCodecs (alpha enabled)...');
-    } catch (error) {
-      console.warn('⚠️ Alpha not supported, using standard encoding:', error);
-      delete config.alpha;
-      encoder.configure(config);
-      console.log('🎬 Encoding frames with WebCodecs (no alpha)...');
+      console.log('🎬 Encoding without alpha (not needed)...');
     }
 
-    // Encode frames with proper scaling and alpha handling
+    // Encode frames with careful scaling
     for (let i = 0; i < frames.length; i++) {
-      // Create canvas to properly scale and handle alpha
+      // Get the actual source frame size first
+      const sourceBitmap = await createImageBitmap(frames[i]);
+      
+      // Create target canvas at exact output size
       const canvas = document.createElement('canvas');
       canvas.width = size;
       canvas.height = size;
       const ctx = canvas.getContext('2d')!;
       
-      // Clear canvas with transparent background
-      ctx.clearRect(0, 0, size, size);
+      // Clear with transparent background if we have alpha
+      if (hasAlpha) {
+        ctx.clearRect(0, 0, size, size);
+      }
       
-      // Load the original high-res frame
-      const imageBitmap = await createImageBitmap(frames[i]);
+      // Calculate scaling to fit and center the coin
+      const scale = Math.min(size / sourceBitmap.width, size / sourceBitmap.height);
+      const scaledWidth = sourceBitmap.width * scale;
+      const scaledHeight = sourceBitmap.height * scale;
+      const offsetX = (size - scaledWidth) / 2;
+      const offsetY = (size - scaledHeight) / 2;
       
-      // Draw scaled image maintaining aspect ratio and alpha
+      // Draw with high quality scaling
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(imageBitmap, 0, 0, size, size);
-      imageBitmap.close();
+      ctx.drawImage(sourceBitmap, offsetX, offsetY, scaledWidth, scaledHeight);
+      sourceBitmap.close();
       
-      // Create VideoFrame from canvas (preserves alpha)
+      // Create VideoFrame from canvas
       const videoFrame = new (window as any).VideoFrame(canvas, {
         timestamp: (i * 1000000) / fps, // microseconds
         duration: 1000000 / fps // frame duration in microseconds
@@ -229,7 +245,7 @@ export class CoinExporter {
       videoFrame.close();
       
       if (i % 10 === 0) {
-        console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, timestamp: ${videoFrame.timestamp}`);
+        console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, scale: ${scale.toFixed(2)}`);
       }
     }
 
@@ -241,7 +257,12 @@ export class CoinExporter {
     muxer.finalize();
 
     const blob = new Blob([target.buffer], { type: 'video/webm' });
-    console.log('✅ WebCodecs+Muxer WebM complete:', { size: blob.size, type: blob.type });
+    console.log('✅ WebCodecs+Muxer WebM complete:', { 
+      size: blob.size, 
+      type: blob.type,
+      hasAlpha,
+      targetSize: size
+    });
     
     return blob;
   }
