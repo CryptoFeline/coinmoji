@@ -77,7 +77,9 @@ export class CoinExporter {
 
     const prevBackground = this.scene.background;
     try {
-      this.scene.background = null; // ensure transparent renders
+      // CRITICAL: Set scene background to null for transparency
+      this.scene.background = null;
+      
       // Create OFFSCREEN renderer for export (doesn't affect live view!)
       const captureSize = 512; // High resolution for better quality
       console.log('🎨 Creating offscreen renderer...');
@@ -86,11 +88,15 @@ export class CoinExporter {
         antialias: true,
         alpha: true,
         preserveDrawingBuffer: true,
-        premultipliedAlpha: false
+        premultipliedAlpha: false // CRITICAL for transparency
       });
       offscreenRenderer.setSize(captureSize, captureSize);
       offscreenRenderer.setClearColor(0x000000, 0); // Completely transparent background
       offscreenRenderer.outputColorSpace = THREE.SRGBColorSpace;
+      
+      // CRITICAL: Ensure renderer actually uses alpha
+      offscreenRenderer.shadowMap.enabled = false; // Disable shadows that can interfere
+      offscreenRenderer.autoClear = true;
 
       // Create dedicated camera for export with perfect coin framing
       const exportCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
@@ -106,11 +112,6 @@ export class CoinExporter {
 
       for (let i = 0; i < actualFrames; i++) {
         try {
-          // Add small delay every few frames to prevent stack overflow
-          if (i > 0 && i % 10 === 0) {
-            await new Promise(resolve => setTimeout(resolve, 5));
-          }
-          
           // Set rotation for this frame
           const angle = (2 * Math.PI * i) / actualFrames;
           this.turntable.rotation.y = angle;
@@ -323,21 +324,36 @@ export class CoinExporter {
 
       await debugLog('⚙️ Configuring VideoEncoder with alpha support...');
       try {
-        // Try with alpha support first for transparency
+        // Try VP9 Profile 2 which supports alpha transparency
         encoder.configure({
-          codec: 'vp09.00.10.08',
+          codec: 'vp09.02.10.08', // Profile 2 supports alpha
           width: size,
           height: size,
-          bitrate: 1_200_000, // Lower bitrate for better stability
+          bitrate: 1_000_000, // Lower bitrate for stability
           framerate: fps,
           latencyMode: 'realtime',
-          alpha: 'keep' // Try to preserve alpha channel
+          alpha: 'keep', // CRITICAL: Keep alpha channel
+          bitrateMode: 'constant'
         });
-        await debugLog('✅ VideoEncoder configured with alpha support for transparency');
+        await debugLog('✅ VideoEncoder configured with VP9 Profile 2 alpha support');
       } catch (alphaError) {
-        await debugLog('❌ Alpha not supported by this browser build of WebCodecs/VP9.', { error: alphaError });
-        alert('This browser cannot encode VP9 with alpha. Please switch to Chrome 115+ (or desktop Chromium) and try again.');
-        throw alphaError;
+        await debugLog('❌ VP9 Profile 2 alpha not supported, trying fallback...');
+        try {
+          // Fallback to Profile 0 with alpha
+          encoder.configure({
+            codec: 'vp09.00.10.08',
+            width: size,
+            height: size,
+            bitrate: 1_000_000,
+            framerate: fps,
+            alpha: 'keep'
+          });
+          await debugLog('✅ VideoEncoder configured with VP9 Profile 0 alpha support');
+        } catch (fallbackError) {
+          await debugLog('❌ Alpha not supported by this browser build of WebCodecs/VP9.', { error: fallbackError });
+          alert('This browser cannot encode VP9 with alpha. Please switch to Chrome 115+ (or desktop Chromium) and try again.');
+          throw fallbackError;
+        }
       }
 
       await debugLog('🎬 Starting frame encoding process...');
@@ -362,19 +378,24 @@ export class CoinExporter {
             const imageBitmap = await createImageBitmap(frames[i]);
             await debugLog(`✅ ImageBitmap created: ${imageBitmap.width}x${imageBitmap.height}`);
             
-            // Always scale through canvas for consistent processing
+            // Create canvas with explicit alpha support
             const canvas = document.createElement('canvas');
             canvas.width = size;
             canvas.height = size;
-            const ctx = canvas.getContext('2d', { alpha: true })!;
+            const ctx = canvas.getContext('2d', { 
+              alpha: true,
+              willReadFrequently: false,
+              colorSpace: 'srgb'
+            })!;
             
-            // Keep transparent background - don't fill with any color
+            // CRITICAL: Clear to completely transparent
+            ctx.globalCompositeOperation = 'copy'; // Replace everything, including alpha
             ctx.clearRect(0, 0, size, size);
             
-            // Draw scaled image with high quality, preserving transparency
+            // Reset to normal compositing and draw with high quality
+            ctx.globalCompositeOperation = 'source-over';
             ctx.imageSmoothingEnabled = true;
             ctx.imageSmoothingQuality = 'high';
-            ctx.globalCompositeOperation = 'source-over';
             ctx.drawImage(imageBitmap, 0, 0, size, size);
             
             // Create VideoFrame from canvas
@@ -488,7 +509,7 @@ export const createCustomEmoji = async (
   emojiList: string[] = ['🪙'],
   setTitle: string = 'Custom Coinmoji'
 ) => {
-  console.log('🎭 Creating custom emoji:', { 
+  await debugLog('🎭 Creating custom emoji:', { 
     blobSize: blob.size, 
     blobType: blob.type, 
     emojiList, 
@@ -498,14 +519,14 @@ export const createCustomEmoji = async (
 
   const arrayBuffer = await blob.arrayBuffer();
   const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
-  console.log('🔄 Converted to base64 for emoji:', { 
+  await debugLog('🔄 Converted to base64 for emoji:', { 
     originalSize: blob.size, 
     base64Length: base64.length,
     base64Sample: base64.substring(0, 50) + '...'
   });
 
   const userId = getTelegramUserId(initData);
-  console.log('👤 User ID for emoji:', userId);
+  await debugLog('👤 User ID for emoji:', userId);
 
   const payload = {
     initData,
@@ -515,7 +536,7 @@ export const createCustomEmoji = async (
     webm_base64: base64,
   };
 
-  console.log('📝 Emoji creation payload:', {
+  await debugLog('📝 Emoji creation payload prepared:', {
     user_id: payload.user_id,
     set_title: payload.set_title,
     emoji_list: payload.emoji_list,
@@ -524,7 +545,7 @@ export const createCustomEmoji = async (
   });
 
   try {
-    console.log('📡 Sending emoji creation request...');
+    await debugLog('📡 Sending emoji creation request...');
     const response = await fetch('/.netlify/functions/create-emoji', {
       method: 'POST',
       headers: {
@@ -533,7 +554,7 @@ export const createCustomEmoji = async (
       body: JSON.stringify(payload),
     });
 
-    console.log('📡 Emoji creation response:', { 
+    await debugLog('📡 Emoji creation response received:', { 
       status: response.status, 
       statusText: response.statusText,
       headers: Object.fromEntries(response.headers.entries())
@@ -541,7 +562,7 @@ export const createCustomEmoji = async (
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('❌ Emoji creation failed:', {
+      await debugLog('❌ Emoji creation failed:', {
         status: response.status,
         statusText: response.statusText,
         errorText
@@ -550,10 +571,10 @@ export const createCustomEmoji = async (
     }
 
     const result = await response.json();
-    console.log('✅ Emoji creation success:', result);
+    await debugLog('✅ Emoji creation success:', result);
     return result;
   } catch (error) {
-    console.error('❌ Error creating custom emoji:', error);
+    await debugLog('❌ Error creating custom emoji:', { error: error instanceof Error ? error.message : 'Unknown error' });
     throw error;
   }
 };
