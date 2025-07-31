@@ -78,11 +78,11 @@ const AppContent: React.FC = () => {
         fps: 30
       });
       
-      // Export as WebM for emoji use (100x100, 30fps, perfect rotation)
+      // Export as WebM for emoji use (512x512 high quality, then scaled to 100x100)
       const webmBlob = await exporter.exportAsWebM({
         fps: 30,
         duration: Math.max(1, Math.min(3, timeForFullRotation)), // Clamp between 1-3 seconds
-        size: 100
+        size: 100 // Final output size for emoji compliance
       });
       
       // Send file to Telegram via bot
@@ -136,11 +136,11 @@ const AppContent: React.FC = () => {
         fps: 30
       });
       
-      // Export as WebM for Telegram emoji (100x100, 30fps, perfect rotation)
+      // Export as WebM for Telegram emoji (high quality 512x512, scaled to 100x100)
       const webmBlob = await exporter.exportAsWebM({
         fps: 30,
         duration: Math.max(1, Math.min(3, timeForFullRotation)), // Clamp between 1-3 seconds
-        size: 100
+        size: 100 // Final emoji size
       });
       
       // Create custom emoji in Telegram
