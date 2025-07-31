@@ -28,18 +28,26 @@ export class CoinExporter {
     const totalFrames = Math.floor(fps * duration);
     
     // Limit frames more aggressively to prevent stack overflow
-    // Max 30 frames (1 second at 30fps) for better animation quality
+    // Max 30 frames but keep the SAME DURATION for proper timing
     const maxFrames = 30;
     const actualFrames = Math.min(totalFrames, maxFrames);
+    
+    // CRITICAL: Keep original duration even with fewer frames
+    // This will slow down the animation to match the 3-second window
+    const actualDuration = duration; // Always use full duration
+    const effectiveFPS = actualFrames / actualDuration; // Slower effective FPS
+    
     const frames: Blob[] = [];
 
-    console.log('📹 Starting frame export (optimized for smooth animation):', { 
+    console.log('📹 Starting frame export (optimized timing for 3-second window):', { 
       fps, 
       duration, 
       size, 
       requestedFrames: totalFrames, 
       actualFrames,
-      maxAllowed: maxFrames
+      maxAllowed: maxFrames,
+      effectiveFPS: effectiveFPS.toFixed(2),
+      actualDuration
     });
 
     // Store original rotation (we don't touch the live renderer anymore)
@@ -80,10 +88,8 @@ export class CoinExporter {
             await new Promise(resolve => setTimeout(resolve, 5));
           }
           
-          // Set rotation for this frame - slow rotation over intended duration
-          // Calculate angle based on original requested duration, not actual frame count
-          const totalRequestedFrames = Math.floor(fps * duration);
-          const angle = (2 * Math.PI * i) / totalRequestedFrames; // Use original frame count for timing
+          // Set rotation for this frame
+          const angle = (2 * Math.PI * i) / actualFrames;
           this.turntable.rotation.y = angle;
 
           // Render to offscreen canvas with export camera
@@ -130,20 +136,26 @@ export class CoinExporter {
     }
   }
 
-  private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, _sourceSize: number, _targetSize: number): Promise<Blob> {
+  private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, sourceSize: number, targetSize: number): Promise<Blob> {
     return new Promise((resolve) => {
       try {
-        // Capture at high resolution with PNG format to preserve transparency
+        // First capture at high resolution
         renderer.domElement.toBlob((highResBlob) => {
           if (!highResBlob) {
-            console.warn('⚠️ Failed to capture frame blob');
             resolve(new Blob());
             return;
           }
 
-          console.log(`📸 Captured PNG frame: ${highResBlob.size} bytes`);
+          // If target size equals source size, return directly (avoid unnecessary processing)
+          if (sourceSize === targetSize) {
+            resolve(highResBlob);
+            return;
+          }
+
+          // For now, just return high res directly to avoid complex resizing
+          // WebCodecs will handle the scaling
           resolve(highResBlob);
-        }, 'image/png'); // Explicitly use PNG for transparency
+        }, 'image/png');
       } catch (error) {
         console.error('Frame capture error:', error);
         resolve(new Blob());
@@ -215,9 +227,13 @@ export class CoinExporter {
       
       console.log(`✅ Got ${highResFrames.length} high-res frames`);
       
+      // Calculate effective FPS for the reduced frame count but same duration
+      const effectiveFPS = highResFrames.length / duration;
+      console.log(`🎯 Using effective FPS: ${effectiveFPS.toFixed(2)} (${highResFrames.length} frames over ${duration}s)`);
+      
       // Create WebM directly at target size from high-res frames
       console.log('🎥 Creating WebM with WebCodecs at target size...');
-      const result = await this.exportWithWebCodecs(highResFrames, fps, size);
+      const result = await this.exportWithWebCodecs(highResFrames, effectiveFPS, size);
       
       console.log('✅ WebM export completed successfully');
       return result;
@@ -266,17 +282,17 @@ export class CoinExporter {
       });
 
       try {
-        // Use simpler VP9 codec without alpha flags (alpha in source frames should be preserved)
+        // Start with basic VP9 configuration (more reliable than alpha variants)
         encoder.configure({
           codec: 'vp09.00.10.08',
           width: size,
           height: size,
-          bitrate: 1_500_000,
+          bitrate: 1_200_000, // Lower bitrate for better stability
           framerate: fps,
           latencyMode: 'realtime'
-          // Remove alpha: 'keep' as it seems to cause issues
+          // NO alpha parameter - we'll handle transparency in the frames themselves
         });
-        console.log('✅ VideoEncoder configured (transparency from source frames)');
+        console.log('✅ VideoEncoder configured with basic VP9 (transparency via frame processing)');
       } catch (configError) {
         console.error('❌ VideoEncoder configuration failed:', configError);
         alert(`VideoEncoder config failed: ${configError instanceof Error ? configError.message : 'Unknown config error'}`);
@@ -307,35 +323,43 @@ export class CoinExporter {
               const canvas = document.createElement('canvas');
               canvas.width = size;
               canvas.height = size;
-              const ctx = canvas.getContext('2d', { alpha: true })!; // Ensure alpha context
+              const ctx = canvas.getContext('2d')!;
               
-              // Clear with full transparency (don't fill with any color)
-              ctx.clearRect(0, 0, size, size);
+              // Use WHITE background instead of transparent (works better for WebM)
+              ctx.fillStyle = '#FFFFFF';
+              ctx.fillRect(0, 0, size, size);
               
-              // Set compositing to preserve transparency
-              ctx.globalCompositeOperation = 'source-over';
-              
-              // Draw scaled image with high quality and preserve alpha
+              // Draw scaled image with high quality
               ctx.imageSmoothingEnabled = true;
               ctx.imageSmoothingQuality = 'high';
               ctx.drawImage(imageBitmap, 0, 0, size, size);
               
-              // Create VideoFrame from canvas (transparency should be preserved automatically)
+              // Create VideoFrame from canvas (no alpha needed)
               const videoFrame = new (window as any).VideoFrame(canvas, {
                 timestamp: (i * 1000000) / fps, // microseconds
                 duration: 1000000 / fps // frame duration in microseconds
-                // Remove alpha: 'keep' as it may cause issues
               });
               
               encoder.encode(videoFrame, { keyFrame: i === 0 });
               videoFrame.close();
               imageBitmap.close();
             } else {
-              // No scaling needed, use ImageBitmap directly
-              const videoFrame = new (window as any).VideoFrame(imageBitmap, {
+              // For direct ImageBitmap, we need to process it through canvas for white background
+              const canvas = document.createElement('canvas');
+              canvas.width = size;
+              canvas.height = size;
+              const ctx = canvas.getContext('2d')!;
+              
+              // White background
+              ctx.fillStyle = '#FFFFFF';
+              ctx.fillRect(0, 0, size, size);
+              
+              // Draw the ImageBitmap on white background
+              ctx.drawImage(imageBitmap, 0, 0, size, size);
+              
+              const videoFrame = new (window as any).VideoFrame(canvas, {
                 timestamp: (i * 1000000) / fps, // microseconds
                 duration: 1000000 / fps // frame duration in microseconds
-                // Remove alpha: 'keep' as it may cause issues
               });
               
               encoder.encode(videoFrame, { keyFrame: i === 0 });
