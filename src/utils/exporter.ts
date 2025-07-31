@@ -9,18 +9,16 @@ export interface ExportSettings {
 
 export class CoinExporter {
   private scene: THREE.Scene;
-  private camera: THREE.PerspectiveCamera;
   private renderer: THREE.WebGLRenderer;
   private turntable: THREE.Group;
 
   constructor(
     scene: THREE.Scene,
-    camera: THREE.PerspectiveCamera,
+    _camera: THREE.PerspectiveCamera, // Keep for API compatibility but don't use
     renderer: THREE.WebGLRenderer,
     turntable: THREE.Group
   ) {
     this.scene = scene;
-    this.camera = camera;
     this.renderer = renderer;
     this.turntable = turntable;
   }
@@ -32,34 +30,45 @@ export class CoinExporter {
 
     console.log('📹 Starting frame export:', { fps, duration, size, totalFrames });
 
-    // Store original settings
-    const originalSize = { 
-      width: this.renderer.domElement.clientWidth, 
-      height: this.renderer.domElement.clientHeight 
-    };
-    const originalAspect = this.camera.aspect;
+    // Store original rotation (we don't touch the live renderer anymore)
     const originalRotation = this.turntable.rotation.y;
 
-    console.log('💾 Stored original settings:', { originalSize, originalAspect, originalRotation });
+    console.log('💾 Stored original rotation:', originalRotation);
 
     try {
-      // Set capture size
-      this.renderer.setSize(size, size);
-      this.camera.aspect = 1;
-      this.camera.updateProjectionMatrix();
+      // Create OFFSCREEN renderer for export (doesn't affect live view!)
+      const captureSize = 512; // High resolution for better quality
+      const offscreenRenderer = new THREE.WebGLRenderer({ 
+        antialias: true, 
+        alpha: true,
+        preserveDrawingBuffer: true 
+      });
+      offscreenRenderer.setSize(captureSize, captureSize);
+      offscreenRenderer.setClearColor(0x000000, 0); // Transparent background
+      offscreenRenderer.outputColorSpace = THREE.SRGBColorSpace;
 
-      console.log('🎯 Set export size:', { width: size, height: size });
+      // Create dedicated camera for export with perfect coin framing
+      const exportCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+      // Position camera closer to fill frame better for emoji
+      exportCamera.position.set(0, 0, 4.5); // Closer than default 7 for tighter framing
+      exportCamera.lookAt(0, 0, 0);
+
+      console.log('🎯 Created offscreen renderer:', { 
+        size: captureSize, 
+        transparent: true,
+        cameraPosition: exportCamera.position.toArray()
+      });
 
       for (let i = 0; i < totalFrames; i++) {
         // Set rotation for this frame
         const angle = (2 * Math.PI * i) / totalFrames;
         this.turntable.rotation.y = angle;
 
-        // Render frame
-        this.renderer.render(this.scene, this.camera);
+        // Render to offscreen canvas with export camera
+        offscreenRenderer.render(this.scene, exportCamera);
 
-        // Capture frame as blob
-        const blob = await this.captureFrame();
+        // Capture frame and resize to target size
+        const blob = await this.captureFrameFromRenderer(offscreenRenderer, captureSize, size);
         frames.push(blob);
         
         if (i === 0 || i === totalFrames - 1 || i % 10 === 0) {
@@ -67,23 +76,54 @@ export class CoinExporter {
         }
       }
 
+      // Clean up offscreen renderer
+      offscreenRenderer.dispose();
+
       console.log('✅ Frame export complete:', { totalFrames: frames.length });
       return frames;
     } finally {
-      // Restore original settings
-      this.renderer.setSize(originalSize.width, originalSize.height);
-      this.camera.aspect = originalAspect;
-      this.camera.updateProjectionMatrix();
+      // Restore original rotation only
       this.turntable.rotation.y = originalRotation;
       
-      console.log('🔄 Restored original settings');
+      console.log('🔄 Restored original rotation');
     }
   }
 
-  private captureFrame(): Promise<Blob> {
+  private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, sourceSize: number, targetSize: number): Promise<Blob> {
     return new Promise((resolve) => {
-      this.renderer.domElement.toBlob((blob) => {
-        resolve(blob!);
+      // First capture at high resolution
+      renderer.domElement.toBlob((highResBlob) => {
+        if (!highResBlob) {
+          resolve(new Blob());
+          return;
+        }
+
+        // If target size equals source size, return directly
+        if (sourceSize === targetSize) {
+          resolve(highResBlob);
+          return;
+        }
+
+        // Otherwise, resize to target size while preserving transparency
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = targetSize;
+          canvas.height = targetSize;
+          const ctx = canvas.getContext('2d')!;
+          
+          // Clear with transparent background
+          ctx.clearRect(0, 0, targetSize, targetSize);
+          
+          // Draw resized image
+          ctx.drawImage(img, 0, 0, targetSize, targetSize);
+          
+          canvas.toBlob((resizedBlob) => {
+            resolve(resizedBlob!);
+            URL.revokeObjectURL(img.src);
+          }, 'image/png');
+        };
+        img.src = URL.createObjectURL(highResBlob);
       }, 'image/png');
     });
   }
