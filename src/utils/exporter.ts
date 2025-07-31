@@ -37,11 +37,12 @@ export class CoinExporter {
 
     try {
       // Create OFFSCREEN renderer for export (doesn't affect live view!)
-      const captureSize = 512; // High resolution for better quality
+      const captureSize = 1024; // Even higher resolution for maximum quality
       const offscreenRenderer = new THREE.WebGLRenderer({ 
         antialias: true, 
         alpha: true,
-        preserveDrawingBuffer: true 
+        preserveDrawingBuffer: true,
+        premultipliedAlpha: false // Better transparency handling
       });
       offscreenRenderer.setSize(captureSize, captureSize);
       offscreenRenderer.setClearColor(0x000000, 0); // Transparent background
@@ -49,8 +50,8 @@ export class CoinExporter {
 
       // Create dedicated camera for export with perfect coin framing
       const exportCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
-      // Position camera closer to fill frame better for emoji
-      exportCamera.position.set(0, 0, 4.5); // Closer than default 7 for tighter framing
+      // Position camera much closer to fill frame completely for emoji
+      exportCamera.position.set(0, 0, 3.2); // Much closer than default 7 for maximum framing
       exportCamera.lookAt(0, 0, 0);
 
       console.log('🎯 Created offscreen renderer:', { 
@@ -91,7 +92,7 @@ export class CoinExporter {
 
   private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, sourceSize: number, targetSize: number): Promise<Blob> {
     return new Promise((resolve) => {
-      // First capture at high resolution
+      // First capture at high resolution with maximum quality PNG
       renderer.domElement.toBlob((highResBlob) => {
         if (!highResBlob) {
           resolve(new Blob());
@@ -110,10 +111,14 @@ export class CoinExporter {
           const canvas = document.createElement('canvas');
           canvas.width = targetSize;
           canvas.height = targetSize;
-          const ctx = canvas.getContext('2d')!;
+          const ctx = canvas.getContext('2d', { alpha: true })!;
           
-          // Clear with transparent background
+          // Ensure transparent background (important for emoji)
           ctx.clearRect(0, 0, targetSize, targetSize);
+          
+          // Use high-quality scaling
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
           
           // Draw resized image
           ctx.drawImage(img, 0, 0, targetSize, targetSize);
@@ -121,10 +126,10 @@ export class CoinExporter {
           canvas.toBlob((resizedBlob) => {
             resolve(resizedBlob!);
             URL.revokeObjectURL(img.src);
-          }, 'image/png');
+          }, 'image/png', 1.0); // Maximum quality PNG
         };
         img.src = URL.createObjectURL(highResBlob);
-      }, 'image/png');
+      }, 'image/png', 1.0); // Maximum quality PNG capture
     });
   }
 
@@ -178,6 +183,7 @@ export class CoinExporter {
         width: size,
         height: size,
         frameRate: fps,
+        alpha: true // Enable alpha channel for transparency
       }
     });
 
@@ -195,7 +201,7 @@ export class CoinExporter {
       codec: 'vp09.00.10.08',
       width: size,
       height: size,
-      bitrate: 2_000_000, // Increased bitrate for better quality
+      bitrate: 3_000_000, // Higher bitrate for better quality
       framerate: fps,
       latencyMode: 'realtime'
     });
