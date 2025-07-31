@@ -28,12 +28,12 @@ export class CoinExporter {
     const totalFrames = Math.floor(fps * duration);
     
     // Limit frames more aggressively to prevent stack overflow
-    // Max 30 frames (1 second at 30fps) to be extra safe
-    const maxFrames = 30;
+    // Max 60 frames (2 seconds at 30fps) for better animation quality
+    const maxFrames = 60;
     const actualFrames = Math.min(totalFrames, maxFrames);
     const frames: Blob[] = [];
 
-    console.log('📹 Starting frame export (reduced frame count for stability):', { 
+    console.log('📹 Starting frame export (optimized for smooth animation):', { 
       fps, 
       duration, 
       size, 
@@ -64,7 +64,7 @@ export class CoinExporter {
       // Create dedicated camera for export with perfect coin framing
       const exportCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
       // Position camera much closer to make coin fill more of the frame
-      exportCamera.position.set(0, 0, 3.2); // Even closer than 4.5 for bigger coin
+      exportCamera.position.set(0, 0, 3); // Even closer for bigger coin in frame
       exportCamera.lookAt(0, 0, 0);
 
       console.log('🎯 Created offscreen renderer:', { 
@@ -270,34 +270,49 @@ export class CoinExporter {
       });
 
       try {
-        // Try with alpha support first
+        // Try with alpha support first - use more compatible VP9 profile
         encoder.configure({
-          codec: 'vp09.00.10.08',
+          codec: 'vp09.00.10.08.01.01.01.01.00', // Full VP9 profile with alpha support
           width: size,
           height: size,
-          bitrate: 2_000_000, // Increased bitrate for better quality
+          bitrate: 1_500_000, // Slightly lower bitrate for better compatibility
           framerate: fps,
           latencyMode: 'realtime',
           alpha: 'keep' // CRITICAL: Preserve alpha channel for transparency
         });
-        console.log('✅ VideoEncoder configured with alpha support');
+        console.log('✅ VideoEncoder configured with full alpha support');
       } catch (alphaError) {
-        console.warn('⚠️ Alpha support failed, trying without alpha:', alphaError);
+        console.warn('⚠️ Full alpha profile failed, trying simpler VP9 with alpha:', alphaError);
         try {
-          // Fallback without alpha
+          // Fallback with simpler VP9 but still with alpha
           encoder.configure({
             codec: 'vp09.00.10.08',
             width: size,
             height: size,
-            bitrate: 2_000_000,
+            bitrate: 1_500_000,
             framerate: fps,
-            latencyMode: 'realtime'
+            latencyMode: 'realtime',
+            alpha: 'keep'
           });
-          console.log('✅ VideoEncoder configured without alpha');
-        } catch (configError) {
-          console.error('❌ VideoEncoder configuration completely failed:', configError);
-          alert(`VideoEncoder config failed: ${configError instanceof Error ? configError.message : 'Unknown config error'}`);
-          throw configError;
+          console.log('✅ VideoEncoder configured with basic alpha support');
+        } catch (basicAlphaError) {
+          console.warn('⚠️ Basic alpha failed, trying without alpha:', basicAlphaError);
+          try {
+            // Last fallback without alpha
+            encoder.configure({
+              codec: 'vp09.00.10.08',
+              width: size,
+              height: size,
+              bitrate: 1_500_000,
+              framerate: fps,
+              latencyMode: 'realtime'
+            });
+            console.log('⚠️ VideoEncoder configured WITHOUT alpha (will have black background)');
+          } catch (configError) {
+            console.error('❌ VideoEncoder configuration completely failed:', configError);
+            alert(`VideoEncoder config failed: ${configError instanceof Error ? configError.message : 'Unknown config error'}`);
+            throw configError;
+          }
         }
       }
 
@@ -325,30 +340,35 @@ export class CoinExporter {
               const canvas = document.createElement('canvas');
               canvas.width = size;
               canvas.height = size;
-              const ctx = canvas.getContext('2d')!;
+              const ctx = canvas.getContext('2d', { alpha: true })!; // Ensure alpha context
               
-              // Clear with transparency
+              // Clear with full transparency (don't fill with any color)
               ctx.clearRect(0, 0, size, size);
               
-              // Draw scaled image with high quality
+              // Set compositing to preserve transparency
+              ctx.globalCompositeOperation = 'source-over';
+              
+              // Draw scaled image with high quality and preserve alpha
               ctx.imageSmoothingEnabled = true;
               ctx.imageSmoothingQuality = 'high';
               ctx.drawImage(imageBitmap, 0, 0, size, size);
               
-              // Create VideoFrame from canvas
+              // Create VideoFrame from canvas with alpha preservation
               const videoFrame = new (window as any).VideoFrame(canvas, {
                 timestamp: (i * 1000000) / fps, // microseconds
-                duration: 1000000 / fps // frame duration in microseconds
+                duration: 1000000 / fps, // frame duration in microseconds
+                alpha: 'keep' // Preserve alpha in VideoFrame
               });
               
               encoder.encode(videoFrame, { keyFrame: i === 0 });
               videoFrame.close();
               imageBitmap.close();
             } else {
-              // No scaling needed, use ImageBitmap directly
+              // No scaling needed, use ImageBitmap directly with alpha
               const videoFrame = new (window as any).VideoFrame(imageBitmap, {
                 timestamp: (i * 1000000) / fps, // microseconds
-                duration: 1000000 / fps // frame duration in microseconds
+                duration: 1000000 / fps, // frame duration in microseconds
+                alpha: 'keep' // Preserve alpha in VideoFrame
               });
               
               encoder.encode(videoFrame, { keyFrame: i === 0 });
