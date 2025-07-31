@@ -185,17 +185,10 @@ export class CoinExporter {
     
     const target = new ArrayBufferTarget();
     
-    // Check if frames have transparency by examining the first frame
-    const firstFrameData = await createImageBitmap(frames[0]);
-    const testCanvas = document.createElement('canvas');
-    testCanvas.width = testCanvas.height = 1;
-    const testCtx = testCanvas.getContext('2d')!;
-    testCtx.drawImage(firstFrameData, 0, 0, 1, 1);
-    const pixel = testCtx.getImageData(0, 0, 1, 1).data;
-    const hasAlpha = pixel[3] < 255; // Check if alpha channel is used
-    firstFrameData.close();
+    // Always assume we want transparency for emoji
+    const hasAlpha = true; // Force alpha for emoji transparency
     
-    console.log('🔍 Alpha channel detection:', { hasAlpha, alphaValue: pixel[3] });
+    console.log('🔍 Alpha channel detection:', { hasAlpha, forced: true });
     
     const muxer = new Muxer({
       target,
@@ -204,7 +197,7 @@ export class CoinExporter {
         width: size,
         height: size,
         frameRate: fps,
-        alpha: hasAlpha // Only enable alpha if actually needed
+        alpha: hasAlpha // Always enable alpha for emoji
       }
     });
 
@@ -218,34 +211,29 @@ export class CoinExporter {
       }
     });
 
-    // Configure encoder with simpler, more compatible settings
+    // Configure encoder with alpha and higher quality for sharp edges
     const config: any = {
       codec: 'vp09.00.10.08', // VP9 Profile 0
       width: size,
       height: size,
-      bitrate: 500_000, // Much lower bitrate to prevent corruption
+      bitrate: 800_000, // Higher bitrate for better quality
       framerate: fps,
       latencyMode: 'quality'
     };
     
-    // Only add alpha if we detected it and try to configure
-    if (hasAlpha) {
-      try {
-        config.alpha = 'keep';
-        encoder.configure(config);
-        console.log('🎬 Encoding with alpha support...');
-      } catch (error) {
-        console.warn('⚠️ Alpha not supported, using standard encoding:', error);
-        delete config.alpha;
-        encoder.configure(config);
-        console.log('🎬 Encoding without alpha...');
-      }
-    } else {
+    // Always try to enable alpha for emoji
+    try {
+      config.alpha = 'keep';
       encoder.configure(config);
-      console.log('🎬 Encoding without alpha (not needed)...');
+      console.log('🎬 Encoding with alpha support...');
+    } catch (error) {
+      console.warn('⚠️ Alpha not supported, using standard encoding:', error);
+      delete config.alpha;
+      encoder.configure(config);
+      console.log('🎬 Encoding without alpha...');
     }
 
-    // Encode frames with careful scaling
+    // Encode frames with high-quality scaling  
     for (let i = 0; i < frames.length; i++) {
       // Get the actual source frame size first
       const sourceBitmap = await createImageBitmap(frames[i]);
@@ -255,59 +243,68 @@ export class CoinExporter {
         height: sourceBitmap.height
       });
       
-      // Create target canvas at exact output size
-      const canvas = document.createElement('canvas');
-      canvas.width = size;
-      canvas.height = size;
-      const ctx = canvas.getContext('2d')!;
+      // Create high-resolution intermediate canvas for better quality
+      const highResScale = 4; // Render at 4x resolution for Lanczos-like quality
+      const highResSize = size * highResScale;
       
-      // Clear with transparent background if we have alpha
-      if (hasAlpha) {
-        ctx.clearRect(0, 0, size, size);
-      } else {
-        // Fill with white background if no alpha
-        ctx.fillStyle = '#000000';
-        ctx.fillRect(0, 0, size, size);
-      }
+      const highResCanvas = document.createElement('canvas');
+      highResCanvas.width = highResSize;
+      highResCanvas.height = highResSize;
+      const highResCtx = highResCanvas.getContext('2d')!;
       
-      // For debugging: let's try direct scaling without centering first
-      // This will show us if the coin is actually in the source frames
+      // Always clear with transparent background
+      highResCtx.clearRect(0, 0, highResSize, highResSize);
       
-      // Method 1: Simple direct scale to fill entire target (might crop)
-      const scaleX = size / sourceBitmap.width;
-      const scaleY = size / sourceBitmap.height;
-      const scale = Math.max(scaleX, scaleY); // Fill entire area, might crop
+      // Calculate scaling to fit the coin properly (fill most of the frame)
+      const coinFillRatio = 0.85; // Use 85% of the frame for the coin
+      const targetCoinSize = highResSize * coinFillRatio;
+      const scale = Math.min(targetCoinSize / sourceBitmap.width, targetCoinSize / sourceBitmap.height);
       
       const scaledWidth = sourceBitmap.width * scale;
       const scaledHeight = sourceBitmap.height * scale;
-      const offsetX = (size - scaledWidth) / 2;
-      const offsetY = (size - scaledHeight) / 2;
+      const offsetX = (highResSize - scaledWidth) / 2;
+      const offsetY = (highResSize - scaledHeight) / 2;
       
-      console.log(`📐 Scaling frame ${i + 1}:`, {
+      console.log(`📐 High-res scaling frame ${i + 1}:`, {
         scale: scale.toFixed(3),
         scaledSize: `${scaledWidth.toFixed(1)}x${scaledHeight.toFixed(1)}`,
         offset: `${offsetX.toFixed(1)}, ${offsetY.toFixed(1)}`,
-        targetSize: `${size}x${size}`
+        highResSize: `${highResSize}x${highResSize}`,
+        coinFillRatio
       });
       
-      // Draw with high quality scaling
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(sourceBitmap, offsetX, offsetY, scaledWidth, scaledHeight);
+      // Draw with high quality scaling at high resolution
+      highResCtx.imageSmoothingEnabled = true;
+      highResCtx.imageSmoothingQuality = 'high';
+      highResCtx.drawImage(sourceBitmap, offsetX, offsetY, scaledWidth, scaledHeight);
       sourceBitmap.close();
+      
+      // Now downscale to final size with Lanczos-like quality
+      const finalCanvas = document.createElement('canvas');
+      finalCanvas.width = size;
+      finalCanvas.height = size;
+      const finalCtx = finalCanvas.getContext('2d')!;
+      
+      // Clear final canvas with transparency
+      finalCtx.clearRect(0, 0, size, size);
+      
+      // Downscale with high quality
+      finalCtx.imageSmoothingEnabled = true;
+      finalCtx.imageSmoothingQuality = 'high';
+      finalCtx.drawImage(highResCanvas, 0, 0, size, size);
       
       // For debugging the first frame, let's save what we're actually encoding
       if (i === 0) {
         // Create a test image to see what we're encoding
-        canvas.toBlob((testBlob) => {
+        finalCanvas.toBlob((testBlob) => {
           const url = URL.createObjectURL(testBlob!);
           console.log('🔍 First frame preview URL (for debugging):', url);
           // In browser console, you can open this URL to see what's being encoded
         }, 'image/png');
       }
       
-      // Create VideoFrame from canvas
-      const videoFrame = new (window as any).VideoFrame(canvas, {
+      // Create VideoFrame from final canvas
+      const videoFrame = new (window as any).VideoFrame(finalCanvas, {
         timestamp: (i * 1000000) / fps, // microseconds
         duration: 1000000 / fps // frame duration in microseconds
       });
@@ -316,7 +313,7 @@ export class CoinExporter {
       videoFrame.close();
       
       if (i % 10 === 0) {
-        console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, scale: ${scale.toFixed(2)}`);
+        console.log(`🎞️ Encoded frame ${i + 1}/${frames.length}, final scale: ${scale.toFixed(2)}`);
       }
     }
 
