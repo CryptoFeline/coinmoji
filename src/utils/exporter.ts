@@ -26,9 +26,19 @@ export class CoinExporter {
   async exportFrames(settings: ExportSettings): Promise<Blob[]> {
     const { fps, duration, size } = settings;
     const totalFrames = Math.floor(fps * duration);
+    
+    // Limit frames to prevent stack overflow (max 3 seconds at 30fps = 90 frames)
+    const maxFrames = 90;
+    const actualFrames = Math.min(totalFrames, maxFrames);
     const frames: Blob[] = [];
 
-    console.log('📹 Starting frame export:', { fps, duration, size, totalFrames });
+    console.log('📹 Starting frame export:', { 
+      fps, 
+      duration, 
+      size, 
+      requestedFrames: totalFrames, 
+      actualFrames 
+    });
 
     // Store original rotation (we don't touch the live renderer anymore)
     const originalRotation = this.turntable.rotation.y;
@@ -61,10 +71,15 @@ export class CoinExporter {
         cameraPosition: exportCamera.position.toArray()
       });
 
-      for (let i = 0; i < totalFrames; i++) {
+      for (let i = 0; i < actualFrames; i++) {
         try {
+          // Add small delay every few frames to prevent stack overflow
+          if (i > 0 && i % 10 === 0) {
+            await new Promise(resolve => setTimeout(resolve, 5));
+          }
+          
           // Set rotation for this frame
-          const angle = (2 * Math.PI * i) / totalFrames;
+          const angle = (2 * Math.PI * i) / actualFrames;
           this.turntable.rotation.y = angle;
 
           // Render to offscreen canvas with export camera
@@ -82,8 +97,8 @@ export class CoinExporter {
           
           frames.push(blob);
           
-          if (i === 0 || i === totalFrames - 1 || i % 10 === 0) {
-            console.log(`📸 Captured frame ${i + 1}/${totalFrames}, size: ${blob.size} bytes, angle: ${angle.toFixed(2)}`);
+          if (i === 0 || i === actualFrames - 1 || i % 10 === 0) {
+            console.log(`📸 Captured frame ${i + 1}/${actualFrames}, size: ${blob.size} bytes, angle: ${angle.toFixed(2)}`);
           }
         } catch (frameError) {
           const error = `Failed to capture frame ${i}: ${frameError instanceof Error ? frameError.message : 'Unknown frame error'}`;
@@ -113,40 +128,28 @@ export class CoinExporter {
 
   private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, sourceSize: number, targetSize: number): Promise<Blob> {
     return new Promise((resolve) => {
-      // First capture at high resolution
-      renderer.domElement.toBlob((highResBlob) => {
-        if (!highResBlob) {
-          resolve(new Blob());
-          return;
-        }
+      try {
+        // First capture at high resolution
+        renderer.domElement.toBlob((highResBlob) => {
+          if (!highResBlob) {
+            resolve(new Blob());
+            return;
+          }
 
-        // If target size equals source size, return directly
-        if (sourceSize === targetSize) {
+          // If target size equals source size, return directly (avoid unnecessary processing)
+          if (sourceSize === targetSize) {
+            resolve(highResBlob);
+            return;
+          }
+
+          // For now, just return high res directly to avoid complex resizing
+          // WebCodecs will handle the scaling
           resolve(highResBlob);
-          return;
-        }
-
-        // Otherwise, resize to target size while preserving transparency
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          canvas.width = targetSize;
-          canvas.height = targetSize;
-          const ctx = canvas.getContext('2d')!;
-          
-          // Clear with transparent background
-          ctx.clearRect(0, 0, targetSize, targetSize);
-          
-          // Draw resized image
-          ctx.drawImage(img, 0, 0, targetSize, targetSize);
-          
-          canvas.toBlob((resizedBlob) => {
-            resolve(resizedBlob!);
-            URL.revokeObjectURL(img.src);
-          }, 'image/png');
-        };
-        img.src = URL.createObjectURL(highResBlob);
-      }, 'image/png');
+        }, 'image/png');
+      } catch (error) {
+        console.error('Frame capture error:', error);
+        resolve(new Blob());
+      }
     });
   }
 
@@ -294,6 +297,11 @@ export class CoinExporter {
       // Encode frames - scale down from high-res to target size during encoding
       for (let i = 0; i < frames.length; i++) {
         try {
+          // Add small delay every few frames to prevent stack overflow
+          if (i > 0 && i % 5 === 0) {
+            await new Promise(resolve => setTimeout(resolve, 10));
+          }
+          
           // Create ImageBitmap from high-res frame
           const imageBitmap = await createImageBitmap(frames[i]);
           
