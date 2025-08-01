@@ -426,16 +426,17 @@ export class CoinExporter {
       throw new Error('WebCodecs not supported in this browser');
     }
     
-    // Check supported codecs before proceeding
+    // Check supported codecs before proceeding - prioritize alpha-capable codecs
     const supportedCodecs = [];
     const codecsToTest = [
-      'vp09.02.10.10', // VP9 Profile 2 with alpha
-      'vp09.00.10.08', // VP9 Profile 0 
-      'vp9',           // Simple VP9
-      'vp8'            // VP8 fallback
+      { codec: 'vp09.02.10.10', supportsAlpha: true },  // VP9 Profile 2 with alpha
+      { codec: 'vp09.02.10.08', supportsAlpha: true },  // VP9 Profile 2 with alpha  
+      { codec: 'vp9', supportsAlpha: true },            // Simple VP9 (may support alpha)
+      { codec: 'vp09.00.10.08', supportsAlpha: false }, // VP9 Profile 0 (no alpha)
+      { codec: 'vp8', supportsAlpha: false }            // VP8 fallback (no alpha)
     ];
     
-    for (const codec of codecsToTest) {
+    for (const { codec, supportsAlpha } of codecsToTest) {
       try {
         const config = {
           codec,
@@ -443,17 +444,18 @@ export class CoinExporter {
           height: settings.size,
           bitrate: 200000,
           framerate: settings.fps
-          // Note: removing alpha: 'keep' as it might cause config failures
+          // Note: removing alpha: 'keep' as it might cause config failures during testing
         };
         
         if ((window as any).VideoEncoder && (window as any).VideoEncoder.isConfigSupported) {
           const support = await (window as any).VideoEncoder.isConfigSupported(config);
           if (support.supported) {
-            supportedCodecs.push(codec);
+            supportedCodecs.push({ codec, supportsAlpha });
+            await debugLog(`✅ Codec ${codec} supported (alpha: ${supportsAlpha})`);
           }
         } else {
           // Fallback: assume basic VP8 is supported if no isConfigSupported
-          supportedCodecs.push('vp8');
+          supportedCodecs.push({ codec: 'vp8', supportsAlpha: false });
           break;
         }
       } catch (testError) {
@@ -507,15 +509,14 @@ export class CoinExporter {
         }
       });
 
-      // Configure video encoder using the best available codec
-      const bestCodec = supportedCodecs[0];
-      const supportsAlpha = bestCodec.includes('vp09.02') || bestCodec === 'vp9'; // Only VP9 profiles support alpha
+      // Configure video encoder using the best available codec (prefer alpha-capable ones)
+      const bestCodec = supportedCodecs[0]; // First one should be the best alpha-capable codec
       
-      await debugLog(`🎥 Using codec: ${bestCodec} (alpha support: ${supportsAlpha})`);
+      await debugLog(`🎥 Using codec: ${bestCodec.codec} (alpha support: ${bestCodec.supportsAlpha})`);
       
       try {
         const encoderConfig: any = {
-          codec: bestCodec,
+          codec: bestCodec.codec,
           width: settings.size,
           height: settings.size,
           bitrate: 200000, // 200kbps for small file size
@@ -523,7 +524,7 @@ export class CoinExporter {
         };
         
         // Only add alpha parameter for codecs that support it
-        if (supportsAlpha) {
+        if (bestCodec.supportsAlpha) {
           encoderConfig.alpha = 'keep';
         }
         
@@ -533,7 +534,7 @@ export class CoinExporter {
         throw new Error(`VideoEncoder configuration failed: ${configError instanceof Error ? configError.message : 'Unknown error'}`);
       }
 
-      await debugLog(`🎥 VideoEncoder configured successfully with ${bestCodec}${supportsAlpha ? ' (with alpha)' : ' (no alpha)'}`);
+      await debugLog(`🎥 VideoEncoder configured successfully with ${bestCodec.codec}${bestCodec.supportsAlpha ? ' (with alpha)' : ' (no alpha)'}`);
 
       // Process each frame
       for (let i = 0; i < frames.length; i++) {
@@ -563,8 +564,8 @@ export class CoinExporter {
               frameSize: `${imageBitmap.width}x${imageBitmap.height}`,
               cornerAlphaValues: cornerSamples.map(px => px[3]),
               hasTransparentCorners: cornerSamples.some(px => px[3] < 255),
-              codecSupportsAlpha: supportsAlpha,
-              willPreserveTransparency: supportsAlpha && cornerSamples.some(px => px[3] < 255)
+              codecSupportsAlpha: bestCodec.supportsAlpha,
+              willPreserveTransparency: bestCodec.supportsAlpha && cornerSamples.some(px => px[3] < 255)
             });
           }
 
