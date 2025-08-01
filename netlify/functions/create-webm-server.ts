@@ -62,11 +62,61 @@ export const handler: Handler = async (event) => {
       // Use ffmpeg-static for Netlify compatibility
       let ffmpegPath: string;
       try {
-        ffmpegPath = require('ffmpeg-static');
-        if (!ffmpegPath) {
+        const ffmpegStaticPath = require('ffmpeg-static');
+        if (!ffmpegStaticPath) {
           throw new Error('ffmpeg-static returned null/undefined path');
         }
-        console.log('✅ Found ffmpeg-static binary:', ffmpegPath);
+        
+        // On Netlify, the path might be relative, so check if file exists
+        const fs = require('fs');
+        
+        // Debug: List what's actually available
+        try {
+          console.log('🔍 Debug - Current working directory:', process.cwd());
+          console.log('🔍 Debug - __dirname:', __dirname);
+          console.log('🔍 Debug - ffmpeg-static returned path:', ffmpegStaticPath);
+          
+          // Check if the returned path exists
+          const pathExists = fs.existsSync(ffmpegStaticPath);
+          console.log('🔍 Debug - ffmpeg-static path exists:', pathExists);
+          
+          if (pathExists) {
+            const stats = fs.statSync(ffmpegStaticPath);
+            console.log('🔍 Debug - is file:', stats.isFile(), 'is executable:', !!(stats.mode & parseInt('111', 8)));
+          }
+        } catch (debugError) {
+          console.log('🔍 Debug failed:', debugError);
+        }
+        
+        if (fs.existsSync(ffmpegStaticPath)) {
+          ffmpegPath = ffmpegStaticPath;
+          console.log('✅ Found ffmpeg-static binary:', ffmpegPath);
+        } else {
+          // Try alternative paths for Netlify
+          const alternativePaths = [
+            '/opt/nodejs/node_modules/ffmpeg-static/ffmpeg',
+            '/var/task/node_modules/ffmpeg-static/ffmpeg',
+            '/var/runtime/node_modules/ffmpeg-static/ffmpeg',
+            './node_modules/ffmpeg-static/ffmpeg'
+          ];
+          
+          let foundPath: string | null = null;
+          for (const altPath of alternativePaths) {
+            if (fs.existsSync(altPath)) {
+              foundPath = altPath;
+              break;
+            }
+          }
+          
+          if (foundPath) {
+            ffmpegPath = foundPath;
+            console.log('✅ Found ffmpeg-static binary at alternative path:', ffmpegPath);
+          } else {
+            console.log('❌ ffmpeg-static binary not found at any expected location');
+            console.log('Tried paths:', [ffmpegStaticPath, ...alternativePaths]);
+            throw new Error('FFmpeg binary file not found');
+          }
+        }
       } catch (ffmpegStaticError) {
         console.log('❌ ffmpeg-static not available:', ffmpegStaticError);
         throw new Error('FFmpeg binary not available');
