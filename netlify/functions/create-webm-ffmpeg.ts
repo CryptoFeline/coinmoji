@@ -3,7 +3,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { execSync } from 'child_process';
-import ffmpegPath from 'ffmpeg-static';
 
 export const handler: Handler = async (event: HandlerEvent, context: HandlerContext) => {
   if (event.httpMethod !== 'POST') {
@@ -32,6 +31,33 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
         fps: fps <= 30
       }
     });
+
+    // Get FFmpeg path - try multiple methods
+    let ffmpegBinary: string | null = null;
+    
+    try {
+      // Try ffmpeg-static first
+      const ffmpegStatic = require('ffmpeg-static');
+      ffmpegBinary = ffmpegStatic;
+      console.log('📦 Using ffmpeg-static:', ffmpegBinary);
+    } catch (error) {
+      console.warn('⚠️ ffmpeg-static not available:', error);
+    }
+    
+    // Fallback to system ffmpeg
+    if (!ffmpegBinary) {
+      ffmpegBinary = 'ffmpeg';
+      console.log('🔧 Falling back to system ffmpeg');
+    }
+    
+    // Test if FFmpeg is available
+    try {
+      execSync(`${ffmpegBinary} -version`, { stdio: 'pipe' });
+      console.log('✅ FFmpeg is available');
+    } catch (testError) {
+      console.error('❌ FFmpeg not available:', testError);
+      throw new Error('FFmpeg not available in this environment');
+    }
 
     // Telegram requirements validation
     if (width !== 100 || height !== 100) {
@@ -70,7 +96,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     console.log('🎬 Running FFmpeg to create VP9 WebM...');
     
     const ffmpegCommand = [
-      ffmpegPath,
+      ffmpegBinary,
       '-y', // Overwrite output file
       '-framerate', fps.toString(),
       '-i', inputPattern,
