@@ -305,7 +305,7 @@ export class CoinExporter {
       };
       
       await debugLog('📡 Sending frames to server for WebM creation...');
-      const response = await fetch('/.netlify/functions/create-webm', {
+      const response = await fetch('/.netlify/functions/create-webm-ffmpeg', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
