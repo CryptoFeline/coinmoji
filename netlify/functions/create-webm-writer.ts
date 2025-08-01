@@ -75,15 +75,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
           continue;
         }
         
-        // Create canvas with exact dimensions
-        const canvas = createCanvas(width, height);
-        const ctx = canvas.getContext('2d');
-        
-        // Set up canvas for transparency
-        ctx.clearRect(0, 0, width, height);
-        ctx.globalCompositeOperation = 'source-over';
-        
-        // Load and draw the PNG image with proper error handling
+        // Load the PNG image directly from buffer
         const img = await loadImage(frameBuffer);
         
         // Verify image loaded correctly
@@ -92,10 +84,21 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
           continue;
         }
         
+        console.log(`🖼️ Frame ${i}: ${img.width}x${img.height} loaded successfully`);
+        
+        // Create canvas with exact dimensions
+        const canvas = createCanvas(width, height);
+        const ctx = canvas.getContext('2d');
+        
+        // Set up canvas for transparency - critical for emoji
+        ctx.clearRect(0, 0, width, height);
+        ctx.globalCompositeOperation = 'source-over';
+        
         // Draw image scaled to exact dimensions
         ctx.drawImage(img, 0, 0, width, height);
         
-        // Add frame to WebM writer
+        // webm-writer expects Canvas directly, not a data URL
+        // This is the critical fix - pass canvas object directly
         videoWriter.addFrame(canvas);
         successfulFrames++;
         
