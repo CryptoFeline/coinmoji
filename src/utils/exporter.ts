@@ -510,7 +510,15 @@ export class CoinExporter {
       const webmBuffer = Uint8Array.from(atob(result.webm_base64), c => c.charCodeAt(0));
       const webmBlob = new Blob([webmBuffer], { type: 'video/webm' });
       
-      await debugLog('🎬 Server WebM blob created:', { size: webmBlob.size });
+      // Verify if the server-side WebM actually has transparency
+      const hasAlpha = await verifyWebMHasAlpha(webmBlob);
+      
+      await debugLog('🎬 Server WebM blob created:', { 
+        size: webmBlob.size,
+        hasTransparency: hasAlpha,
+        serverMethod: result.method,
+        note: hasAlpha ? 'Server transparency preserved ✅' : 'Server WebM without transparency'
+      });
       
       return webmBlob;
       
@@ -533,12 +541,21 @@ export class CoinExporter {
     // Check supported codecs before proceeding - prioritize alpha-capable codecs
     const supportedCodecs = [];
     const codecsToTest = [
+      // VP9 Profile 2 variants (alpha capable)
       { codec: 'vp09.02.10.10.01.09.16.09.01', supportsAlpha: true }, // VP9 Profile 2, Level 5, 10-bit, 4:2:0, alpha
       { codec: 'vp09.02.10.10', supportsAlpha: true },  // VP9 Profile 2 with alpha
-      { codec: 'vp09.02.10.08', supportsAlpha: true },  // VP9 Profile 2 with alpha  
+      { codec: 'vp09.02.10.08', supportsAlpha: true },  // VP9 Profile 2 with alpha
+      { codec: 'vp09.02.51.10', supportsAlpha: true },  // VP9 Profile 2, different level
+      { codec: 'vp09.02.41.10', supportsAlpha: true },  // VP9 Profile 2, different level
+      // VP9 Profile 1 variants (may support alpha)
       { codec: 'vp09.01.10.08', supportsAlpha: true },  // VP9 Profile 1 (may support alpha)
+      { codec: 'vp09.01.51.08', supportsAlpha: true },  // VP9 Profile 1 variant
+      // Simple VP9 (may support alpha in some browsers)
       { codec: 'vp9', supportsAlpha: true },            // Simple VP9 (may support alpha)
+      // VP9 Profile 0 (no alpha)
       { codec: 'vp09.00.10.08', supportsAlpha: false }, // VP9 Profile 0 (no alpha)
+      { codec: 'vp09.00.51.08', supportsAlpha: false }, // VP9 Profile 0 variant
+      // VP8 fallback (no alpha)
       { codec: 'vp8', supportsAlpha: false }            // VP8 fallback (no alpha)
     ];
     
@@ -770,10 +787,15 @@ export class CoinExporter {
       });
       
       const webmBlob = new Blob([webmBuffer], { type: 'video/webm' });
+      
+      // Verify if the WebM actually has transparency
+      const hasAlpha = await verifyWebMHasAlpha(webmBlob);
+      
       await debugLog('🎬 WebM blob created from webm-muxer:', { 
         size: webmBlob.size,
-        hasTransparency: hasAlphaCodec,
-        note: hasAlphaCodec ? 'Transparency preserved' : 'Solid background for Telegram compatibility'
+        hasTransparency: hasAlpha,
+        codecSupported: hasAlphaCodec,
+        note: hasAlpha ? 'Transparency preserved ✅' : 'Solid background for Telegram compatibility'
       });
       
       return webmBlob;
@@ -961,28 +983,23 @@ export async function verifyWebMHasAlpha(blob: Blob): Promise<boolean> {
     await v.play().catch(()=>{});
     await new Promise(r => v.addEventListener('loadeddata', r, { once: true }));
     
-    // Draw to 2D canvas and read a pixel that should be transparent
+    // Draw to 2D canvas and read pixels that should be transparent
     const c = document.createElement('canvas'); 
-    c.width = v.videoWidth; 
-    c.height = v.videoHeight;
+    c.width = 4; 
+    c.height = 4;
     const ctx = c.getContext('2d', { willReadFrequently: true, alpha: true })!;
     ctx.clearRect(0, 0, c.width, c.height);
-    ctx.drawImage(v, 0, 0);
+    ctx.drawImage(v, 0, 0, 4, 4);
     
-    // Sample multiple edge pixels that should be transparent
-    const samples = [
-      ctx.getImageData(0, 0, 1, 1).data, // top-left
-      ctx.getImageData(c.width - 1, 0, 1, 1).data, // top-right
-      ctx.getImageData(0, c.height - 1, 1, 1).data, // bottom-left
-      ctx.getImageData(c.width - 1, c.height - 1, 1, 1).data // bottom-right
-    ];
+    // Sample corner pixel for transparency
+    const cornerPixel = ctx.getImageData(0, 0, 1, 1).data;
+    const hasTransparency = cornerPixel[3] < 250; // Alpha < 250 means transparency
     
-    // Check if any corner pixels have transparency (alpha < 255)
-    const hasTransparency = samples.some(px => px[3] < 255);
     console.log('🔍 Alpha verification result:', {
       videoSize: `${v.videoWidth}x${v.videoHeight}`,
-      cornerAlphaValues: samples.map(px => px[3]),
-      hasTransparency
+      cornerAlpha: cornerPixel[3],
+      hasTransparency,
+      note: hasTransparency ? 'WebM has transparency ✅' : 'WebM has solid background ❌'
     });
     
     return hasTransparency;

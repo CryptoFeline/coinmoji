@@ -59,6 +59,19 @@ export const handler: Handler = async (event) => {
       const { spawn } = require('child_process');
       const os = require('os');
       
+      // Use ffmpeg-static for Netlify compatibility
+      let ffmpegPath: string;
+      try {
+        ffmpegPath = require('ffmpeg-static');
+        if (!ffmpegPath) {
+          throw new Error('ffmpeg-static returned null/undefined path');
+        }
+        console.log('✅ Found ffmpeg-static binary:', ffmpegPath);
+      } catch (ffmpegStaticError) {
+        console.log('❌ ffmpeg-static not available:', ffmpegStaticError);
+        throw new Error('FFmpeg binary not available');
+      }
+      
       // Create temporary directory for frame processing
       const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'webm-'));
       console.log(`📁 Created temp directory: ${tempDir}`);
@@ -82,25 +95,26 @@ export const handler: Handler = async (event) => {
         
         console.log('🎬 Running FFmpeg to create transparent WebM...');
         
-        // FFmpeg command for transparent WebM with VP9
+        // FFmpeg command for transparent WebM with VP9 (optimized for alpha)
         const ffmpegArgs = [
+          '-y', // Overwrite output file
           '-framerate', settings.fps.toString(),
           '-i', inputPattern,
+          '-vf', 'scale=100:100:flags=lanczos', // Scale to emoji size with high-quality scaling
           '-c:v', 'libvpx-vp9',
-          '-pix_fmt', 'yuva420p', // Enable alpha channel
-          '-auto-alt-ref', '0',
-          '-lag-in-frames', '0',
-          '-b:v', '200k', // 200kbps bitrate for small file size
-          '-crf', '30', // Good quality/size balance
+          '-pix_fmt', 'yuva420p', // Enable alpha channel (CRITICAL)
+          '-auto-alt-ref', '0', // Disable alt-ref frames that can break alpha in some decoders
+          '-lag-in-frames', '0', // Disable lagged frames for better compatibility
+          '-b:v', '0', // Use CRF mode instead of bitrate
+          '-crf', '30', // Good quality/size balance (30-40 for ≤256 KB)
           '-t', settings.duration.toString(),
-          '-y', // Overwrite output file
           outputPath
         ];
         
-        console.log('📋 FFmpeg command:', ['ffmpeg', ...ffmpegArgs].join(' '));
+        console.log('📋 FFmpeg command:', [ffmpegPath, ...ffmpegArgs].join(' '));
         
         const ffmpegResult = await new Promise<{ success: boolean; error?: string }>((resolve) => {
-          const ffmpeg = spawn('ffmpeg', ffmpegArgs, {
+          const ffmpeg = spawn(ffmpegPath, ffmpegArgs, {
             stdio: ['ignore', 'pipe', 'pipe'],
             cwd: tempDir
           });
