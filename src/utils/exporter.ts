@@ -246,7 +246,7 @@ export class CoinExporter {
   }
 
   async exportAsWebM(settings: ExportSettings): Promise<Blob> {
-    await debugLog('🎬 Starting WebM export with settings:', settings);
+    await debugLog('🎬 Starting WebM export with native MediaRecorder:', settings);
     
     try {
       // Check if we have valid scene objects
@@ -266,30 +266,12 @@ export class CoinExporter {
       
       await debugLog('✅ Scene objects validated');
 
-      const { fps, duration, size } = settings;
+      // Use native browser MediaRecorder to record the canvas directly
+      await debugLog('🎥 Starting native canvas recording...');
+      const webmBlob = await this.recordCanvasToWebM(settings);
       
-      await debugLog('📹 Starting frame export phase...');
-      // Export frames at HIGH RESOLUTION for quality (always 512px)
-      const highResFrames = await this.exportFrames({
-        fps,
-        duration,
-        size: 512 // Always capture at 512px for quality
-      });
-      
-      await debugLog(`✅ Frame export completed - got ${highResFrames.length} high-res frames`);
-      
-      // Calculate effective FPS for the reduced frame count but same duration
-      const effectiveFPS = highResFrames.length / duration;
-      await debugLog(`🎯 Using effective FPS: ${effectiveFPS.toFixed(2)} (${highResFrames.length} frames over ${duration}s)`);
-      
-      // Send frames to server for WebM creation instead of client-side encoding
-      await debugLog('� Sending frames to server for WebM creation...');
-      const result = await this.createWebMOnServer(highResFrames, effectiveFPS, size);
-      
-      await debugLog('✅ Server-side WebM creation completed');
-      
-      await debugLog('✅ WebM export completed successfully - total size:', { size: result.size });
-      return result;
+      await debugLog('✅ Native WebM recording completed:', { size: webmBlob.size });
+      return webmBlob;
     } catch (error) {
       await debugLog('❌ WebM export failed at top level:', { error: error instanceof Error ? error.message : 'Unknown error' });
       alert(`WebM export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -297,128 +279,121 @@ export class CoinExporter {
     }
   }
 
-  private async createWebMOnServer(frames: Blob[], fps: number, size: number): Promise<Blob> {
+  private async recordCanvasToWebM(settings: ExportSettings): Promise<Blob> {
+    const { fps, duration, size } = settings;
+    
+    await debugLog('🎥 Setting up canvas recording...', { fps, duration, size });
+    
+    // Create offscreen renderer for recording
+    const captureSize = size; // Use target size directly
+    const offscreenRenderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      preserveDrawingBuffer: true,
+      premultipliedAlpha: false
+    });
+    offscreenRenderer.setSize(captureSize, captureSize);
+    offscreenRenderer.setClearColor(0x000000, 0); // Transparent background
+    offscreenRenderer.outputColorSpace = THREE.SRGBColorSpace;
+    offscreenRenderer.shadowMap.enabled = false;
+    offscreenRenderer.autoClear = true;
+
+    // Create dedicated camera for recording
+    const exportCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+    exportCamera.position.set(0, 0, 2.8);
+    exportCamera.lookAt(0, 0, 0);
+
+    const canvas = offscreenRenderer.domElement;
+    
+    // Store original rotation and scene background
+    const originalRotation = this.turntable.rotation.y;
+    const prevBackground = this.scene.background;
+    this.scene.background = null; // Ensure transparency
+
     try {
-      await debugLog(`� Preparing frames for server-side WebM creation:`, { 
-        frameCount: frames.length, 
-        fps, 
-        targetSize: `${size}x${size}` 
-      });
+      // Check MediaRecorder support
+      if (!('MediaRecorder' in window)) {
+        throw new Error('MediaRecorder not supported in this browser');
+      }
+
+      // Setup MediaRecorder with WebM VP9 codec
+      const stream = canvas.captureStream(fps);
+      const mimeType = 'video/webm;codecs=vp9';
       
-      // Convert frames to base64 for server transmission using FileReader to avoid stack overflow
-      const framePromises = frames.map(async (frame, index) => {
-        const base64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const result = reader.result as string;
-            // Remove the data URL prefix to get just the base64
-            const base64Data = result.split(',')[1];
-            resolve(base64Data);
-          };
-          reader.onerror = () => reject(new Error('Failed to convert frame to base64'));
-          reader.readAsDataURL(frame);
-        });
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        await debugLog('⚠️ VP9 not supported, trying VP8...');
+        const fallbackMimeType = 'video/webm;codecs=vp8';
+        if (!MediaRecorder.isTypeSupported(fallbackMimeType)) {
+          throw new Error('WebM not supported in this browser');
+        }
+      }
+
+      const recorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported(mimeType) ? mimeType : 'video/webm;codecs=vp8',
+        videoBitsPerSecond: 1000000 // 1Mbps for good quality
+      });
+
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      };
+
+      // Start recording
+      recorder.start();
+      await debugLog('🎬 Recording started...');
+
+      // Animate the coin for the specified duration
+      const totalFrames = 30; // Always use 30 frames for 3 seconds
+      const frameDelay = (duration * 1000) / totalFrames; // Delay between frames in ms
+
+      for (let i = 0; i < totalFrames; i++) {
+        const angle = (2 * Math.PI * i) / totalFrames;
+        this.turntable.rotation.y = angle;
         
-        if (index === 0 || index === frames.length - 1 || index % 10 === 0) {
-          await debugLog(`📤 Converted frame ${index + 1}/${frames.length} to base64 (${base64.length} chars)`);
+        // Render frame
+        offscreenRenderer.render(this.scene, exportCamera);
+        
+        // Wait for next frame
+        if (i < totalFrames - 1) {
+          await new Promise(resolve => setTimeout(resolve, frameDelay));
         }
         
-        return base64;
+        if (i % 10 === 0) {
+          await debugLog(`📹 Recording frame ${i + 1}/${totalFrames}`);
+        }
+      }
+
+      // Stop recording and wait for result
+      return new Promise<Blob>((resolve, reject) => {
+        recorder.onstop = () => {
+          const webmBlob = new Blob(chunks, { type: 'video/webm' });
+          debugLog('✅ Native recording completed:', { 
+            size: webmBlob.size,
+            chunks: chunks.length 
+          });
+          resolve(webmBlob);
+        };
+
+        recorder.onerror = (event) => {
+          debugLog('❌ Recording error:', event);
+          reject(new Error('Recording failed'));
+        };
+
+        // Stop after a small delay to ensure last frame is captured
+        setTimeout(() => {
+          recorder.stop();
+          stream.getTracks().forEach(track => track.stop());
+        }, 100);
       });
-      
-      const base64Frames = await Promise.all(framePromises);
-      await debugLog(`✅ All ${base64Frames.length} frames converted to base64`);
-      
-      const payload = {
-        frames: base64Frames,
-        fps,
-        width: size,
-        height: size,
-        format: 'webm',
-        codec: 'vp9',
-        alpha: true
-      };
-      
-      await debugLog('📡 Sending frames to server for WebM creation...');
-      let response = await fetch('/.netlify/functions/create-webm-writer', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-      
-      // If webm-writer fails, try fallback to manual WebM creation
-      if (!response.ok) {
-        await debugLog('⚠️ WebM-writer failed, trying fallback approach...');
-        response = await fetch('/.netlify/functions/create-webm', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
-        });
-      }
-      
-      await debugLog('📡 Server response received:', { 
-        status: response.status, 
-        statusText: response.statusText 
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        await debugLog('❌ Server WebM creation failed:', {
-          status: response.status,
-          statusText: response.statusText,
-          errorText
-        });
-        throw new Error(`Server WebM creation failed: ${response.status} ${response.statusText}`);
-      }
-      
-      const result = await response.json();
-      await debugLog('✅ Server WebM creation success:', {
-        size: result.size,
-        codec: result.codec,
-        frames_processed: result.frames_processed,
-        total_frames: result.total_frames,
-        successful_frame_ratio: result.total_frames ? (result.frames_processed / result.total_frames).toFixed(2) : 'unknown',
-        telegram_compliant: result.telegram_compliant
-      });
-      
-      // Validate WebM file size - reject if too small (indicates processing failure)
-      if (result.size < 1000) {
-        await debugLog('❌ WebM file suspiciously small, likely processing failed:', {
-          size: result.size,
-          frames_processed: result.frames_processed,
-          total_frames: result.total_frames
-        });
-        throw new Error(`WebM creation failed: file too small (${result.size} bytes) - likely frame processing failure`);
-      }
-      
-      // Validate frame processing success ratio
-      if (result.total_frames && result.frames_processed / result.total_frames < 0.5) {
-        await debugLog('❌ Too many frames failed to process:', {
-          successful_frames: result.frames_processed,
-          total_frames: result.total_frames,
-          success_ratio: (result.frames_processed / result.total_frames).toFixed(2)
-        });
-        throw new Error(`WebM creation failed: only ${result.frames_processed}/${result.total_frames} frames processed successfully`);
-      }
-      
-      // Convert base64 back to blob
-      const webmData = atob(result.webm_base64);
-      const webmArray = new Uint8Array(webmData.length);
-      for (let i = 0; i < webmData.length; i++) {
-        webmArray[i] = webmData.charCodeAt(i);
-      }
-      
-      const webmBlob = new Blob([webmArray], { type: 'video/webm' });
-      await debugLog('✅ Server-created WebM converted to blob:', { size: webmBlob.size });
-      
-      return webmBlob;
-    } catch (error) {
-      await debugLog('❌ Server WebM creation failed:', { error: error instanceof Error ? error.message : 'Unknown server error' });
-      throw new Error(`Server-side WebM creation failed: ${error instanceof Error ? error.message : 'Unknown server error'}`);
+
+    } finally {
+      // Cleanup
+      this.scene.background = prevBackground;
+      this.turntable.rotation.y = originalRotation;
+      offscreenRenderer.dispose();
+      await debugLog('🔄 Cleaned up recording resources');
     }
   }
 
