@@ -468,12 +468,12 @@ export class CoinExporter {
 
       // Configure VP9 encoder with alpha support
       await videoEncoder.configure({
-        codec: 'vp09.00.10.08', // VP9 Profile 0, Level 1.0, 8-bit with alpha
+        codec: 'vp09.02.10.10', // VP9 Profile 2 (supports alpha channel)
         width: settings.size,
         height: settings.size,
         bitrate: 200000, // 200kbps for small file size
         framerate: settings.fps,
-        alpha: 'keep'
+        alpha: 'keep' // CRITICAL: Keep alpha channel
       });
 
       await debugLog('🎥 VideoEncoder configured for VP9 with alpha');
@@ -483,6 +483,31 @@ export class CoinExporter {
         try {
           // Create ImageBitmap from blob
           const imageBitmap = await createImageBitmap(frames[i]);
+
+          // Debug: Check if the frame has transparency
+          if (i === 0) {
+            // Create a temporary canvas to check the alpha values
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = imageBitmap.width;
+            tempCanvas.height = imageBitmap.height;
+            const tempCtx = tempCanvas.getContext('2d', { alpha: true })!;
+            tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+            tempCtx.drawImage(imageBitmap, 0, 0);
+            
+            // Sample corner pixels to check transparency
+            const cornerSamples = [
+              tempCtx.getImageData(0, 0, 1, 1).data, // top-left
+              tempCtx.getImageData(tempCanvas.width - 1, 0, 1, 1).data, // top-right
+              tempCtx.getImageData(0, tempCanvas.height - 1, 1, 1).data, // bottom-left
+              tempCtx.getImageData(tempCanvas.width - 1, tempCanvas.height - 1, 1, 1).data // bottom-right
+            ];
+            
+            await debugLog('🔍 First frame transparency check:', {
+              frameSize: `${imageBitmap.width}x${imageBitmap.height}`,
+              cornerAlphaValues: cornerSamples.map(px => px[3]),
+              hasTransparentCorners: cornerSamples.some(px => px[3] < 255)
+            });
+          }
 
           // Create VideoFrame with timestamp
           const timestamp = (i * 1000000) / settings.fps; // microseconds
