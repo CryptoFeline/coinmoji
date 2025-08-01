@@ -186,7 +186,7 @@ export class FFmpegManager {
   async createTransparentWebM(
     pngFramePaths: string[],
     outputPath: string,
-    settings: { fps: number; size: number }
+    settings: { fps: number; size: number; duration?: number }
   ): Promise<void> {
     const ffmpegPath = await this.getFFmpegPath();
     
@@ -204,6 +204,19 @@ export class FFmpegManager {
     
     await fs.writeFile(frameListPath, frameListContent);
 
+    // CRITICAL: Calculate the correct frame rate for the desired duration
+    // If we have 30 frames and want 3 seconds, we need 30/3 = 10 fps
+    const frameCount = pngFramePaths.length;
+    const targetDuration = settings.duration || 3; // Default to 3 seconds if not provided
+    const effectiveFPS = frameCount / targetDuration;
+    
+    console.log('⏱️ Frame rate calculation:', {
+      frameCount,
+      targetDuration,
+      effectiveFPS: effectiveFPS.toFixed(2),
+      originalFPS: settings.fps
+    });
+
     // Build FFmpeg command for transparent WebM with VP9
     // CRITICAL: Use yuva420p pixel format + auto-alt-ref 0 for alpha support
     const ffmpegArgs = [
@@ -217,7 +230,7 @@ export class FFmpegManager {
       '-error-resilient', '1', // Better for streaming
       '-crf', '30',            // Good quality balance
       '-b:v', '200K',          // Target bitrate
-      '-r', settings.fps.toString(),
+      '-r', effectiveFPS.toString(), // Use calculated effective FPS for correct duration
       '-s', `${settings.size}x${settings.size}`,
       '-y',                    // Overwrite output
       outputPath
