@@ -230,15 +230,6 @@ export class CoinExporter {
       }
       
       await debugLog('✅ Scene objects validated');
-      
-      if (!('VideoEncoder' in window)) {
-        const error = 'WebCodecs not supported in this browser';
-        console.error('❌ Browser compatibility:', error);
-        alert(`Export failed: ${error}`);
-        throw new Error(error);
-      }
-      
-      await debugLog('✅ WebCodecs support confirmed');
 
       const { fps, duration, size } = settings;
       
@@ -256,14 +247,11 @@ export class CoinExporter {
       const effectiveFPS = highResFrames.length / duration;
       await debugLog(`🎯 Using effective FPS: ${effectiveFPS.toFixed(2)} (${highResFrames.length} frames over ${duration}s)`);
       
-      // Create WebM directly at target size from high-res frames
-      await debugLog('🎥 Starting WebCodecs encoding phase...');
-      const result = await this.exportWithWebCodecs(highResFrames, effectiveFPS, size);
+      // Send frames to server for WebM creation instead of client-side encoding
+      await debugLog('� Sending frames to server for WebM creation...');
+      const result = await this.createWebMOnServer(highResFrames, effectiveFPS, size);
       
-      await debugLog('✅ WebCodecs encoding completed');
-      
-      // Skip alpha verification in Telegram environment - it can hang
-      await debugLog('⏭️ Skipping alpha verification (can hang in Telegram) - WebM should have transparency based on VP9 alpha encoding');
+      await debugLog('✅ Server-side WebM creation completed');
       
       await debugLog('✅ WebM export completed successfully - total size:', { size: result.size });
       return result;
@@ -274,241 +262,84 @@ export class CoinExporter {
     }
   }
 
-  private async exportWithWebCodecs(frames: Blob[], fps: number, size: number): Promise<Blob> {
+  private async createWebMOnServer(frames: Blob[], fps: number, size: number): Promise<Blob> {
     try {
-      await debugLog(`🎬 Starting WebCodecs encoding:`, { 
+      await debugLog(`� Preparing frames for server-side WebM creation:`, { 
         frameCount: frames.length, 
         fps, 
-        size: `${size}x${size}` 
+        targetSize: `${size}x${size}` 
       });
       
-      // Import webm-muxer dynamically
-      await debugLog('📦 Importing webm-muxer...');
-      const { Muxer, ArrayBufferTarget } = await import('webm-muxer');
-      await debugLog('✅ webm-muxer imported successfully');
-      
-      await debugLog('🎯 Creating muxer target...');
-      const target = new ArrayBufferTarget();
-      const muxer = new Muxer({
-        target,
-        video: {
-          codec: 'V_VP9',
-          width: size,
-          height: size,
-          frameRate: fps,
+      // Convert frames to base64 for server transmission
+      const framePromises = frames.map(async (frame, index) => {
+        const arrayBuffer = await frame.arrayBuffer();
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+        
+        if (index === 0 || index === frames.length - 1 || index % 10 === 0) {
+          await debugLog(`📤 Converted frame ${index + 1}/${frames.length} to base64 (${base64.length} chars)`);
         }
+        
+        return base64;
       });
-      await debugLog('✅ Muxer created successfully');
-
-      await debugLog('🎥 Creating VideoEncoder...');
-      let chunksReceived = 0;
-      let encoderError: Error | null = null;
       
-      const encoder = new (window as any).VideoEncoder({
-        output: (chunk: any, meta: any) => {
-          try {
-            muxer.addVideoChunk(chunk, meta);
-            chunksReceived++;
-            if (chunksReceived <= 5 || chunksReceived % 5 === 0) {
-              console.log(`📝 WebCodecs chunk ${chunksReceived}: ${chunk.byteLength} bytes, type: ${chunk.type}`);
-            }
-          } catch (chunkError) {
-            const error = `Chunk processing error: ${chunkError instanceof Error ? chunkError.message : 'Unknown chunk error'}`;
-            console.error('❌', error);
-            encoderError = new Error(error);
-          }
+      const base64Frames = await Promise.all(framePromises);
+      await debugLog(`✅ All ${base64Frames.length} frames converted to base64`);
+      
+      const payload = {
+        frames: base64Frames,
+        fps,
+        width: size,
+        height: size,
+        format: 'webm',
+        codec: 'vp9',
+        alpha: true
+      };
+      
+      await debugLog('📡 Sending frames to server for WebM creation...');
+      const response = await fetch('/.netlify/functions/create-webm', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        error: (e: any) => {
-          const error = `VideoEncoder error: ${e.message || e}`;
-          console.error('❌', error);
-          encoderError = new Error(error);
-          debugLog('❌ VideoEncoder async error:', { error: e.message || e });
-        }
+        body: JSON.stringify(payload),
       });
-      await debugLog('✅ VideoEncoder created successfully');
-
-      await debugLog('⚙️ Configuring VideoEncoder with alpha support...');
       
-      let encoderConfigured = false;
+      await debugLog('📡 Server response received:', { 
+        status: response.status, 
+        statusText: response.statusText 
+      });
       
-      // Try VP9 Profile 2 first (best alpha support)
-      try {
-        await debugLog('🔧 Attempting VP9 Profile 2 configuration...');
-        encoder.configure({
-          codec: 'vp09.02.10.08', // Profile 2 supports alpha
-          width: size,
-          height: size,
-          bitrate: 1_000_000,
-          framerate: fps,
-          latencyMode: 'realtime',
-          alpha: 'keep',
-          bitrateMode: 'constant'
+      if (!response.ok) {
+        const errorText = await response.text();
+        await debugLog('❌ Server WebM creation failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorText
         });
-        
-        // Wait longer to catch async errors for Profile 2
-        await new Promise(resolve => setTimeout(resolve, 200));
-        if (encoderError !== null) {
-          throw encoderError;
-        }
-        
-        encoderConfigured = true;
-        await debugLog('✅ VideoEncoder configured with VP9 Profile 2 alpha support');
-      } catch (profile2Error) {
-        await debugLog('❌ VP9 Profile 2 failed:', { error: profile2Error instanceof Error ? profile2Error.message : 'Unknown error' });
-        encoderError = null; // Reset error for next attempt
-        
-        // Try VP9 Profile 0 as fallback
-        try {
-          await debugLog('🔧 Attempting VP9 Profile 0 fallback...');
-          encoder.configure({
-            codec: 'vp09.00.10.08',
-            width: size,
-            height: size,
-            bitrate: 1_000_000,
-            framerate: fps,
-            alpha: 'keep'
-          });
-          
-          // Wait to catch async errors for Profile 0
-          await new Promise(resolve => setTimeout(resolve, 200));
-          if (encoderError !== null) {
-            throw encoderError;
-          }
-          
-          encoderConfigured = true;
-          await debugLog('✅ VideoEncoder configured with VP9 Profile 0 alpha support');
-        } catch (profile0Error) {
-          await debugLog('❌ VP9 Profile 0 failed:', { error: profile0Error instanceof Error ? profile0Error.message : 'Unknown error' });
-          encoderError = null; // Reset error for next attempt
-          
-          // Try basic VP9 without explicit alpha as last resort
-          try {
-            await debugLog('🔧 Attempting basic VP9 configuration...');
-            encoder.configure({
-              codec: 'vp09.00.10.08',
-              width: size,
-              height: size,
-              bitrate: 1_000_000,
-              framerate: fps
-              // No alpha parameter - browser may still support it implicitly
-            });
-            
-            // Wait to catch async errors for basic VP9
-            await new Promise(resolve => setTimeout(resolve, 200));
-            if (encoderError !== null) {
-              throw encoderError;
-            }
-            
-            encoderConfigured = true;
-            await debugLog('⚠️ VideoEncoder configured with basic VP9 (alpha support uncertain)');
-          } catch (basicError) {
-            await debugLog('❌ All VP9 configurations failed:', { error: basicError instanceof Error ? basicError.message : 'Unknown error' });
-            throw new Error('VP9 encoding not supported in this browser/environment');
-          }
-        }
+        throw new Error(`Server WebM creation failed: ${response.status} ${response.statusText}`);
       }
       
-      if (!encoderConfigured) {
-        throw new Error('Failed to configure VideoEncoder with any VP9 profile');
-      }
-
-      await debugLog('🎬 Starting frame encoding process...');
-
-      // Encode frames in small batches to prevent stack overflow
-      const batchSize = 3; // Reduce to 3 frames at a time for stability
-      for (let batchStart = 0; batchStart < frames.length; batchStart += batchSize) {
-        const batchEnd = Math.min(batchStart + batchSize, frames.length);
-        await debugLog(`🎬 Processing batch ${Math.floor(batchStart / batchSize) + 1}/${Math.ceil(frames.length / batchSize)}: frames ${batchStart}-${batchEnd - 1}`);
-        
-        // Process batch sequentially with delays
-        for (let i = batchStart; i < batchEnd; i++) {
-          try {
-            await debugLog(`🖼️ Processing frame ${i + 1}/${frames.length}...`);
-            
-            // Check for encoder errors before processing
-            if (encoderError !== null) {
-              throw encoderError;
-            }
-            
-            // Add delay between every frame to prevent stack overflow
-            if (i > 0) {
-              await new Promise(resolve => setTimeout(resolve, 50)); // Increased delay
-            }
-            
-            // Create ImageBitmap from high-res frame
-            const imageBitmap = await createImageBitmap(frames[i]);
-            await debugLog(`✅ ImageBitmap created: ${imageBitmap.width}x${imageBitmap.height}`);
-            
-            // Create canvas with explicit alpha support
-            const canvas = document.createElement('canvas');
-            canvas.width = size;
-            canvas.height = size;
-            const ctx = canvas.getContext('2d', { 
-              alpha: true,
-              willReadFrequently: false,
-              colorSpace: 'srgb'
-            })!;
-            
-            // CRITICAL: Clear to completely transparent
-            ctx.globalCompositeOperation = 'copy'; // Replace everything, including alpha
-            ctx.clearRect(0, 0, size, size);
-            
-            // Reset to normal compositing and draw with high quality
-            ctx.globalCompositeOperation = 'source-over';
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-            ctx.drawImage(imageBitmap, 0, 0, size, size);
-            
-            // Create VideoFrame from canvas
-            const videoFrame = new (window as any).VideoFrame(canvas, {
-              timestamp: (i * 1000000) / fps, // microseconds
-              duration: 1000000 / fps // frame duration in microseconds
-            });
-            
-            encoder.encode(videoFrame, { keyFrame: i === 0 });
-            videoFrame.close();
-            imageBitmap.close();
-            
-            await debugLog(`✅ Frame ${i + 1}/${frames.length} encoded successfully`);
-          } catch (frameError) {
-            await debugLog(`❌ Error encoding frame ${i}:`, { error: frameError instanceof Error ? frameError.message : 'Unknown frame error' });
-            alert(`Frame encoding error at frame ${i}: ${frameError instanceof Error ? frameError.message : 'Unknown frame error'}`);
-            throw frameError;
-          }
-        }
-        
-        // Add longer delay between batches to let the call stack clear
-        if (batchEnd < frames.length) {
-          await debugLog('⏱️ Pausing between batches...');
-          await new Promise(resolve => setTimeout(resolve, 200)); // Increased pause
-        }
-      }
-
-      await debugLog('⏳ Flushing encoder...');
-      await encoder.flush();
-      await debugLog('✅ Encoder flushed successfully');
-      
-      await debugLog('🔒 Closing encoder...');
-      encoder.close();
-      await debugLog('✅ Encoder closed successfully');
-      
-      await debugLog('📦 Finalizing muxer...');
-      muxer.finalize();
-      await debugLog('✅ Muxer finalized successfully');
-
-      const blob = new Blob([target.buffer], { type: 'video/webm' });
-      await debugLog('✅ WebCodecs+Muxer WebM complete:', { 
-        size: blob.size, 
-        type: blob.type,
-        chunksProcessed: chunksReceived,
-        framesEncoded: frames.length
+      const result = await response.json();
+      await debugLog('✅ Server WebM creation success:', {
+        size: result.size,
+        codec: result.codec,
+        frames_processed: result.frames_processed
       });
       
-      return blob;
+      // Convert base64 back to blob
+      const webmData = atob(result.webm_base64);
+      const webmArray = new Uint8Array(webmData.length);
+      for (let i = 0; i < webmData.length; i++) {
+        webmArray[i] = webmData.charCodeAt(i);
+      }
+      
+      const webmBlob = new Blob([webmArray], { type: 'video/webm' });
+      await debugLog('✅ Server-created WebM converted to blob:', { size: webmBlob.size });
+      
+      return webmBlob;
     } catch (error) {
-      await debugLog('❌ WebCodecs export failed:', { error: error instanceof Error ? error.message : 'Unknown WebCodecs error' });
-      alert(`WebCodecs encoding failed: ${error instanceof Error ? error.message : 'Unknown WebCodecs error'}`);
-      throw error;
+      await debugLog('❌ Server WebM creation failed:', { error: error instanceof Error ? error.message : 'Unknown server error' });
+      throw new Error(`Server-side WebM creation failed: ${error instanceof Error ? error.message : 'Unknown server error'}`);
     }
   }
 
