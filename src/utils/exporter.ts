@@ -164,23 +164,23 @@ export class CoinExporter {
   private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, sourceSize: number, targetSize: number): Promise<Blob> {
     return new Promise((resolve) => {
       try {
-        // Capture as WebP for better WebM compatibility and smaller size
-        renderer.domElement.toBlob((webpBlob) => {
-          if (!webpBlob) {
+        // Capture as PNG - webm-writer expects PNG format
+        renderer.domElement.toBlob((pngBlob) => {
+          if (!pngBlob) {
             resolve(new Blob());
             return;
           }
 
           // If target size equals source size, return directly (avoid unnecessary processing)
           if (sourceSize === targetSize) {
-            resolve(webpBlob);
+            resolve(pngBlob);
             return;
           }
 
           // For now, just return high res directly to avoid complex resizing
           // The WebM writer will handle the scaling
-          resolve(webpBlob);
-        }, 'image/webp', 0.9); // Use WebP with 90% quality for smaller files
+          resolve(pngBlob);
+        }, 'image/png'); // Back to PNG for webm-writer compatibility
       } catch (error) {
         console.error('Frame capture error:', error);
         resolve(new Blob());
@@ -195,7 +195,7 @@ export class CoinExporter {
     
     for (let i = 0; i < frames.length; i++) {
       const frameNumber = String(i).padStart(4, '0');
-      const fileName = `frame_${frameNumber}.png`;
+      const fileName = `frame_${frameNumber}.png`; // PNG frames for ZIP export
       files[fileName] = new Uint8Array(await frames[i].arrayBuffer());
     }
 
