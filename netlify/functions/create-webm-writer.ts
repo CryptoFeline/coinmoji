@@ -66,18 +66,34 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     
     for (let i = 0; i < frames.length; i++) {
       try {
-        // Convert base64 to buffer - now expecting WebP format
+        // Convert base64 to buffer - handle both PNG and WebP formats
         const frameBuffer = Buffer.from(frames[i], 'base64');
         
-        // Verify this is a valid WebP buffer (WebP magic bytes: RIFF...WEBP)
-        if (frameBuffer.length < 12 || 
-            frameBuffer.toString('ascii', 0, 4) !== 'RIFF' ||
-            frameBuffer.toString('ascii', 8, 12) !== 'WEBP') {
-          console.error(`❌ Frame ${i} is not a valid WebP (buffer size: ${frameBuffer.length})`);
+        // Detect format based on magic bytes
+        let isValidFormat = false;
+        let formatType = 'unknown';
+        
+        // Check for PNG format (magic bytes: 89504e470d0a1a0a)
+        if (frameBuffer.length >= 8 && frameBuffer.toString('hex', 0, 8) === '89504e470d0a1a0a') {
+          isValidFormat = true;
+          formatType = 'PNG';
+        }
+        // Check for WebP format (RIFF...WEBP)
+        else if (frameBuffer.length >= 12 && 
+                 frameBuffer.toString('ascii', 0, 4) === 'RIFF' &&
+                 frameBuffer.toString('ascii', 8, 12) === 'WEBP') {
+          isValidFormat = true;
+          formatType = 'WebP';
+        }
+        
+        if (!isValidFormat) {
+          console.error(`❌ Frame ${i} is not a valid PNG or WebP (buffer size: ${frameBuffer.length})`);
           continue;
         }
         
-        // Load the WebP image directly from buffer
+        console.log(`🖼️ Frame ${i}: ${formatType} format detected (${frameBuffer.length} bytes)`);
+        
+        // Load the image directly from buffer (supports both PNG and WebP)
         const img = await loadImage(frameBuffer);
         
         // Verify image loaded correctly
@@ -86,7 +102,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
           continue;
         }
         
-        console.log(`🖼️ Frame ${i}: ${img.width}x${img.height} WebP loaded successfully`);
+        console.log(`✅ Frame ${i}: ${img.width}x${img.height} ${formatType} loaded successfully`);
         
         // Create canvas with exact dimensions
         const canvas = createCanvas(width, height);
@@ -99,7 +115,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
         // Draw image scaled to exact dimensions
         ctx.drawImage(img, 0, 0, width, height);
         
-        // webm-writer expects Canvas directly - this should now work with WebP input!
+        // webm-writer expects Canvas directly
         videoWriter.addFrame(canvas);
         successfulFrames++;
         

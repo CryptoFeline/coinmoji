@@ -164,26 +164,45 @@ export class CoinExporter {
   private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, sourceSize: number, targetSize: number): Promise<Blob> {
     return new Promise((resolve) => {
       try {
-        // Capture as WebP - webm-writer expects WebP format!
-        renderer.domElement.toBlob((webpBlob) => {
-          if (!webpBlob) {
-            resolve(new Blob());
+        // Try WebP first, but fallback to PNG if WebP is not supported
+        renderer.domElement.toBlob((blob) => {
+          if (!blob) {
+            // If WebP fails, try PNG as fallback
+            console.log('⚠️ WebP capture failed, trying PNG fallback...');
+            renderer.domElement.toBlob((pngBlob) => {
+              if (!pngBlob) {
+                resolve(new Blob());
+                return;
+              }
+              console.log('✅ PNG fallback successful');
+              resolve(pngBlob);
+            }, 'image/png');
             return;
           }
 
-          // If target size equals source size, return directly (avoid unnecessary processing)
-          if (sourceSize === targetSize) {
-            resolve(webpBlob);
-            return;
+          // Verify this is actually WebP by checking the blob type
+          if (blob.type === 'image/webp') {
+            console.log('✅ WebP capture successful');
+            resolve(blob);
+          } else {
+            // Browser gave us a different format, fallback to PNG
+            console.log('⚠️ Browser did not support WebP, using PNG fallback...');
+            renderer.domElement.toBlob((pngBlob) => {
+              resolve(pngBlob || new Blob());
+            }, 'image/png');
           }
-
-          // For now, just return high res directly to avoid complex resizing
-          // The WebM writer will handle the scaling
-          resolve(webpBlob);
-        }, 'image/webp', 0.9); // Use WebP format with high quality for webm-writer compatibility
+        }, 'image/webp', 0.9); // Try WebP first with high quality
       } catch (error) {
         console.error('Frame capture error:', error);
-        resolve(new Blob());
+        // Final fallback to PNG
+        try {
+          renderer.domElement.toBlob((pngBlob) => {
+            resolve(pngBlob || new Blob());
+          }, 'image/png');
+        } catch (pngError) {
+          console.error('PNG fallback also failed:', pngError);
+          resolve(new Blob());
+        }
       }
     });
   }
@@ -195,8 +214,24 @@ export class CoinExporter {
     
     for (let i = 0; i < frames.length; i++) {
       const frameNumber = String(i).padStart(4, '0');
-      const fileName = `frame_${frameNumber}.webp`; // WebP frames for ZIP export
-      files[fileName] = new Uint8Array(await frames[i].arrayBuffer());
+      // Detect the actual format of the frame
+      const frameBuffer = await frames[i].arrayBuffer();
+      const uint8Array = new Uint8Array(frameBuffer);
+      
+      // Check format based on magic bytes
+      let extension = 'bin'; // fallback
+      if (uint8Array.length >= 8 && 
+          uint8Array[0] === 0x89 && uint8Array[1] === 0x50 && 
+          uint8Array[2] === 0x4E && uint8Array[3] === 0x47) {
+        extension = 'png';
+      } else if (uint8Array.length >= 12 && 
+                 String.fromCharCode(...uint8Array.slice(0, 4)) === 'RIFF' &&
+                 String.fromCharCode(...uint8Array.slice(8, 12)) === 'WEBP') {
+        extension = 'webp';
+      }
+      
+      const fileName = `frame_${frameNumber}.${extension}`;
+      files[fileName] = uint8Array;
     }
 
     return new Promise((resolve, reject) => {
