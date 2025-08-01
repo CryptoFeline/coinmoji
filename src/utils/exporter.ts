@@ -246,7 +246,7 @@ export class CoinExporter {
   }
 
   async exportAsWebM(settings: ExportSettings): Promise<Blob> {
-    await debugLog('🎬 Starting WebM export with native MediaRecorder:', settings);
+    await debugLog('🎬 Starting WebM export:', settings);
     
     try {
       // Check if we have valid scene objects
@@ -266,12 +266,26 @@ export class CoinExporter {
       
       await debugLog('✅ Scene objects validated');
 
-      // Use native browser MediaRecorder to record the canvas directly
-      await debugLog('🎥 Starting native canvas recording...');
-      const webmBlob = await this.recordCanvasToWebM(settings);
-      
-      await debugLog('✅ Native WebM recording completed:', { size: webmBlob.size });
-      return webmBlob;
+      // Try native MediaRecorder first, fallback to server-side FFmpeg
+      try {
+        if ('MediaRecorder' in window) {
+          await debugLog('🎥 Attempting native MediaRecorder...');
+          const webmBlob = await this.recordCanvasToWebM(settings);
+          await debugLog('✅ Native WebM recording completed:', { size: webmBlob.size });
+          return webmBlob;
+        } else {
+          throw new Error('MediaRecorder not available');
+        }
+      } catch (mediaRecorderError) {
+        await debugLog('⚠️ MediaRecorder failed, falling back to server-side FFmpeg:', { 
+          error: mediaRecorderError instanceof Error ? mediaRecorderError.message : 'Unknown error' 
+        });
+        
+        // Fallback to PNG frames + server-side WebM creation
+        const webmBlob = await this.createWebMViaServerSide(settings);
+        await debugLog('✅ Server-side WebM creation completed:', { size: webmBlob.size });
+        return webmBlob;
+      }
     } catch (error) {
       await debugLog('❌ WebM export failed at top level:', { error: error instanceof Error ? error.message : 'Unknown error' });
       alert(`WebM export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -395,6 +409,110 @@ export class CoinExporter {
       offscreenRenderer.dispose();
       await debugLog('🔄 Cleaned up recording resources');
     }
+  }
+
+  private async createWebMViaServerSide(settings: ExportSettings): Promise<Blob> {
+    await debugLog('🏗️ Creating WebM via server-side FFmpeg...');
+    
+    try {
+      // First export frames as high-quality PNGs
+      await debugLog('📸 Capturing PNG frames for server processing...');
+      const frames = await this.exportFrames(settings);
+      
+      if (frames.length === 0) {
+        throw new Error('No frames captured for WebM creation');
+      }
+      
+      await debugLog(`✅ Captured ${frames.length} PNG frames`);
+      
+      // Convert frames to base64 strings for server transmission
+      const frameBase64Array: string[] = [];
+      for (let i = 0; i < frames.length; i++) {
+        const arrayBuffer = await frames[i].arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+        // Convert to base64 using btoa with proper chunking to avoid stack overflow
+        const base64 = this.arrayBufferToBase64(uint8Array);
+        frameBase64Array.push(base64);
+        
+        if (i % 10 === 0) {
+          await debugLog(`🔄 Converted frame ${i + 1}/${frames.length} to base64`);
+        }
+      }
+      
+      await debugLog('📤 Sending frames to server for WebM creation...');
+      
+      // Send to server-side FFmpeg function
+      const response = await fetch('/.netlify/functions/create-webm-ffmpeg', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          frames: frameBase64Array,
+          fps: settings.fps,
+          width: settings.size,
+          height: settings.size,
+          format: 'webm',
+          codec: 'vp9',
+          alpha: true
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        await debugLog('❌ Server-side WebM creation failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText
+        });
+        throw new Error(`Server-side WebM creation failed: ${response.status} ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      if (!result.success || !result.webm_base64) {
+        await debugLog('❌ Server returned invalid WebM result:', result);
+        throw new Error('Server did not return valid WebM data');
+      }
+      
+      await debugLog('✅ Server-side WebM creation successful:', {
+        size: result.size,
+        frames_processed: result.frames_processed,
+        duration_ms: result.duration_ms,
+        telegram_compliant: result.telegram_compliant
+      });
+      
+      // Convert base64 back to blob
+      const binaryString = atob(result.webm_base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      
+      const webmBlob = new Blob([bytes], { type: 'video/webm' });
+      await debugLog('🎬 WebM blob created from server response:', { size: webmBlob.size });
+      
+      return webmBlob;
+      
+    } catch (error) {
+      await debugLog('❌ Server-side WebM creation failed:', { 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      });
+      throw error;
+    }
+  }
+
+  // Helper to convert ArrayBuffer to base64 safely (avoiding stack overflow)
+  private arrayBufferToBase64(buffer: Uint8Array): string {
+    let binary = '';
+    const chunkSize = 0x8000; // 32KB chunks to avoid stack overflow
+    
+    for (let i = 0; i < buffer.length; i += chunkSize) {
+      const chunk = buffer.subarray(i, i + chunkSize);
+      binary += String.fromCharCode.apply(null, Array.from(chunk));
+    }
+    
+    return btoa(binary);
   }
 
   downloadBlob(blob: Blob, filename: string) {
