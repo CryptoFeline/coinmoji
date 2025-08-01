@@ -71,6 +71,15 @@ export class CoinExporter {
       actualDuration
     });
 
+    // DEBUGGING: Add detailed frame calculation logging
+    console.log('🔢 Frame calculation details:', {
+      'fps * duration': fps * duration,
+      'Math.floor(fps * duration)': Math.floor(fps * duration),
+      'Math.min(totalFrames, maxFrames)': Math.min(totalFrames, maxFrames),
+      'Loop will run from 0 to': actualFrames - 1,
+      'Expected frame count': actualFrames
+    });
+
     // Store original rotation (we don't touch the live renderer anymore)
     const originalRotation = this.turntable.rotation.y;
 
@@ -113,6 +122,9 @@ export class CoinExporter {
 
       for (let i = 0; i < actualFrames; i++) {
         try {
+          // DEBUGGING: Log every frame attempt
+          console.log(`🎬 Processing frame ${i + 1}/${actualFrames}...`);
+          
           // CRITICAL: Calculate rotation angle based on the actual rotation speed from settings
           // Match the live THREE.js animation timing exactly
           
@@ -131,11 +143,17 @@ export class CoinExporter {
           // Set rotation for this frame to match the live animation timing
           this.turntable.rotation.y = totalRotation;
 
+          console.log(`🔄 Frame ${i + 1}: rotation=${totalRotation.toFixed(3)}, time=${timeProgress.toFixed(3)}s`);
+
           // Render to offscreen canvas with export camera
           offscreenRenderer.render(this.scene, exportCamera);
 
+          console.log(`🎨 Frame ${i + 1}: rendered to canvas`);
+
           // Capture frame and resize to target size
           const blob = await this.captureFrameFromRenderer(offscreenRenderer, captureSize, captureSize); // Keep high res
+          
+          console.log(`📸 Frame ${i + 1}: captured blob size=${blob.size}`);
           
           if (!blob || blob.size === 0) {
             const error = `Frame ${i} capture failed - empty blob`;
@@ -145,13 +163,14 @@ export class CoinExporter {
           }
           
           frames.push(blob);
+          console.log(`✅ Frame ${i + 1}: added to frames array, total frames so far: ${frames.length}`);
           
           if (i === 0 || i === actualFrames - 1 || i % 10 === 0) {
             console.log(`📸 Captured frame ${i + 1}/${actualFrames}, size: ${blob.size} bytes, rotation: ${totalRotation.toFixed(2)} rad, time: ${timeProgress.toFixed(2)}s, speed: ${rotationSpeed}`);
           }
         } catch (frameError) {
           const error = `Failed to capture frame ${i}: ${frameError instanceof Error ? frameError.message : 'Unknown frame error'}`;
-          console.error('❌', error);
+          console.error('❌', error, frameError);
           alert(error);
           throw new Error(error);
         }
@@ -160,7 +179,12 @@ export class CoinExporter {
       // Clean up offscreen renderer
       offscreenRenderer.dispose();
 
-      console.log('✅ Frame export complete:', { totalFrames: frames.length });
+      console.log('✅ Frame export complete:', { 
+        totalFrames: frames.length,
+        expectedFrames: actualFrames,
+        success: frames.length === actualFrames,
+        framesArray: frames.map((f, i) => ({ index: i, size: f.size }))
+      });
       return frames;
     } catch (error) {
       const errorMsg = `Frame export failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
