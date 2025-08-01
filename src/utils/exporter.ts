@@ -428,7 +428,12 @@ export class CoinExporter {
     
     // Check supported codecs before proceeding
     const supportedCodecs = [];
-    const codecsToTest = ['vp09.02.10.10', 'vp09.00.10.08', 'vp9'];
+    const codecsToTest = [
+      'vp09.02.10.10', // VP9 Profile 2 with alpha
+      'vp09.00.10.08', // VP9 Profile 0 
+      'vp9',           // Simple VP9
+      'vp8'            // VP8 fallback
+    ];
     
     for (const codec of codecsToTest) {
       try {
@@ -437,8 +442,8 @@ export class CoinExporter {
           width: settings.size,
           height: settings.size,
           bitrate: 200000,
-          framerate: settings.fps,
-          alpha: 'keep'
+          framerate: settings.fps
+          // Note: removing alpha: 'keep' as it might cause config failures
         };
         
         if ((window as any).VideoEncoder && (window as any).VideoEncoder.isConfigSupported) {
@@ -447,8 +452,8 @@ export class CoinExporter {
             supportedCodecs.push(codec);
           }
         } else {
-          // Fallback: assume basic VP9 is supported
-          supportedCodecs.push('vp9');
+          // Fallback: assume basic VP8 is supported if no isConfigSupported
+          supportedCodecs.push('vp8');
           break;
         }
       } catch (testError) {
@@ -457,10 +462,10 @@ export class CoinExporter {
     }
     
     if (supportedCodecs.length === 0) {
-      throw new Error('No supported VP9 codecs found for WebM creation');
+      throw new Error('No supported video codecs found for WebM creation. This browser may not support WebCodecs API.');
     }
     
-    await debugLog('🎯 Supported VP9 codecs:', supportedCodecs);
+    await debugLog('🎯 Supported video codecs:', supportedCodecs);
     
     try {
       // Import webm-muxer dynamically
@@ -502,25 +507,33 @@ export class CoinExporter {
         }
       });
 
-      // Configure VP9 encoder with alpha support using the best available codec
+      // Configure video encoder using the best available codec
       const bestCodec = supportedCodecs[0];
-      await debugLog(`🎥 Using codec: ${bestCodec}`);
+      const supportsAlpha = bestCodec.includes('vp09.02') || bestCodec === 'vp9'; // Only VP9 profiles support alpha
+      
+      await debugLog(`🎥 Using codec: ${bestCodec} (alpha support: ${supportsAlpha})`);
       
       try {
-        await videoEncoder.configure({
+        const encoderConfig: any = {
           codec: bestCodec,
           width: settings.size,
           height: settings.size,
           bitrate: 200000, // 200kbps for small file size
-          framerate: settings.fps,
-          alpha: 'keep' // CRITICAL: Keep alpha channel
-        });
+          framerate: settings.fps
+        };
+        
+        // Only add alpha parameter for codecs that support it
+        if (supportsAlpha) {
+          encoderConfig.alpha = 'keep';
+        }
+        
+        await videoEncoder.configure(encoderConfig);
       } catch (configError) {
         await debugLog('❌ VideoEncoder configuration failed:', configError);
         throw new Error(`VideoEncoder configuration failed: ${configError instanceof Error ? configError.message : 'Unknown error'}`);
       }
 
-      await debugLog('🎥 VideoEncoder configured for VP9 with alpha');
+      await debugLog(`🎥 VideoEncoder configured successfully with ${bestCodec}${supportsAlpha ? ' (with alpha)' : ' (no alpha)'}`);
 
       // Process each frame
       for (let i = 0; i < frames.length; i++) {
@@ -549,7 +562,9 @@ export class CoinExporter {
             await debugLog('🔍 First frame transparency check:', {
               frameSize: `${imageBitmap.width}x${imageBitmap.height}`,
               cornerAlphaValues: cornerSamples.map(px => px[3]),
-              hasTransparentCorners: cornerSamples.some(px => px[3] < 255)
+              hasTransparentCorners: cornerSamples.some(px => px[3] < 255),
+              codecSupportsAlpha: supportsAlpha,
+              willPreserveTransparency: supportsAlpha && cornerSamples.some(px => px[3] < 255)
             });
           }
 
