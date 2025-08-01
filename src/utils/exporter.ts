@@ -426,6 +426,42 @@ export class CoinExporter {
       throw new Error('WebCodecs not supported in this browser');
     }
     
+    // Check supported codecs before proceeding
+    const supportedCodecs = [];
+    const codecsToTest = ['vp09.02.10.10', 'vp09.00.10.08', 'vp9'];
+    
+    for (const codec of codecsToTest) {
+      try {
+        const config = {
+          codec,
+          width: settings.size,
+          height: settings.size,
+          bitrate: 200000,
+          framerate: settings.fps,
+          alpha: 'keep'
+        };
+        
+        if ((window as any).VideoEncoder && (window as any).VideoEncoder.isConfigSupported) {
+          const support = await (window as any).VideoEncoder.isConfigSupported(config);
+          if (support.supported) {
+            supportedCodecs.push(codec);
+          }
+        } else {
+          // Fallback: assume basic VP9 is supported
+          supportedCodecs.push('vp9');
+          break;
+        }
+      } catch (testError) {
+        await debugLog(`⚠️ Codec ${codec} test failed:`, testError);
+      }
+    }
+    
+    if (supportedCodecs.length === 0) {
+      throw new Error('No supported VP9 codecs found for WebM creation');
+    }
+    
+    await debugLog('🎯 Supported VP9 codecs:', supportedCodecs);
+    
     try {
       // Import webm-muxer dynamically
       const { Muxer, ArrayBufferTarget } = await import('webm-muxer');
@@ -466,15 +502,23 @@ export class CoinExporter {
         }
       });
 
-      // Configure VP9 encoder with alpha support
-      await videoEncoder.configure({
-        codec: 'vp09.02.10.10', // VP9 Profile 2 (supports alpha channel)
-        width: settings.size,
-        height: settings.size,
-        bitrate: 200000, // 200kbps for small file size
-        framerate: settings.fps,
-        alpha: 'keep' // CRITICAL: Keep alpha channel
-      });
+      // Configure VP9 encoder with alpha support using the best available codec
+      const bestCodec = supportedCodecs[0];
+      await debugLog(`🎥 Using codec: ${bestCodec}`);
+      
+      try {
+        await videoEncoder.configure({
+          codec: bestCodec,
+          width: settings.size,
+          height: settings.size,
+          bitrate: 200000, // 200kbps for small file size
+          framerate: settings.fps,
+          alpha: 'keep' // CRITICAL: Keep alpha channel
+        });
+      } catch (configError) {
+        await debugLog('❌ VideoEncoder configuration failed:', configError);
+        throw new Error(`VideoEncoder configuration failed: ${configError instanceof Error ? configError.message : 'Unknown error'}`);
+      }
 
       await debugLog('🎥 VideoEncoder configured for VP9 with alpha');
 
