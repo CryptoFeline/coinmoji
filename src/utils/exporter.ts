@@ -966,47 +966,66 @@ const getTelegramUserId = (initData: string): number => {
 
 // Verify that the WebM actually contains alpha transparency
 export async function verifyWebMHasAlpha(blob: Blob): Promise<boolean> {
-  if (!('VideoDecoder' in window)) {
-    console.log('🔍 VideoDecoder not available for alpha verification');
-    return false;
-  }
+  // Add timeout to prevent hanging
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      console.log('🔍 Alpha verification timed out, assuming no transparency');
+      resolve(false);
+    }, 3000); // 3 second timeout
+    
+    (async () => {
+      try {
+        if (!('VideoDecoder' in window)) {
+          console.log('🔍 VideoDecoder not available for alpha verification');
+          resolve(false);
+          return;
+        }
 
-  const url = URL.createObjectURL(blob);
-  try {
-    console.log('🔍 Verifying WebM alpha channel...');
-    const v = document.createElement('video');
-    v.src = url; 
-    v.muted = true; 
-    v.loop = false; 
-    v.playsInline = true;
-    
-    await v.play().catch(()=>{});
-    await new Promise(r => v.addEventListener('loadeddata', r, { once: true }));
-    
-    // Draw to 2D canvas and read pixels that should be transparent
-    const c = document.createElement('canvas'); 
-    c.width = 4; 
-    c.height = 4;
-    const ctx = c.getContext('2d', { willReadFrequently: true, alpha: true })!;
-    ctx.clearRect(0, 0, c.width, c.height);
-    ctx.drawImage(v, 0, 0, 4, 4);
-    
-    // Sample corner pixel for transparency
-    const cornerPixel = ctx.getImageData(0, 0, 1, 1).data;
-    const hasTransparency = cornerPixel[3] < 250; // Alpha < 250 means transparency
-    
-    console.log('🔍 Alpha verification result:', {
-      videoSize: `${v.videoWidth}x${v.videoHeight}`,
-      cornerAlpha: cornerPixel[3],
-      hasTransparency,
-      note: hasTransparency ? 'WebM has transparency ✅' : 'WebM has solid background ❌'
-    });
-    
-    return hasTransparency;
-  } catch (error) {
-    console.error('🔍 Alpha verification failed:', error);
-    return false;
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+        const url = URL.createObjectURL(blob);
+        try {
+          console.log('🔍 Verifying WebM alpha channel...');
+          const v = document.createElement('video');
+          v.src = url; 
+          v.muted = true; 
+          v.loop = false; 
+          v.playsInline = true;
+          
+          await v.play().catch(()=>{});
+          await new Promise(r => v.addEventListener('loadeddata', r, { once: true }));
+          
+          // Draw to 2D canvas and read pixels that should be transparent
+          const c = document.createElement('canvas'); 
+          c.width = 4; 
+          c.height = 4;
+          const ctx = c.getContext('2d', { willReadFrequently: true, alpha: true })!;
+          ctx.clearRect(0, 0, c.width, c.height);
+          ctx.drawImage(v, 0, 0, 4, 4);
+          
+          // Sample corner pixel for transparency
+          const cornerPixel = ctx.getImageData(0, 0, 1, 1).data;
+          const hasTransparency = cornerPixel[3] < 250; // Alpha < 250 means transparency
+          
+          console.log('🔍 Alpha verification result:', {
+            videoSize: `${v.videoWidth}x${v.videoHeight}`,
+            cornerAlpha: cornerPixel[3],
+            hasTransparency,
+            note: hasTransparency ? 'WebM has transparency ✅' : 'WebM has solid background ❌'
+          });
+          
+          clearTimeout(timeout);
+          resolve(hasTransparency);
+        } catch (error) {
+          console.error('🔍 Alpha verification failed:', error);
+          clearTimeout(timeout);
+          resolve(false);
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      } catch (outerError) {
+        console.error('🔍 Alpha verification outer error:', outerError);
+        clearTimeout(timeout);
+        resolve(false);
+      }
+    })();
+  });
 }

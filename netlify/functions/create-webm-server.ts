@@ -62,9 +62,19 @@ export const handler: Handler = async (event) => {
       // Use ffmpeg-static for Netlify compatibility
       let ffmpegPath: string;
       try {
-        const ffmpegStaticPath = require('ffmpeg-static');
-        if (!ffmpegStaticPath) {
-          throw new Error('ffmpeg-static returned null/undefined path');
+        // Try to get the correct path for ffmpeg-static
+        let ffmpegStaticPath: string;
+        
+        try {
+          // First try requiring ffmpeg-static directly
+          ffmpegStaticPath = require('ffmpeg-static');
+        } catch (requireError) {
+          // If that fails, try to construct the path manually
+          try {
+            ffmpegStaticPath = require.resolve('ffmpeg-static/ffmpeg');
+          } catch (resolveError) {
+            throw new Error('Cannot locate ffmpeg-static');
+          }
         }
         
         // On Netlify, the path might be relative, so check if file exists
@@ -94,10 +104,13 @@ export const handler: Handler = async (event) => {
         } else {
           // Try alternative paths for Netlify
           const alternativePaths = [
-            '/opt/nodejs/node_modules/ffmpeg-static/ffmpeg',
+            require.resolve('ffmpeg-static/ffmpeg'), // Direct resolve
             '/var/task/node_modules/ffmpeg-static/ffmpeg',
+            '/opt/nodejs/node_modules/ffmpeg-static/ffmpeg',
             '/var/runtime/node_modules/ffmpeg-static/ffmpeg',
-            './node_modules/ffmpeg-static/ffmpeg'
+            './node_modules/ffmpeg-static/ffmpeg',
+            '../node_modules/ffmpeg-static/ffmpeg',
+            '../../node_modules/ffmpeg-static/ffmpeg'
           ];
           
           let foundPath: string | null = null;
