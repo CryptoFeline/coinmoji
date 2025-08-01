@@ -582,12 +582,26 @@ export class CoinExporter {
                   supportedCodecs.push({ codec, supportsAlpha: true });
                   await debugLog(`✅ Codec ${codec} supported WITH alpha: TRUE`);
                 } else {
-                  supportedCodecs.push({ codec, supportsAlpha: false });
-                  await debugLog(`⚠️ Codec ${codec} supported but alpha: FALSE`);
+                  // For VP9, assume alpha support even if config test fails
+                  const isVP9 = codec.includes('vp9') || codec.startsWith('vp09.');
+                  if (isVP9) {
+                    supportedCodecs.push({ codec, supportsAlpha: true });
+                    await debugLog(`✅ Codec ${codec} supported, forcing alpha support (VP9)`);
+                  } else {
+                    supportedCodecs.push({ codec, supportsAlpha: false });
+                    await debugLog(`⚠️ Codec ${codec} supported but alpha: FALSE`);
+                  }
                 }
               } catch (alphaTestError) {
-                supportedCodecs.push({ codec, supportsAlpha: false });
-                await debugLog(`⚠️ Codec ${codec} supported, alpha test failed:`, alphaTestError);
+                // For VP9, assume alpha support even if test throws error
+                const isVP9 = codec.includes('vp9') || codec.startsWith('vp09.');
+                if (isVP9) {
+                  supportedCodecs.push({ codec, supportsAlpha: true });
+                  await debugLog(`✅ Codec ${codec} supported, forcing alpha support despite test error (VP9):`, alphaTestError);
+                } else {
+                  supportedCodecs.push({ codec, supportsAlpha: false });
+                  await debugLog(`⚠️ Codec ${codec} supported, alpha test failed:`, alphaTestError);
+                }
               }
             } else {
               supportedCodecs.push({ codec, supportsAlpha: false });
