@@ -538,20 +538,19 @@ export class CoinExporter {
       throw new Error('WebCodecs not supported in this browser');
     }
     
-    // Check supported codecs before proceeding - prioritize alpha-capable codecs
+    // Check supported codecs before proceeding - prioritize simple VP9 first
     const supportedCodecs = [];
     const codecsToTest = [
+      // Start with simple VP9 - most likely to work with alpha
+      { codec: 'vp9', supportsAlpha: true },            // Simple VP9 (best chance for alpha)
       // VP9 Profile 2 variants (alpha capable)
-      { codec: 'vp09.02.10.10.01.09.16.09.01', supportsAlpha: true }, // VP9 Profile 2, Level 5, 10-bit, 4:2:0, alpha
-      { codec: 'vp09.02.10.10', supportsAlpha: true },  // VP9 Profile 2 with alpha
       { codec: 'vp09.02.10.08', supportsAlpha: true },  // VP9 Profile 2 with alpha
+      { codec: 'vp09.02.10.10', supportsAlpha: true },  // VP9 Profile 2 with alpha
       { codec: 'vp09.02.51.10', supportsAlpha: true },  // VP9 Profile 2, different level
       { codec: 'vp09.02.41.10', supportsAlpha: true },  // VP9 Profile 2, different level
       // VP9 Profile 1 variants (may support alpha)
       { codec: 'vp09.01.10.08', supportsAlpha: true },  // VP9 Profile 1 (may support alpha)
       { codec: 'vp09.01.51.08', supportsAlpha: true },  // VP9 Profile 1 variant
-      // Simple VP9 (may support alpha in some browsers)
-      { codec: 'vp9', supportsAlpha: true },            // Simple VP9 (may support alpha)
       // VP9 Profile 0 (no alpha)
       { codec: 'vp09.00.10.08', supportsAlpha: false }, // VP9 Profile 0 (no alpha)
       { codec: 'vp09.00.51.08', supportsAlpha: false }, // VP9 Profile 0 variant
@@ -661,7 +660,7 @@ export class CoinExporter {
       // Create WebM using webm-muxer with WebCodecs
       const target = new ArrayBufferTarget();
       
-      // Configure muxer based on codec alpha support
+      // Configure muxer based on codec alpha support - be aggressive with VP9
       const muxerConfig: any = {
         target,
         video: {
@@ -673,10 +672,13 @@ export class CoinExporter {
         firstTimestampBehavior: 'offset'
       };
       
-      // Only enable alpha in muxer if we have alpha-capable codec
-      if (hasAlphaCodec) {
+      // Enable alpha in muxer if we have any VP9 codec or alpha-capable codec
+      const firstCodec = supportedCodecs[0];
+      const isVP9 = firstCodec && (firstCodec.codec.includes('vp9') || firstCodec.codec.startsWith('vp09.'));
+      
+      if (hasAlphaCodec || isVP9) {
         muxerConfig.video.alpha = true;
-        await debugLog('🎨 WebM muxer configured WITH alpha channel');
+        await debugLog('🎨 WebM muxer configured WITH alpha channel (VP9 detected)');
       } else {
         await debugLog('⚠️ WebM muxer configured WITHOUT alpha channel for Telegram compatibility');
       }
