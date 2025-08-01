@@ -266,7 +266,7 @@ export class CoinExporter {
       
       await debugLog('✅ Scene objects validated');
 
-      // Try native MediaRecorder first, fallback to server-side FFmpeg
+      // Try native MediaRecorder first, fallback to client-side webm-muxer
       try {
         if ('MediaRecorder' in window) {
           await debugLog('🎥 Attempting native MediaRecorder...');
@@ -277,14 +277,21 @@ export class CoinExporter {
           throw new Error('MediaRecorder not available');
         }
       } catch (mediaRecorderError) {
-        await debugLog('⚠️ MediaRecorder failed, falling back to server-side FFmpeg:', { 
+        await debugLog('⚠️ MediaRecorder failed, trying client-side webm-muxer:', { 
           error: mediaRecorderError instanceof Error ? mediaRecorderError.message : 'Unknown error' 
         });
         
-        // Fallback to PNG frames + server-side WebM creation
-        const webmBlob = await this.createWebMViaServerSide(settings);
-        await debugLog('✅ Server-side WebM creation completed:', { size: webmBlob.size });
-        return webmBlob;
+        // Fallback to client-side WebM creation with webm-muxer
+        try {
+          const webmBlob = await this.createWebMViaWebMuxer(settings);
+          await debugLog('✅ Client-side webm-muxer completed:', { size: webmBlob.size });
+          return webmBlob;
+        } catch (webMuxerError) {
+          await debugLog('❌ Client-side webm-muxer also failed:', { 
+            error: webMuxerError instanceof Error ? webMuxerError.message : 'Unknown error' 
+          });
+          throw webMuxerError;
+        }
       }
     } catch (error) {
       await debugLog('❌ WebM export failed at top level:', { error: error instanceof Error ? error.message : 'Unknown error' });
@@ -411,108 +418,120 @@ export class CoinExporter {
     }
   }
 
-  private async createWebMViaServerSide(settings: ExportSettings): Promise<Blob> {
-    await debugLog('🏗️ Creating WebM via server-side FFmpeg...');
+  private async createWebMViaWebMuxer(settings: ExportSettings): Promise<Blob> {
+    await debugLog('🔧 Creating WebM via client-side webm-muxer...');
+    
+    // Check if WebCodecs is available
+    if (!('VideoEncoder' in window) || !('VideoFrame' in window)) {
+      throw new Error('WebCodecs not supported in this browser');
+    }
     
     try {
+      // Import webm-muxer dynamically
+      const { Muxer, ArrayBufferTarget } = await import('webm-muxer');
+      
       // First export frames as high-quality PNGs
-      await debugLog('📸 Capturing PNG frames for server processing...');
+      await debugLog('📸 Capturing PNG frames for webm-muxer...');
       const frames = await this.exportFrames(settings);
       
       if (frames.length === 0) {
         throw new Error('No frames captured for WebM creation');
       }
       
-      await debugLog(`✅ Captured ${frames.length} PNG frames`);
+      await debugLog(`✅ Captured ${frames.length} PNG frames for webm-muxer`);
       
-      // Convert frames to base64 strings for server transmission
-      const frameBase64Array: string[] = [];
-      for (let i = 0; i < frames.length; i++) {
-        const arrayBuffer = await frames[i].arrayBuffer();
-        const uint8Array = new Uint8Array(arrayBuffer);
-        // Convert to base64 using btoa with proper chunking to avoid stack overflow
-        const base64 = this.arrayBufferToBase64(uint8Array);
-        frameBase64Array.push(base64);
-        
-        if (i % 10 === 0) {
-          await debugLog(`🔄 Converted frame ${i + 1}/${frames.length} to base64`);
-        }
-      }
-      
-      await debugLog('📤 Sending frames to server for WebM creation...');
-      
-      // Send to server-side FFmpeg function
-      const response = await fetch('/.netlify/functions/create-webm-ffmpeg', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          frames: frameBase64Array,
-          fps: settings.fps,
+      // Create WebM using webm-muxer with WebCodecs
+      const target = new ArrayBufferTarget();
+      const muxer = new Muxer({
+        target,
+        video: {
+          codec: 'V_VP9',
           width: settings.size,
           height: settings.size,
-          format: 'webm',
-          codec: 'vp9',
-          alpha: true
-        }),
+          frameRate: settings.fps,
+          alpha: true // Enable transparency
+        },
+        firstTimestampBehavior: 'offset'
       });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        await debugLog('❌ Server-side WebM creation failed:', {
-          status: response.status,
-          statusText: response.statusText,
-          error: errorText
-        });
-        throw new Error(`Server-side WebM creation failed: ${response.status} ${response.statusText}`);
-      }
-      
-      const result = await response.json();
-      
-      if (!result.success || !result.webm_base64) {
-        await debugLog('❌ Server returned invalid WebM result:', result);
-        throw new Error('Server did not return valid WebM data');
-      }
-      
-      await debugLog('✅ Server-side WebM creation successful:', {
-        size: result.size,
-        frames_processed: result.frames_processed,
-        duration_ms: result.duration_ms,
-        telegram_compliant: result.telegram_compliant
+
+      // Create VideoEncoder
+      const chunks: { chunk: any; meta: any }[] = [];
+      const videoEncoder = new (window as any).VideoEncoder({
+        output: (chunk: any, meta: any) => {
+          chunks.push({ chunk, meta });
+        },
+        error: (e: any) => {
+          console.error('VideoEncoder error:', e);
+          throw e;
+        }
       });
+
+      // Configure VP9 encoder with alpha support
+      await videoEncoder.configure({
+        codec: 'vp09.00.10.08', // VP9 Profile 0, Level 1.0, 8-bit with alpha
+        width: settings.size,
+        height: settings.size,
+        bitrate: 200000, // 200kbps for small file size
+        framerate: settings.fps,
+        alpha: 'keep'
+      });
+
+      await debugLog('🎥 VideoEncoder configured for VP9 with alpha');
+
+      // Process each frame
+      for (let i = 0; i < frames.length; i++) {
+        try {
+          // Create ImageBitmap from blob
+          const imageBitmap = await createImageBitmap(frames[i]);
+
+          // Create VideoFrame with timestamp
+          const timestamp = (i * 1000000) / settings.fps; // microseconds
+          const videoFrame = new (window as any).VideoFrame(imageBitmap, {
+            timestamp: timestamp,
+            duration: 1000000 / settings.fps // microseconds
+          });
+
+          // Encode frame
+          videoEncoder.encode(videoFrame, { keyFrame: i === 0 });
+          
+          // Clean up
+          videoFrame.close();
+          imageBitmap.close();
+          
+          if (i === 0 || i === frames.length - 1 || i % 10 === 0) {
+            await debugLog(`🎬 Encoded frame ${i + 1}/${frames.length} with webm-muxer`);
+          }
+        } catch (frameError) {
+          await debugLog(`❌ Error processing frame ${i} with webm-muxer:`, frameError);
+          throw new Error(`Failed to process frame ${i}: ${frameError instanceof Error ? frameError.message : 'Unknown error'}`);
+        }
+      }
+
+      // Finish encoding
+      await videoEncoder.flush();
+      videoEncoder.close();
       
-      // Convert base64 back to blob
-      const binaryString = atob(result.webm_base64);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
+      // Add all chunks to muxer
+      for (const { chunk, meta } of chunks) {
+        muxer.addVideoChunk(chunk, meta);
       }
       
-      const webmBlob = new Blob([bytes], { type: 'video/webm' });
-      await debugLog('🎬 WebM blob created from server response:', { size: webmBlob.size });
+      muxer.finalize();
+
+      const webmBuffer = target.buffer;
+      await debugLog(`📊 WebM created with webm-muxer: ${webmBuffer.byteLength} bytes`);
+      
+      const webmBlob = new Blob([webmBuffer], { type: 'video/webm' });
+      await debugLog('🎬 WebM blob created from webm-muxer:', { size: webmBlob.size });
       
       return webmBlob;
       
     } catch (error) {
-      await debugLog('❌ Server-side WebM creation failed:', { 
+      await debugLog('❌ Client-side webm-muxer failed:', { 
         error: error instanceof Error ? error.message : 'Unknown error' 
       });
       throw error;
     }
-  }
-
-  // Helper to convert ArrayBuffer to base64 safely (avoiding stack overflow)
-  private arrayBufferToBase64(buffer: Uint8Array): string {
-    let binary = '';
-    const chunkSize = 0x8000; // 32KB chunks to avoid stack overflow
-    
-    for (let i = 0; i < buffer.length; i += chunkSize) {
-      const chunk = buffer.subarray(i, i + chunkSize);
-      binary += String.fromCharCode.apply(null, Array.from(chunk));
-    }
-    
-    return btoa(binary);
   }
 
   downloadBlob(blob: Blob, filename: string) {
