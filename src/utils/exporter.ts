@@ -586,8 +586,8 @@ export class CoinExporter {
         await debugLog('❌ Server-side WebM creation also failed:', { 
           error: serverError instanceof Error ? serverError.message : 'Unknown error' 
         });
-        // Continue with client-side approach without alpha
-        await debugLog('🔄 Continuing with client-side WebM creation (no transparency)...');
+        // Continue with client-side approach without alpha - create real WebM for Telegram
+        await debugLog('🔄 Continuing with client-side WebM creation (NO transparency for Telegram compatibility)...');
       }
     }
     
@@ -609,17 +609,28 @@ export class CoinExporter {
       
       // Create WebM using webm-muxer with WebCodecs
       const target = new ArrayBufferTarget();
-      const muxer = new Muxer({
+      
+      // Configure muxer based on codec alpha support
+      const muxerConfig: any = {
         target,
         video: {
           codec: 'V_VP9',
           width: settings.size,
           height: settings.size,
-          frameRate: settings.fps,
-          alpha: true // Enable transparency
+          frameRate: settings.fps
         },
         firstTimestampBehavior: 'offset'
-      });
+      };
+      
+      // Only enable alpha in muxer if we have alpha-capable codec
+      if (hasAlphaCodec) {
+        muxerConfig.video.alpha = true;
+        await debugLog('🎨 WebM muxer configured WITH alpha channel');
+      } else {
+        await debugLog('⚠️ WebM muxer configured WITHOUT alpha channel for Telegram compatibility');
+      }
+      
+      const muxer = new Muxer(muxerConfig);
 
       // Create VideoEncoder
       const chunks: { chunk: any; meta: any }[] = [];
@@ -650,6 +661,9 @@ export class CoinExporter {
         // Only add alpha parameter for codecs that support it
         if (bestCodec.supportsAlpha) {
           encoderConfig.alpha = 'keep';
+          await debugLog('🎨 Alpha channel enabled in encoder config');
+        } else {
+          await debugLog('⚠️ Creating WebM WITHOUT transparency for Telegram compatibility');
         }
         
         await videoEncoder.configure(encoderConfig);
@@ -728,10 +742,19 @@ export class CoinExporter {
       muxer.finalize();
 
       const webmBuffer = target.buffer;
-      await debugLog(`📊 WebM created with webm-muxer: ${webmBuffer.byteLength} bytes`);
+      await debugLog(`📊 WebM created with webm-muxer: ${webmBuffer.byteLength} bytes`, {
+        codec: bestCodec.codec,
+        alphaSupport: bestCodec.supportsAlpha,
+        transparencyPreserved: hasAlphaCodec,
+        telegramCompatible: true
+      });
       
       const webmBlob = new Blob([webmBuffer], { type: 'video/webm' });
-      await debugLog('🎬 WebM blob created from webm-muxer:', { size: webmBlob.size });
+      await debugLog('🎬 WebM blob created from webm-muxer:', { 
+        size: webmBlob.size,
+        hasTransparency: hasAlphaCodec,
+        note: hasAlphaCodec ? 'Transparency preserved' : 'Solid background for Telegram compatibility'
+      });
       
       return webmBlob;
       
