@@ -66,16 +66,18 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     
     for (let i = 0; i < frames.length; i++) {
       try {
-        // Convert base64 to buffer with proper PNG data URL format
+        // Convert base64 to buffer - now expecting WebP format
         const frameBuffer = Buffer.from(frames[i], 'base64');
         
-        // Verify this is a valid PNG buffer
-        if (frameBuffer.length < 8 || frameBuffer.toString('hex', 0, 8) !== '89504e470d0a1a0a') {
-          console.error(`❌ Frame ${i} is not a valid PNG (buffer size: ${frameBuffer.length})`);
+        // Verify this is a valid WebP buffer (WebP magic bytes: RIFF...WEBP)
+        if (frameBuffer.length < 12 || 
+            frameBuffer.toString('ascii', 0, 4) !== 'RIFF' ||
+            frameBuffer.toString('ascii', 8, 12) !== 'WEBP') {
+          console.error(`❌ Frame ${i} is not a valid WebP (buffer size: ${frameBuffer.length})`);
           continue;
         }
         
-        // Load the PNG image directly from buffer
+        // Load the WebP image directly from buffer
         const img = await loadImage(frameBuffer);
         
         // Verify image loaded correctly
@@ -84,7 +86,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
           continue;
         }
         
-        console.log(`🖼️ Frame ${i}: ${img.width}x${img.height} loaded successfully`);
+        console.log(`🖼️ Frame ${i}: ${img.width}x${img.height} WebP loaded successfully`);
         
         // Create canvas with exact dimensions
         const canvas = createCanvas(width, height);
@@ -97,8 +99,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
         // Draw image scaled to exact dimensions
         ctx.drawImage(img, 0, 0, width, height);
         
-        // webm-writer expects Canvas directly, not a data URL
-        // This is the critical fix - pass canvas object directly
+        // webm-writer expects Canvas directly - this should now work with WebP input!
         videoWriter.addFrame(canvas);
         successfulFrames++;
         
