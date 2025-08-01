@@ -16,7 +16,6 @@
     "autoprefixer": "^10.4.16",
     "canvas": "^3.1.2",
     "fflate": "^0.8.1",
-    "ffmpeg-static": "^5.2.0",
     "framer-motion": "^10.16.16",
     "gifuct-js": "^2.1.2",
     "postcss": "^8.4.32",
