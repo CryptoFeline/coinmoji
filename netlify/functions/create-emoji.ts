@@ -196,8 +196,18 @@ const handler: Handler = async (event) => {
     console.log('🎉 Final result preparation:', { 
       success: result.ok, 
       hasError: !result.ok,
-      description: result.description 
+      description: result.description,
+      setUrl: `https://t.me/addemoji/${stickerSetName}`,
+      instructions: result.ok ? 'Emoji created successfully! Click the set_url to install in Telegram.' : 'Creation failed'
     });
+
+    if (result.ok) {
+      console.log('✅ SUCCESS: Emoji set created successfully!');
+      console.log('📱 To use your emoji:');
+      console.log(`   1. Click this link: https://t.me/addemoji/${stickerSetName}`);
+      console.log('   2. Tap "Add Stickers" in Telegram');
+      console.log('   3. Your emoji will now be available in the emoji picker');
+    }
 
     return {
       statusCode: 200,

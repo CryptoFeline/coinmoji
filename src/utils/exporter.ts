@@ -1051,10 +1051,30 @@ export const createCustomEmoji = async (
   try {
     const duration = await verifyWebMDuration(blob);
     await debugLog('⏱️ WebM duration verification:', {
-      duration: duration?.toFixed(2) + 's' || 'unknown',
+      duration: duration ? duration.toFixed(2) + 's' : 'unknown',
+      durationRaw: duration,
       expectedDuration: '3.0s',
-      isCorrectDuration: duration ? Math.abs(duration - 3.0) < 0.5 : false
+      isCorrectDuration: duration ? Math.abs(duration - 3.0) < 0.5 : false,
+      blobSize: blob.size,
+      blobType: blob.type
     });
+    
+    // CRITICAL: Check if WebM meets Telegram emoji requirements
+    if (!duration || duration < 0.1) {
+      await debugLog('❌ WebM validation failed: Invalid or missing duration');
+      throw new Error('WebM has invalid duration - Telegram will reject this emoji');
+    }
+    
+    if (blob.size < 1000) {
+      await debugLog('⚠️ WebM suspiciously small:', { size: blob.size });
+      // Don't throw error, but log concern
+    }
+    
+    if (blob.size > 256 * 1024) { // 256KB limit for Telegram emoji
+      await debugLog('❌ WebM too large for Telegram emoji:', { size: blob.size, limit: '256KB' });
+      throw new Error('WebM file too large for Telegram emoji (max 256KB)');
+    }
+    
   } catch (durationError) {
     await debugLog('⚠️ Could not verify WebM duration:', durationError);
   }

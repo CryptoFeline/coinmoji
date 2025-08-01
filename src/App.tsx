@@ -160,7 +160,12 @@ const AppContent: React.FC = () => {
       );
       
       if (result.success) {
-        alert('Emoji created successfully! Check your custom emojis in Telegram.');
+        // Provide clear instructions for accessing the emoji
+        const instructions = result.set_url 
+          ? `✅ Emoji created successfully!\n\n📱 To use your emoji:\n1. Click this link: ${result.set_url}\n2. Tap "Add Stickers" in Telegram\n3. Your emoji will be available in the emoji picker\n\n💡 Tip: Look for the 🪙 emoji in your custom emoji collection!`
+          : '✅ Emoji created successfully! Check your custom emojis in Telegram.';
+        
+        alert(instructions);
       } else {
         throw new Error(result.error || 'Failed to create emoji');
       }
