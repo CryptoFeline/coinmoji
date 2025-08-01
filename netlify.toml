@@ -5,6 +5,14 @@
 
 [functions]
   node_bundler = "esbuild"
+  # Increase timeout for FFmpeg processing
+  "create-webm-server" = { timeout = 60 }
+
+[functions.environment]
+  # Enable Node.js 18+ features for fetch API
+  NODE_VERSION = "18"
+  # Increase memory for FFmpeg processing
+  AWS_LAMBDA_JS_RUNTIME = "nodejs18.x"
 
 [[redirects]]
   from = "/api/*"

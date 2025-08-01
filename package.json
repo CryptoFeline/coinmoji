@@ -10,12 +10,14 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
+    "@types/fluent-ffmpeg": "^2.1.27",
     "@types/node": "^24.1.0",
     "@types/three": "^0.158.0",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.16",
     "canvas": "^3.1.2",
     "fflate": "^0.8.1",
+    "fluent-ffmpeg": "^2.1.3",
     "framer-motion": "^10.16.16",
     "gifuct-js": "^2.1.2",
     "postcss": "^8.4.32",

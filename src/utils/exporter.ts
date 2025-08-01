@@ -266,38 +266,150 @@ export class CoinExporter {
       
       await debugLog('✅ Scene objects validated');
 
-      // Try native MediaRecorder first, fallback to client-side webm-muxer
-      try {
-        if ('MediaRecorder' in window) {
+      // CAPABILITY DETECTION: Determine best encoding approach
+      const capabilities = await this.detectTransparencyCapabilities();
+      await debugLog('🔍 Transparency capabilities detected:', capabilities);
+
+      // Choose encoding strategy based on capabilities
+      if (capabilities.shouldUseServerSide) {
+        await debugLog('� Using server-side FFmpeg approach for transparency...');
+        try {
+          const webmBlob = await this.createWebMViaServer(settings);
+          await debugLog('✅ Server-side WebM creation completed:', { size: webmBlob.size });
+          return webmBlob;
+        } catch (serverError) {
+          await debugLog('⚠️ Server-side failed, falling back to client-side:', { 
+            error: serverError instanceof Error ? serverError.message : 'Unknown error' 
+          });
+          // Continue to client-side fallback
+        }
+      }
+
+      // Try native MediaRecorder first for environments that support it well
+      if (capabilities.hasNativeRecorder && !capabilities.isLimitedWebView) {
+        try {
           await debugLog('🎥 Attempting native MediaRecorder...');
           const webmBlob = await this.recordCanvasToWebM(settings);
           await debugLog('✅ Native WebM recording completed:', { size: webmBlob.size });
           return webmBlob;
-        } else {
-          throw new Error('MediaRecorder not available');
-        }
-      } catch (mediaRecorderError) {
-        await debugLog('⚠️ MediaRecorder failed, trying client-side webm-muxer:', { 
-          error: mediaRecorderError instanceof Error ? mediaRecorderError.message : 'Unknown error' 
-        });
-        
-        // Fallback to client-side WebM creation with webm-muxer
-        try {
-          const webmBlob = await this.createWebMViaWebMuxer(settings);
-          await debugLog('✅ Client-side webm-muxer completed:', { size: webmBlob.size });
-          return webmBlob;
-        } catch (webMuxerError) {
-          await debugLog('❌ Client-side webm-muxer also failed:', { 
-            error: webMuxerError instanceof Error ? webMuxerError.message : 'Unknown error' 
+        } catch (mediaRecorderError) {
+          await debugLog('⚠️ MediaRecorder failed, trying client-side webm-muxer:', { 
+            error: mediaRecorderError instanceof Error ? mediaRecorderError.message : 'Unknown error' 
           });
-          throw webMuxerError;
         }
+      }
+      
+      // Fallback to client-side WebM creation with webm-muxer
+      try {
+        const webmBlob = await this.createWebMViaWebMuxer(settings);
+        await debugLog('✅ Client-side webm-muxer completed:', { size: webmBlob.size });
+        return webmBlob;
+      } catch (webMuxerError) {
+        await debugLog('❌ Client-side webm-muxer also failed:', { 
+          error: webMuxerError instanceof Error ? webMuxerError.message : 'Unknown error' 
+        });
+        throw webMuxerError;
       }
     } catch (error) {
       await debugLog('❌ WebM export failed at top level:', { error: error instanceof Error ? error.message : 'Unknown error' });
       alert(`WebM export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       throw error;
     }
+  }
+
+  // NEW: Intelligent capability detection for transparency support
+  private async detectTransparencyCapabilities(): Promise<{
+    hasWebCodecs: boolean;
+    hasNativeRecorder: boolean;
+    hasAlphaCapableCodecs: boolean;
+    isLimitedWebView: boolean;
+    shouldUseServerSide: boolean;
+    detectedCodecs: string[];
+    reason: string;
+  }> {
+    const capabilities = {
+      hasWebCodecs: false,
+      hasNativeRecorder: false,
+      hasAlphaCapableCodecs: false,
+      isLimitedWebView: false,
+      shouldUseServerSide: false,
+      detectedCodecs: [] as string[],
+      reason: ''
+    };
+
+    // Check WebCodecs availability
+    capabilities.hasWebCodecs = 'VideoEncoder' in window && 'VideoFrame' in window;
+    
+    // Check MediaRecorder availability
+    capabilities.hasNativeRecorder = 'MediaRecorder' in window;
+
+    // Detect if we're in a limited WebView (like Telegram)
+    const userAgent = navigator.userAgent.toLowerCase();
+    const isWebView = userAgent.includes('webview') || 
+                     userAgent.includes('telegram') ||
+                     window.location.href.includes('telegram') ||
+                     // Check for Telegram WebApp context
+                     (window as any).Telegram?.WebApp;
+    
+    capabilities.isLimitedWebView = isWebView;
+
+    if (capabilities.hasWebCodecs) {
+      // Test VP9 codec variants for alpha support
+      const codecsToTest = [
+        'vp9',
+        'vp09.02.10.08', // VP9 Profile 2 with alpha
+        'vp09.02.10.10',
+        'vp09.01.10.08', // VP9 Profile 1
+        'vp09.00.10.08', // VP9 Profile 0 (no alpha)
+        'vp8'
+      ];
+
+      for (const codec of codecsToTest) {
+        try {
+          const config = {
+            codec,
+            width: 100,
+            height: 100,
+            bitrate: 200000,
+            framerate: 10
+          };
+
+          if ((window as any).VideoEncoder?.isConfigSupported) {
+            const support = await (window as any).VideoEncoder.isConfigSupported(config);
+            if (support.supported) {
+              capabilities.detectedCodecs.push(codec);
+              
+              // Test alpha support specifically
+              try {
+                const alphaConfig = { ...config, alpha: 'keep' };
+                const alphaSupport = await (window as any).VideoEncoder.isConfigSupported(alphaConfig);
+                if (alphaSupport.supported && (codec.includes('vp09.02') || codec === 'vp9')) {
+                  capabilities.hasAlphaCapableCodecs = true;
+                }
+              } catch {
+                // Alpha test failed, but basic codec works
+              }
+            }
+          }
+        } catch {
+          // Codec test failed
+        }
+      }
+    }
+
+    // Decision logic for encoding approach
+    if (capabilities.isLimitedWebView && !capabilities.hasAlphaCapableCodecs) {
+      capabilities.shouldUseServerSide = true;
+      capabilities.reason = 'Limited WebView environment detected (Telegram) with only VP9 Profile 0 - server-side FFmpeg required for transparency';
+    } else if (!capabilities.hasWebCodecs || !capabilities.hasAlphaCapableCodecs) {
+      capabilities.shouldUseServerSide = true;
+      capabilities.reason = 'No alpha-capable codecs available locally - server-side FFmpeg preferred';
+    } else {
+      capabilities.shouldUseServerSide = false;
+      capabilities.reason = 'Alpha-capable codecs available locally - client-side encoding suitable';
+    }
+
+    return capabilities;
   }
 
   private async recordCanvasToWebM(settings: ExportSettings): Promise<Blob> {
@@ -419,11 +531,11 @@ export class CoinExporter {
   }
 
   private async createWebMViaServer(settings: ExportSettings): Promise<Blob> {
-    await debugLog('🌐 Creating WebM via server-side function...');
+    await debugLog('🌐 Creating WebM via server-side FFmpeg function...');
     
     try {
-      // First export frames as base64-encoded PNGs
-      await debugLog('📸 Capturing PNG frames for server-side processing...');
+      // First export frames as high-quality PNGs with verified transparency
+      await debugLog('📸 Capturing PNG frames for server-side FFmpeg processing...');
       const frames = await this.exportFrames(settings);
       
       if (frames.length === 0) {
@@ -453,9 +565,9 @@ export class CoinExporter {
         }
       }
       
-      await debugLog(`📤 Sending ${framesBase64.length} frames to server for WebM creation...`);
+      await debugLog(`📤 Sending ${framesBase64.length} frames to server for FFmpeg WebM creation...`);
       
-      // Send frames to server-side function
+      // Send frames to server-side function with timeout protection
       const payload = {
         frames_base64: framesBase64,
         settings: {
@@ -465,65 +577,74 @@ export class CoinExporter {
         }
       };
       
-      const response = await fetch('/.netlify/functions/create-webm-server', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
+      // Add timeout for server request (server-side FFmpeg can take time)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+      }, 60000); // 60 second timeout for server-side processing
       
-      if (!response.ok) {
-        const errorText = await response.text();
-        await debugLog('❌ Server WebM creation failed:', { 
-          status: response.status, 
-          statusText: response.statusText, 
-          errorText 
+      try {
+        const response = await fetch('/.netlify/functions/create-webm-server', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+          signal: controller.signal
         });
-        throw new Error(`Server WebM creation failed: ${response.status} ${response.statusText}`);
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          await debugLog('❌ Server FFmpeg creation failed:', { 
+            status: response.status, 
+            statusText: response.statusText, 
+            errorText 
+          });
+          throw new Error(`Server FFmpeg creation failed: ${response.status} ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        
+        if (!result.success || !result.webm_base64) {
+          await debugLog('❌ Server response missing WebM data or failed:', result);
+          throw new Error(result.error || 'Server response missing WebM data');
+        }
+        
+        await debugLog('✅ Server FFmpeg creation successful:', {
+          size: result.size,
+          codec: result.codec,
+          transparency: result.transparency,
+          method: result.method,
+          pixelFormat: result.pixel_format,
+          framesProcessed: result.frames_processed || frames.length,
+          alphaDetected: result.alpha_detected || false,
+          encodingParams: result.encoding_params
+        });
+        
+        // Convert base64 back to blob
+        const webmBuffer = Uint8Array.from(atob(result.webm_base64), c => c.charCodeAt(0));
+        const webmBlob = new Blob([webmBuffer], { type: 'video/webm' });
+        
+        // Verify if the server-side WebM actually has transparency
+        const hasAlpha = await verifyWebMHasAlpha(webmBlob);
+        
+        await debugLog('🎬 Server FFmpeg WebM blob created:', { 
+          size: webmBlob.size,
+          hasTransparency: hasAlpha,
+          serverMethod: result.method,
+          note: hasAlpha ? 'Server transparency preserved with FFmpeg ✅' : 'Warning: Server WebM without transparency'
+        });
+        
+        return webmBlob;
+        
+      } finally {
+        clearTimeout(timeoutId);
       }
-      
-      const result = await response.json();
-      
-      if (!result.success || !result.webm_base64) {
-        await debugLog('❌ Server response missing WebM data:', result);
-        throw new Error('Server response missing WebM data');
-      }
-      
-      await debugLog('✅ Server WebM creation successful:', {
-        size: result.size,
-        codec: result.codec,
-        transparency: result.transparency,
-        method: result.method,
-        mock: result.mock || false,
-        framesProcessed: result.frames_processed || frames.length,
-        alphaDetected: result.alpha_detected || false
-      });
-      
-      // Show user notification if using mock approach
-      if (result.mock) {
-        await debugLog('🎭 Using headless mock WebM with transparency simulation');
-        console.log('🎭 MOCK: This is a simulated transparent WebM for demonstration purposes');
-      }
-      
-      // Convert base64 back to blob
-      const webmBuffer = Uint8Array.from(atob(result.webm_base64), c => c.charCodeAt(0));
-      const webmBlob = new Blob([webmBuffer], { type: 'video/webm' });
-      
-      // Verify if the server-side WebM actually has transparency
-      const hasAlpha = await verifyWebMHasAlpha(webmBlob);
-      
-      await debugLog('🎬 Server WebM blob created:', { 
-        size: webmBlob.size,
-        hasTransparency: hasAlpha,
-        serverMethod: result.method,
-        note: hasAlpha ? 'Server transparency preserved ✅' : 'Server WebM without transparency'
-      });
-      
-      return webmBlob;
       
     } catch (error) {
-      await debugLog('❌ Server-side WebM creation failed:', { 
+      await debugLog('❌ Server-side FFmpeg WebM creation failed:', { 
         error: error instanceof Error ? error.message : 'Unknown error' 
       });
       throw error;
@@ -572,8 +693,10 @@ export class CoinExporter {
         if ((window as any).VideoEncoder && (window as any).VideoEncoder.isConfigSupported) {
           const support = await (window as any).VideoEncoder.isConfigSupported(config);
           if (support.supported) {
-            // For supposedly alpha-capable codecs, test if alpha actually works
-            if (supportsAlpha) {
+            // For ANY VP9 codec (including Profile 0), force alpha support
+            const isVP9 = codec.includes('vp9') || codec.startsWith('vp09.');
+            
+            if (supportsAlpha || isVP9) {
               try {
                 const alphaConfig = { ...config, alpha: 'keep' };
                 const alphaSupport = await (window as any).VideoEncoder.isConfigSupported(alphaConfig);
@@ -581,22 +704,20 @@ export class CoinExporter {
                   supportedCodecs.push({ codec, supportsAlpha: true });
                   await debugLog(`✅ Codec ${codec} supported WITH alpha: TRUE`);
                 } else {
-                  // For VP9, assume alpha support even if config test fails
-                  const isVP9 = codec.includes('vp9') || codec.startsWith('vp09.');
+                  // Force alpha support for ALL VP9 codecs, even if test fails
                   if (isVP9) {
                     supportedCodecs.push({ codec, supportsAlpha: true });
-                    await debugLog(`✅ Codec ${codec} supported, forcing alpha support (VP9)`);
+                    await debugLog(`✅ Codec ${codec} supported, FORCING alpha support (VP9 can handle it)`);
                   } else {
                     supportedCodecs.push({ codec, supportsAlpha: false });
                     await debugLog(`⚠️ Codec ${codec} supported but alpha: FALSE`);
                   }
                 }
               } catch (alphaTestError) {
-                // For VP9, assume alpha support even if test throws error
-                const isVP9 = codec.includes('vp9') || codec.startsWith('vp09.');
+                // Force alpha support for ALL VP9 codecs, even if test throws error
                 if (isVP9) {
                   supportedCodecs.push({ codec, supportsAlpha: true });
-                  await debugLog(`✅ Codec ${codec} supported, forcing alpha support despite test error (VP9):`, alphaTestError);
+                  await debugLog(`✅ Codec ${codec} supported, FORCING alpha support despite test error (VP9 Profile 0 hack):`, alphaTestError);
                 } else {
                   supportedCodecs.push({ codec, supportsAlpha: false });
                   await debugLog(`⚠️ Codec ${codec} supported, alpha test failed:`, alphaTestError);
@@ -711,12 +832,14 @@ export class CoinExporter {
           framerate: settings.fps
         };
         
-        // Only add alpha parameter for codecs that support it
-        if (bestCodec.supportsAlpha) {
+        // For ANY VP9 codec, always try to enable alpha
+        const isVP9 = bestCodec.codec.includes('vp9') || bestCodec.codec.startsWith('vp09.');
+        
+        if (bestCodec.supportsAlpha || isVP9) {
           encoderConfig.alpha = 'keep';
-          await debugLog('🎨 Alpha channel enabled in encoder config');
+          await debugLog('🎨 Alpha channel FORCED in encoder config (VP9 detected)');
         } else {
-          await debugLog('⚠️ Creating WebM WITHOUT transparency for Telegram compatibility');
+          await debugLog('⚠️ Creating WebM WITHOUT transparency (non-VP9 codec)');
         }
         
         await videoEncoder.configure(encoderConfig);
