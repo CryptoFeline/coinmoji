@@ -418,6 +418,101 @@ export class CoinExporter {
     }
   }
 
+  private async createWebMViaServer(settings: ExportSettings): Promise<Blob> {
+    await debugLog('🌐 Creating WebM via server-side function...');
+    
+    try {
+      // First export frames as base64-encoded PNGs
+      await debugLog('📸 Capturing PNG frames for server-side processing...');
+      const frames = await this.exportFrames(settings);
+      
+      if (frames.length === 0) {
+        throw new Error('No frames captured for server-side WebM creation');
+      }
+      
+      await debugLog(`✅ Captured ${frames.length} PNG frames for server-side processing`);
+      
+      // Convert frames to base64 for server transmission
+      const framesBase64: string[] = [];
+      for (let i = 0; i < frames.length; i++) {
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            // Remove the data URL prefix to get just the base64
+            const base64Data = result.split(',')[1];
+            resolve(base64Data);
+          };
+          reader.onerror = () => reject(new Error(`Failed to convert frame ${i} to base64`));
+          reader.readAsDataURL(frames[i]);
+        });
+        framesBase64.push(base64);
+        
+        if (i === 0 || i === frames.length - 1 || i % 10 === 0) {
+          await debugLog(`🔄 Converted frame ${i + 1}/${frames.length} to base64`);
+        }
+      }
+      
+      await debugLog(`📤 Sending ${framesBase64.length} frames to server for WebM creation...`);
+      
+      // Send frames to server-side function
+      const payload = {
+        frames_base64: framesBase64,
+        settings: {
+          fps: settings.fps,
+          size: settings.size,
+          duration: settings.duration
+        }
+      };
+      
+      const response = await fetch('/.netlify/functions/create-webm-server', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        await debugLog('❌ Server WebM creation failed:', { 
+          status: response.status, 
+          statusText: response.statusText, 
+          errorText 
+        });
+        throw new Error(`Server WebM creation failed: ${response.status} ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      if (!result.success || !result.webm_base64) {
+        await debugLog('❌ Server response missing WebM data:', result);
+        throw new Error('Server response missing WebM data');
+      }
+      
+      await debugLog('✅ Server WebM creation successful:', {
+        size: result.size,
+        codec: result.codec,
+        transparency: result.transparency,
+        method: result.method
+      });
+      
+      // Convert base64 back to blob
+      const webmBuffer = Uint8Array.from(atob(result.webm_base64), c => c.charCodeAt(0));
+      const webmBlob = new Blob([webmBuffer], { type: 'video/webm' });
+      
+      await debugLog('🎬 Server WebM blob created:', { size: webmBlob.size });
+      
+      return webmBlob;
+      
+    } catch (error) {
+      await debugLog('❌ Server-side WebM creation failed:', { 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      });
+      throw error;
+    }
+  }
+
   private async createWebMViaWebMuxer(settings: ExportSettings): Promise<Blob> {
     await debugLog('🔧 Creating WebM via client-side webm-muxer...');
     
@@ -465,6 +560,26 @@ export class CoinExporter {
     
     if (supportedCodecs.length === 0) {
       throw new Error('No supported video codecs found for WebM creation. This browser may not support WebCodecs API.');
+    }
+    
+    // Check if we have any alpha-capable codecs
+    const hasAlphaCodec = supportedCodecs.some(codec => codec.supportsAlpha);
+    
+    if (!hasAlphaCodec) {
+      await debugLog('⚠️ No alpha-capable codecs found locally, trying server-side WebM creation...');
+      
+      try {
+        // Fallback to server-side WebM creation with alpha support
+        const webmBlob = await this.createWebMViaServer(settings);
+        await debugLog('✅ Server-side WebM creation completed:', { size: webmBlob.size });
+        return webmBlob;
+      } catch (serverError) {
+        await debugLog('❌ Server-side WebM creation also failed:', { 
+          error: serverError instanceof Error ? serverError.message : 'Unknown error' 
+        });
+        // Continue with client-side approach without alpha
+        await debugLog('🔄 Continuing with client-side WebM creation (no transparency)...');
+      }
     }
     
     await debugLog('🎯 Supported video codecs:', supportedCodecs);
