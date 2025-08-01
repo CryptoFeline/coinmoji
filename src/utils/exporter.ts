@@ -270,10 +270,19 @@ export class CoinExporter {
         targetSize: `${size}x${size}` 
       });
       
-      // Convert frames to base64 for server transmission
+      // Convert frames to base64 for server transmission using FileReader to avoid stack overflow
       const framePromises = frames.map(async (frame, index) => {
-        const arrayBuffer = await frame.arrayBuffer();
-        const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            // Remove the data URL prefix to get just the base64
+            const base64Data = result.split(',')[1];
+            resolve(base64Data);
+          };
+          reader.onerror = () => reject(new Error('Failed to convert frame to base64'));
+          reader.readAsDataURL(frame);
+        });
         
         if (index === 0 || index === frames.length - 1 || index % 10 === 0) {
           await debugLog(`📤 Converted frame ${index + 1}/${frames.length} to base64 (${base64.length} chars)`);
@@ -363,9 +372,19 @@ export const sendToTelegram = async (blob: Blob, initData: string) => {
   const userId = getTelegramUserId(initData);
   console.log('👤 User ID extracted:', userId);
   
-  // Convert blob to base64
-  const arrayBuffer = await blob.arrayBuffer();
-  const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+  // Convert blob to base64 using FileReader to avoid stack overflow
+  const base64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      // Remove the data URL prefix to get just the base64
+      const base64Data = result.split(',')[1];
+      resolve(base64Data);
+    };
+    reader.onerror = () => reject(new Error('Failed to convert blob to base64'));
+    reader.readAsDataURL(blob);
+  });
+  
   console.log('🔄 Converted to base64:', { originalSize: blob.size, base64Length: base64.length });
 
   try {
@@ -409,8 +428,19 @@ export const createCustomEmoji = async (
     initDataLength: initData.length 
   });
 
-  const arrayBuffer = await blob.arrayBuffer();
-  const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+  // Use FileReader for safe base64 conversion instead of btoa to avoid stack overflow
+  const base64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      // Remove the data URL prefix to get just the base64
+      const base64Data = result.split(',')[1];
+      resolve(base64Data);
+    };
+    reader.onerror = () => reject(new Error('Failed to convert WebM to base64'));
+    reader.readAsDataURL(blob);
+  });
+  
   await debugLog('🔄 Converted to base64 for emoji:', { 
     originalSize: blob.size, 
     base64Length: base64.length,
