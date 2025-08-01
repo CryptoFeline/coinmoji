@@ -533,8 +533,10 @@ export class CoinExporter {
     // Check supported codecs before proceeding - prioritize alpha-capable codecs
     const supportedCodecs = [];
     const codecsToTest = [
+      { codec: 'vp09.02.10.10.01.09.16.09.01', supportsAlpha: true }, // VP9 Profile 2, Level 5, 10-bit, 4:2:0, alpha
       { codec: 'vp09.02.10.10', supportsAlpha: true },  // VP9 Profile 2 with alpha
       { codec: 'vp09.02.10.08', supportsAlpha: true },  // VP9 Profile 2 with alpha  
+      { codec: 'vp09.01.10.08', supportsAlpha: true },  // VP9 Profile 1 (may support alpha)
       { codec: 'vp9', supportsAlpha: true },            // Simple VP9 (may support alpha)
       { codec: 'vp09.00.10.08', supportsAlpha: false }, // VP9 Profile 0 (no alpha)
       { codec: 'vp8', supportsAlpha: false }            // VP8 fallback (no alpha)
@@ -554,8 +556,26 @@ export class CoinExporter {
         if ((window as any).VideoEncoder && (window as any).VideoEncoder.isConfigSupported) {
           const support = await (window as any).VideoEncoder.isConfigSupported(config);
           if (support.supported) {
-            supportedCodecs.push({ codec, supportsAlpha });
-            await debugLog(`✅ Codec ${codec} supported (alpha: ${supportsAlpha})`);
+            // For supposedly alpha-capable codecs, test if alpha actually works
+            if (supportsAlpha) {
+              try {
+                const alphaConfig = { ...config, alpha: 'keep' };
+                const alphaSupport = await (window as any).VideoEncoder.isConfigSupported(alphaConfig);
+                if (alphaSupport.supported) {
+                  supportedCodecs.push({ codec, supportsAlpha: true });
+                  await debugLog(`✅ Codec ${codec} supported WITH alpha: TRUE`);
+                } else {
+                  supportedCodecs.push({ codec, supportsAlpha: false });
+                  await debugLog(`⚠️ Codec ${codec} supported but alpha: FALSE`);
+                }
+              } catch (alphaTestError) {
+                supportedCodecs.push({ codec, supportsAlpha: false });
+                await debugLog(`⚠️ Codec ${codec} supported, alpha test failed:`, alphaTestError);
+              }
+            } else {
+              supportedCodecs.push({ codec, supportsAlpha: false });
+              await debugLog(`✅ Codec ${codec} supported (alpha: false)`);
+            }
           }
         } else {
           // Fallback: assume basic VP8 is supported if no isConfigSupported
