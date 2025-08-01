@@ -5,11 +5,11 @@ import { join, dirname } from 'path';
 // FFmpeg binary management for Netlify Functions
 // Since Netlify doesn't allow bundling large binaries, we need to download at runtime
 
-const FFMPEG_VERSION = '6.1.1';
+const FFMPEG_VERSION = '4.4.1';
 const FFMPEG_DOWNLOAD_URLS = {
-  // Use johnvansickle static builds for better Linux compatibility in Lambda
-  linux: `https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz`,
-  darwin: `https://github.com/eugeneware/ffmpeg-static/releases/download/b${FFMPEG_VERSION}/darwin-x64`,
+  // Use ZIP files instead of tar.xz for better Netlify Functions compatibility
+  linux: `https://github.com/vot/ffbinaries-prebuilt/releases/download/v${FFMPEG_VERSION}/ffmpeg-${FFMPEG_VERSION}-linux-64.zip`,
+  darwin: `https://github.com/vot/ffbinaries-prebuilt/releases/download/v${FFMPEG_VERSION}/ffmpeg-${FFMPEG_VERSION}-osx-64.zip`,
 };
 
 export class FFmpegManager {
@@ -102,49 +102,65 @@ export class FFmpegManager {
   }
 
   private async downloadLinuxFFmpeg(tempDir: string, ffmpegBinaryPath: string): Promise<void> {
-    console.log('🐧 Downloading Linux FFmpeg static build...');
+    console.log('🐧 Downloading Linux FFmpeg ZIP binary...');
     
-    // Download the tar.xz file
-    const tarPath = join(tempDir, 'ffmpeg.tar.xz');
+    // Download the ZIP file (no tar dependency needed)
+    const zipPath = join(tempDir, 'ffmpeg.zip');
     const response = await fetch(FFMPEG_DOWNLOAD_URLS.linux);
     
     if (!response.ok) {
       throw new Error(`Download failed: ${response.status} ${response.statusText}`);
     }
 
-    // Write tar file
+    // Write ZIP file
     const buffer = await response.arrayBuffer();
-    await fs.writeFile(tarPath, new Uint8Array(buffer));
+    await fs.writeFile(zipPath, new Uint8Array(buffer));
     
-    console.log('📦 Extracting FFmpeg from tar.xz...');
+    console.log('📦 Extracting FFmpeg from ZIP...');
     
-    // Extract using tar (available in Lambda environment)
+    // Extract using built-in Node.js ZIP support (no external dependencies)
     try {
-      execSync(`cd ${tempDir} && tar -xJf ffmpeg.tar.xz`, { timeout: 30000 });
+      // Import AdmZip dynamically to extract
+      const AdmZip = require('adm-zip');
+      const zip = new AdmZip(zipPath);
       
-      // Find the extracted ffmpeg binary (usually in ffmpeg-*-amd64-static/ffmpeg)
-      const extractedDirs = await fs.readdir(tempDir);
-      const ffmpegDir = extractedDirs.find(dir => dir.startsWith('ffmpeg-') && dir.includes('static'));
+      // Extract all files to temp directory
+      zip.extractAllTo(tempDir, true);
       
-      if (!ffmpegDir) {
-        throw new Error('Could not find extracted FFmpeg directory');
+      // Find the ffmpeg binary (should be directly in the ZIP)
+      const extractedFiles = await fs.readdir(tempDir);
+      const ffmpegFile = extractedFiles.find(file => file === 'ffmpeg' || file.startsWith('ffmpeg'));
+      
+      if (!ffmpegFile) {
+        throw new Error('Could not find FFmpeg binary in extracted files');
       }
       
-      const extractedFFmpegPath = join(tempDir, ffmpegDir, 'ffmpeg');
+      const extractedFFmpegPath = join(tempDir, ffmpegFile);
       
       // Verify extracted binary exists
       await fs.access(extractedFFmpegPath);
       
-      // Copy to expected location
-      await fs.copyFile(extractedFFmpegPath, ffmpegBinaryPath);
+      // Copy to expected location if different
+      if (extractedFFmpegPath !== ffmpegBinaryPath) {
+        await fs.copyFile(extractedFFmpegPath, ffmpegBinaryPath);
+      }
       
       // Make executable
       await fs.chmod(ffmpegBinaryPath, 0o755);
       
-      console.log('✅ Linux FFmpeg binary extracted and configured');
+      console.log('✅ Linux FFmpeg binary extracted and configured from ZIP');
+      
+      // Verify the binary works
+      try {
+        execSync(`${ffmpegBinaryPath} -version`, { stdio: 'pipe', timeout: 5000 });
+        console.log('✅ FFmpeg binary verification successful');
+      } catch (verifyError) {
+        console.error('⚠️ FFmpeg binary verification failed:', verifyError);
+        throw new Error(`FFmpeg binary verification failed: ${verifyError}`);
+      }
       
     } catch (extractError) {
-      console.error('❌ Tar extraction failed:', extractError);
+      console.error('❌ ZIP extraction failed:', extractError);
       throw new Error(`FFmpeg extraction failed: ${extractError}`);
     }
   }
