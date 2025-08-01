@@ -678,6 +678,22 @@ export class CoinExporter {
   private async createWebMViaWebMuxer(settings: ExportSettings): Promise<Blob> {
     await debugLog('🔧 Creating WebM via client-side webm-muxer...');
     
+    // Calculate the ACTUAL fps and frame count that will be used
+    const { fps, duration } = settings;
+    const totalFrames = Math.floor(fps * duration);
+    const maxFrames = 30;
+    const actualFrames = Math.min(totalFrames, maxFrames);
+    const effectiveFPS = actualFrames / duration; // This is the REAL fps for the WebM
+    
+    await debugLog('🎯 WebM timing calculation:', {
+      requestedFPS: fps,
+      requestedDuration: duration,
+      requestedFrames: totalFrames,
+      actualFrames,
+      effectiveFPS: effectiveFPS.toFixed(2),
+      note: 'Using effectiveFPS for WebM encoder to ensure correct duration'
+    });
+    
     // Check if WebCodecs is available
     if (!('VideoEncoder' in window) || !('VideoFrame' in window)) {
       throw new Error('WebCodecs not supported in this browser');
@@ -812,7 +828,7 @@ export class CoinExporter {
           codec: 'V_VP9',
           width: settings.size,
           height: settings.size,
-          frameRate: settings.fps
+          frameRate: effectiveFPS // Use the ACTUAL fps, not the requested fps
         },
         firstTimestampBehavior: 'offset'
       };
@@ -853,7 +869,7 @@ export class CoinExporter {
           width: settings.size,
           height: settings.size,
           bitrate: 200000, // 200kbps for small file size
-          framerate: settings.fps
+          framerate: effectiveFPS // Use the ACTUAL fps for proper timing
         };
         
         // For ANY VP9 codec, always try to enable alpha
@@ -907,11 +923,11 @@ export class CoinExporter {
             });
           }
 
-          // Create VideoFrame with timestamp
-          const timestamp = (i * 1000000) / settings.fps; // microseconds
+          // Create VideoFrame with timestamp based on EFFECTIVE fps
+          const timestamp = (i * 1000000) / effectiveFPS; // microseconds - use effective fps
           const videoFrame = new (window as any).VideoFrame(imageBitmap, {
             timestamp: timestamp,
-            duration: 1000000 / settings.fps // microseconds
+            duration: 1000000 / effectiveFPS // microseconds - use effective fps
           });
 
           // Encode frame
@@ -1029,6 +1045,45 @@ export const sendToTelegram = async (blob: Blob, initData: string) => {
     return result;
   } catch (error) {
     console.error('❌ Error sending to Telegram:', error);
+    throw error;
+  }
+};
+
+export const sendInstallationMessage = async (installUrl: string, initData: string) => {
+  console.log('📤 Sending installation message to Telegram:', { installUrl });
+  
+  // Extract user ID from initData
+  const userId = getTelegramUserId(initData);
+  console.log('👤 User ID extracted for message:', userId);
+  
+  const message = `🎉 Your Coinmoji emoji is ready!\n\nClick this link to install it:\n${installUrl}`;
+
+  try {
+    const response = await fetch('/.netlify/functions/send-message', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Telegram-InitData': initData,
+      },
+      body: JSON.stringify({
+        user_id: userId,
+        message: message
+      }),
+    });
+
+    console.log('📡 Message response received:', { status: response.status, statusText: response.statusText });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Send message failed:', errorText);
+      throw new Error('Failed to send installation message to Telegram');
+    }
+
+    const result = await response.json();
+    console.log('✅ Installation message sent successfully:', result);
+    return result;
+  } catch (error) {
+    console.error('❌ Error sending installation message:', error);
     throw error;
   }
 };

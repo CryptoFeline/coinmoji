@@ -3,7 +3,7 @@ import { TelegramProvider, useTelegram } from './providers/TelegramProvider';
 import NotInTelegram from './components/NotInTelegram';
 import CoinEditor, { CoinEditorRef } from './components/CoinEditor';
 import SettingsPanel, { CoinSettings } from './components/SettingsPanel';
-import { CoinExporter, createCustomEmoji, sendToTelegram } from './utils/exporter';
+import { CoinExporter, createCustomEmoji, sendToTelegram, sendInstallationMessage } from './utils/exporter';
 
 const AppContent: React.FC = () => {
   const { isInTelegram, initData, isLoading } = useTelegram();
@@ -160,12 +160,19 @@ const AppContent: React.FC = () => {
       );
       
       if (result.success) {
-        // Provide clear instructions for accessing the emoji
-        const instructions = result.set_url 
-          ? `✅ Emoji created successfully!\n\n📱 To use your emoji:\n1. Click this link: ${result.set_url}\n2. Tap "Add Stickers" in Telegram\n3. Your emoji will be available in the emoji picker\n\n💡 Tip: Look for the 🪙 emoji in your custom emoji collection!`
-          : '✅ Emoji created successfully! Check your custom emojis in Telegram.';
-        
-        alert(instructions);
+        // Send the emoji installation link via Telegram bot instead of popup
+        if (result.set_url) {
+          try {
+            await sendInstallationMessage(result.set_url, initData);
+            alert('✅ Emoji created successfully! Check your Telegram chat for the installation link.');
+          } catch (messageError) {
+            // Fallback to alert if message sending fails
+            console.warn('Failed to send installation message, showing alert instead:', messageError);
+            alert(`✅ Emoji created successfully!\n\nTo install: ${result.set_url}`);
+          }
+        } else {
+          alert('✅ Emoji created successfully! Check your custom emojis in Telegram.');
+        }
       } else {
         throw new Error(result.error || 'Failed to create emoji');
       }
