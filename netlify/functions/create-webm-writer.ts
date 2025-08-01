@@ -1,5 +1,5 @@
 import { Handler, HandlerEvent, HandlerContext } from '@netlify/functions';
-import { createCanvas, loadImage } from 'canvas';
+import { createCanvas, loadImage, Image } from 'canvas';
 const WebMWriter = require('webm-writer');
 
 export const handler: Handler = async (event: HandlerEvent, context: HandlerContext) => {
@@ -53,7 +53,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
 
     // Create WebM writer with Telegram-optimized settings
     const videoWriter = new WebMWriter({
-      quality: 0.8, // Good quality but small file size
+      quality: 0.9, // Higher quality for better results
       fileWriter: null, // Write to memory
       fd: null,
       frameDuration: Math.round(1000 / fps), // Frame duration in ms
@@ -62,33 +62,57 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
 
     console.log('📸 Processing frames...');
     
+    let successfulFrames = 0;
+    
     for (let i = 0; i < frames.length; i++) {
       try {
-        // Convert base64 to buffer
+        // Convert base64 to buffer with proper PNG data URL format
         const frameBuffer = Buffer.from(frames[i], 'base64');
         
-        // Create canvas and load image
+        // Verify this is a valid PNG buffer
+        if (frameBuffer.length < 8 || frameBuffer.toString('hex', 0, 8) !== '89504e470d0a1a0a') {
+          console.error(`❌ Frame ${i} is not a valid PNG (buffer size: ${frameBuffer.length})`);
+          continue;
+        }
+        
+        // Create canvas with exact dimensions
         const canvas = createCanvas(width, height);
         const ctx = canvas.getContext('2d');
         
-        // Clear canvas with transparent background
+        // Set up canvas for transparency
         ctx.clearRect(0, 0, width, height);
+        ctx.globalCompositeOperation = 'source-over';
         
-        // Load and draw the PNG image
+        // Load and draw the PNG image with proper error handling
         const img = await loadImage(frameBuffer);
+        
+        // Verify image loaded correctly
+        if (!img || img.width === 0 || img.height === 0) {
+          console.error(`❌ Frame ${i} failed to load properly`);
+          continue;
+        }
+        
+        // Draw image scaled to exact dimensions
         ctx.drawImage(img, 0, 0, width, height);
         
         // Add frame to WebM writer
         videoWriter.addFrame(canvas);
+        successfulFrames++;
         
         if (i === 0 || i === frames.length - 1 || i % 10 === 0) {
-          console.log(`✅ Added frame ${i + 1}/${frames.length} to WebM`);
+          console.log(`✅ Added frame ${i + 1}/${frames.length} to WebM (${img.width}x${img.height} -> ${width}x${height})`);
         }
         
       } catch (frameError) {
         console.error(`❌ Error processing frame ${i}:`, frameError);
-        // Continue with other frames
+        // Continue with other frames instead of failing completely
       }
+    }
+
+    console.log(`📊 Processed ${successfulFrames}/${frames.length} frames successfully`);
+    
+    if (successfulFrames === 0) {
+      throw new Error('No frames were successfully processed');
     }
 
     console.log('🎬 Finalizing WebM...');
@@ -97,9 +121,11 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     const webmBlob = await new Promise((resolve, reject) => {
       videoWriter.complete()
         .then((webmBlob: Blob) => {
+          console.log(`📹 WebM blob created: ${webmBlob.size} bytes`);
           resolve(webmBlob);
         })
         .catch((error: Error) => {
+          console.error('❌ WebM writer completion failed:', error);
           reject(error);
         });
     });
@@ -110,12 +136,19 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     
     console.log(`📊 WebM created: ${webmBuffer.length} bytes`);
     
+    // Validate minimum WebM file size (should be much larger than 249 bytes)
+    if (webmBuffer.length < 1000) {
+      console.warn(`⚠️ WebM file suspiciously small: ${webmBuffer.length} bytes`);
+    }
+    
     // Validate Telegram requirements
     const telegramCompliant = {
       size: webmBuffer.length <= 256 * 1024, // 256KB limit
       duration: durationSeconds <= 3,
       dimensions: width === 100 && height === 100,
-      fps: fps <= 30
+      fps: fps <= 30,
+      hasFrames: successfulFrames > 0,
+      minimumSize: webmBuffer.length >= 1000 // Should be at least 1KB for real video
     };
     
     if (!telegramCompliant.size) {
@@ -125,6 +158,7 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     console.log('✅ WebM Writer completed:', {
       totalSize: webmBuffer.length,
       frames: frames.length,
+      successfulFrames,
       duration: `${(durationSeconds * 1000).toFixed(0)}ms`,
       fps,
       dimensions: `${width}x${height}`,
@@ -141,10 +175,11 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
         webm_base64: base64WebM,
         size: webmBuffer.length,
         codec: 'vp8', // webm-writer uses VP8
-        frames_processed: frames.length,
+        frames_processed: successfulFrames,
+        total_frames: frames.length,
         duration_ms: Math.round(durationSeconds * 1000),
         telegram_compliant: telegramCompliant,
-        message: 'WebM created using webm-writer with proper VP8 encoding'
+        message: `WebM created using webm-writer: ${successfulFrames}/${frames.length} frames processed`
       }),
     };
 

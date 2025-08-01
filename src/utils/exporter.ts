@@ -305,13 +305,25 @@ export class CoinExporter {
       };
       
       await debugLog('📡 Sending frames to server for WebM creation...');
-      const response = await fetch('/.netlify/functions/create-webm-writer', {
+      let response = await fetch('/.netlify/functions/create-webm-writer', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
       });
+      
+      // If webm-writer fails, try fallback to manual WebM creation
+      if (!response.ok) {
+        await debugLog('⚠️ WebM-writer failed, trying fallback approach...');
+        response = await fetch('/.netlify/functions/create-webm', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+      }
       
       await debugLog('📡 Server response received:', { 
         status: response.status, 
@@ -332,8 +344,31 @@ export class CoinExporter {
       await debugLog('✅ Server WebM creation success:', {
         size: result.size,
         codec: result.codec,
-        frames_processed: result.frames_processed
+        frames_processed: result.frames_processed,
+        total_frames: result.total_frames,
+        successful_frame_ratio: result.total_frames ? (result.frames_processed / result.total_frames).toFixed(2) : 'unknown',
+        telegram_compliant: result.telegram_compliant
       });
+      
+      // Validate WebM file size - reject if too small (indicates processing failure)
+      if (result.size < 1000) {
+        await debugLog('❌ WebM file suspiciously small, likely processing failed:', {
+          size: result.size,
+          frames_processed: result.frames_processed,
+          total_frames: result.total_frames
+        });
+        throw new Error(`WebM creation failed: file too small (${result.size} bytes) - likely frame processing failure`);
+      }
+      
+      // Validate frame processing success ratio
+      if (result.total_frames && result.frames_processed / result.total_frames < 0.5) {
+        await debugLog('❌ Too many frames failed to process:', {
+          successful_frames: result.frames_processed,
+          total_frames: result.total_frames,
+          success_ratio: (result.frames_processed / result.total_frames).toFixed(2)
+        });
+        throw new Error(`WebM creation failed: only ${result.frames_processed}/${result.total_frames} frames processed successfully`);
+      }
       
       // Convert base64 back to blob
       const webmData = atob(result.webm_base64);
