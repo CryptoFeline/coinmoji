@@ -1162,16 +1162,25 @@ export async function verifyWebMDuration(blob: Blob): Promise<number | null> {
           v.playsInline = true;
           
           await new Promise((r, reject) => {
+            const metadataTimeout = setTimeout(() => {
+              console.log('⏱️ Metadata loading timed out after 3 seconds');
+              reject(new Error('Metadata loading timeout'));
+            }, 3000);
+
             v.onloadedmetadata = () => {
+              clearTimeout(metadataTimeout);
               console.log('⏱️ Video metadata loaded:', {
-                duration: v.duration?.toFixed(2) + 's' || 'unknown',
+                duration: (v.duration !== undefined && isFinite(v.duration)) ? v.duration.toFixed(2) + 's' : 'unknown',
+                durationRaw: v.duration,
                 videoWidth: v.videoWidth,
                 videoHeight: v.videoHeight,
-                readyState: v.readyState
+                readyState: v.readyState,
+                networkState: v.networkState
               });
               r(undefined);
             };
             v.onerror = (e) => {
+              clearTimeout(metadataTimeout);
               console.error('⏱️ Video load error:', e);
               reject(new Error('Video load failed'));
             };
@@ -1180,8 +1189,15 @@ export async function verifyWebMDuration(blob: Blob): Promise<number | null> {
           
           const duration = v.duration;
           
+          console.log('⏱️ Final duration check:', {
+            durationRaw: duration,
+            isFinite: isFinite(duration),
+            isValidNumber: typeof duration === 'number' && !isNaN(duration),
+            willReturn: (duration !== undefined && isFinite(duration)) ? duration : null
+          });
+          
           clearTimeout(timeout);
-          resolve(isFinite(duration) ? duration : null);
+          resolve((duration !== undefined && isFinite(duration)) ? duration : null);
         } catch (error) {
           console.error('⏱️ Duration verification failed:', error);
           clearTimeout(timeout);

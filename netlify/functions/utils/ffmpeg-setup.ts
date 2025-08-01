@@ -267,10 +267,11 @@ export class FFmpegManager {
   }
 
   async cleanup(): Promise<void> {
-    // Cleanup temp files (Netlify will clean /tmp automatically, but good practice)
+    // Cleanup only temporary frame files, preserve FFmpeg binary for reuse
     try {
-      await fs.rm('/tmp/ffmpeg', { recursive: true, force: true });
       await fs.rm('/tmp/frames.txt', { force: true });
+      // Note: Intentionally NOT deleting /tmp/ffmpeg to preserve binary for subsequent invocations
+      // Netlify will clean /tmp automatically when the function container is recycled
     } catch {
       // Ignore cleanup errors
     }
