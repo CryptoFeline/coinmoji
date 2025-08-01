@@ -71,15 +71,6 @@ export class CoinExporter {
       actualDuration
     });
 
-    // DEBUGGING: Add detailed frame calculation logging
-    console.log('🔢 Frame calculation details:', {
-      'fps * duration': fps * duration,
-      'Math.floor(fps * duration)': Math.floor(fps * duration),
-      'Math.min(totalFrames, maxFrames)': Math.min(totalFrames, maxFrames),
-      'Loop will run from 0 to': actualFrames - 1,
-      'Expected frame count': actualFrames
-    });
-
     // Store original rotation (we don't touch the live renderer anymore)
     const originalRotation = this.turntable.rotation.y;
 
@@ -122,9 +113,6 @@ export class CoinExporter {
 
       for (let i = 0; i < actualFrames; i++) {
         try {
-          // DEBUGGING: Log every frame attempt
-          console.log(`🎬 Processing frame ${i + 1}/${actualFrames}...`);
-          
           // CRITICAL: Calculate rotation angle based on the actual rotation speed from settings
           // Match the live THREE.js animation timing exactly
           
@@ -143,17 +131,11 @@ export class CoinExporter {
           // Set rotation for this frame to match the live animation timing
           this.turntable.rotation.y = totalRotation;
 
-          console.log(`🔄 Frame ${i + 1}: rotation=${totalRotation.toFixed(3)}, time=${timeProgress.toFixed(3)}s`);
-
           // Render to offscreen canvas with export camera
           offscreenRenderer.render(this.scene, exportCamera);
 
-          console.log(`🎨 Frame ${i + 1}: rendered to canvas`);
-
           // Capture frame and resize to target size
           const blob = await this.captureFrameFromRenderer(offscreenRenderer, captureSize, captureSize); // Keep high res
-          
-          console.log(`📸 Frame ${i + 1}: captured blob size=${blob.size}`);
           
           if (!blob || blob.size === 0) {
             const error = `Frame ${i} capture failed - empty blob`;
@@ -163,7 +145,6 @@ export class CoinExporter {
           }
           
           frames.push(blob);
-          console.log(`✅ Frame ${i + 1}: added to frames array, total frames so far: ${frames.length}`);
           
           if (i === 0 || i === actualFrames - 1 || i % 10 === 0) {
             console.log(`📸 Captured frame ${i + 1}/${actualFrames}, size: ${blob.size} bytes, rotation: ${totalRotation.toFixed(2)} rad, time: ${timeProgress.toFixed(2)}s, speed: ${rotationSpeed}`);
@@ -182,8 +163,7 @@ export class CoinExporter {
       console.log('✅ Frame export complete:', { 
         totalFrames: frames.length,
         expectedFrames: actualFrames,
-        success: frames.length === actualFrames,
-        framesArray: frames.map((f, i) => ({ index: i, size: f.size }))
+        success: frames.length === actualFrames
       });
       return frames;
     } catch (error) {
@@ -1067,6 +1047,18 @@ export const createCustomEmoji = async (
     initDataLength: initData.length 
   });
 
+  // DEBUGGING: Verify WebM duration before sending to Telegram
+  try {
+    const duration = await verifyWebMDuration(blob);
+    await debugLog('⏱️ WebM duration verification:', {
+      duration: duration?.toFixed(2) + 's' || 'unknown',
+      expectedDuration: '3.0s',
+      isCorrectDuration: duration ? Math.abs(duration - 3.0) < 0.5 : false
+    });
+  } catch (durationError) {
+    await debugLog('⚠️ Could not verify WebM duration:', durationError);
+  }
+
   // Use FileReader for safe base64 conversion instead of btoa to avoid stack overflow
   const base64 = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -1089,10 +1081,14 @@ export const createCustomEmoji = async (
   const userId = getTelegramUserId(initData);
   await debugLog('👤 User ID for emoji:', userId);
 
+  // CACHE BUSTING: Add timestamp to set title to force Telegram to treat as new emoji
+  const timestamp = Date.now();
+  const cacheDebuggingTitle = `${setTitle} ${timestamp}`;
+
   const payload = {
     initData,
     user_id: userId,
-    set_title: setTitle,
+    set_title: cacheDebuggingTitle, // Use timestamped title for cache busting
     emoji_list: emojiList,
     webm_base64: base64,
   };
@@ -1102,7 +1098,8 @@ export const createCustomEmoji = async (
     set_title: payload.set_title,
     emoji_list: payload.emoji_list,
     webm_base64_length: payload.webm_base64.length,
-    initData_length: payload.initData.length
+    initData_length: payload.initData.length,
+    cacheBusting: `Added timestamp ${timestamp} to title`
   });
 
   try {
@@ -1146,6 +1143,60 @@ const getTelegramUserId = (initData: string): number => {
   const user = JSON.parse(params.get('user') || '{}');
   return user.id;
 };
+
+// Verify WebM duration for debugging
+export async function verifyWebMDuration(blob: Blob): Promise<number | null> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      console.log('⏱️ Duration verification timed out');
+      resolve(null);
+    }, 5000); // 5 second timeout
+
+    (async () => {
+      try {
+        const url = URL.createObjectURL(blob);
+        try {
+          const v = document.createElement('video');
+          v.src = url;
+          v.muted = true;
+          v.playsInline = true;
+          
+          await new Promise((r, reject) => {
+            v.onloadedmetadata = () => {
+              console.log('⏱️ Video metadata loaded:', {
+                duration: v.duration?.toFixed(2) + 's' || 'unknown',
+                videoWidth: v.videoWidth,
+                videoHeight: v.videoHeight,
+                readyState: v.readyState
+              });
+              r(undefined);
+            };
+            v.onerror = (e) => {
+              console.error('⏱️ Video load error:', e);
+              reject(new Error('Video load failed'));
+            };
+            v.load();
+          });
+          
+          const duration = v.duration;
+          
+          clearTimeout(timeout);
+          resolve(isFinite(duration) ? duration : null);
+        } catch (error) {
+          console.error('⏱️ Duration verification failed:', error);
+          clearTimeout(timeout);
+          resolve(null);
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      } catch (outerError) {
+        console.error('⏱️ Duration verification outer error:', outerError);
+        clearTimeout(timeout);
+        resolve(null);
+      }
+    })();
+  });
+}
 
 // Verify that the WebM actually contains alpha transparency
 export async function verifyWebMHasAlpha(blob: Blob): Promise<boolean> {

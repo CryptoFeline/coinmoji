@@ -68,20 +68,24 @@ const AppContent: React.FC = () => {
       };
       
       const rotationSpeed = speedMap[coinSettings.rotationSpeed];
-      // Calculate time for one full rotation (2π radians)
-      const timeForFullRotation = (2 * Math.PI) / rotationSpeed / 60; // Convert to seconds (assuming 60fps)
+      
+      // FIXED: Always use 3 seconds and calculate the appropriate rotation amount
+      const targetDuration = 3; // Always 3 seconds for emoji
+      const rotationAmount = rotationSpeed * 60 * targetDuration; // How much rotation in 3 seconds
       
       console.log('🎬 Export settings:', {
         rotationSpeed: coinSettings.rotationSpeed,
         speedValue: rotationSpeed,
-        timeForFullRotation: timeForFullRotation,
+        targetDuration,
+        rotationAmount: `${(rotationAmount / (2 * Math.PI)).toFixed(2)} full rotations`,
+        radiansAmount: rotationAmount.toFixed(3),
         fps: 30
       });
       
-      // Export as WebM for emoji use (100x100, 30fps, perfect rotation)
+      // Export as WebM for emoji use (100x100, 30fps, 3 seconds with proper rotation)
       const webmBlob = await exporter.exportAsWebM({
         fps: 30,
-        duration: Math.max(1, Math.min(3, timeForFullRotation)), // Clamp between 1-3 seconds
+        duration: targetDuration, // Always 3 seconds
         size: 100,
         rotationSpeed: rotationSpeed // Pass the actual rotation speed to match live animation
       });
