@@ -5,6 +5,7 @@ export interface ExportSettings {
   fps: number;
   duration: number; // in seconds
   size: number; // output size (100 for emoji)
+  rotationSpeed?: number; // radians per frame at 60fps (optional, defaults to medium speed)
 }
 
 // Debug logging helper for Telegram environment
@@ -59,7 +60,7 @@ export class CoinExporter {
     
     const frames: Blob[] = [];
 
-    console.log('📹 Starting frame export (optimized timing for 3-second window):', { 
+    console.log('📹 Starting frame export (matching live THREE.js animation speed):', { 
       fps, 
       duration, 
       size, 
@@ -112,9 +113,23 @@ export class CoinExporter {
 
       for (let i = 0; i < actualFrames; i++) {
         try {
-          // Set rotation for this frame
-          const angle = (2 * Math.PI * i) / actualFrames;
-          this.turntable.rotation.y = angle;
+          // CRITICAL: Calculate rotation angle based on the actual rotation speed from settings
+          // Match the live THREE.js animation timing exactly
+          
+          // Progress through the duration (0 to 1)
+          const timeProgress = (i / (actualFrames - 1)) * actualDuration; // Time in seconds
+          
+          // Get rotation speed from settings (defaults to medium if not provided)
+          const rotationSpeed = settings.rotationSpeed || 0.02; // Default to medium speed
+          
+          // Calculate rotation based on the actual THREE.js animation speed
+          // The animation speed is expressed as radians per frame at 60fps
+          // So at 60fps, rotation per second = rotationSpeed * 60
+          const rotationPerSecond = rotationSpeed * 60;
+          const totalRotation = timeProgress * rotationPerSecond;
+          
+          // Set rotation for this frame to match the live animation timing
+          this.turntable.rotation.y = totalRotation;
 
           // Render to offscreen canvas with export camera
           offscreenRenderer.render(this.scene, exportCamera);
@@ -132,7 +147,7 @@ export class CoinExporter {
           frames.push(blob);
           
           if (i === 0 || i === actualFrames - 1 || i % 10 === 0) {
-            console.log(`📸 Captured frame ${i + 1}/${actualFrames}, size: ${blob.size} bytes, angle: ${angle.toFixed(2)}`);
+            console.log(`📸 Captured frame ${i + 1}/${actualFrames}, size: ${blob.size} bytes, rotation: ${totalRotation.toFixed(2)} rad, time: ${timeProgress.toFixed(2)}s, speed: ${rotationSpeed}`);
           }
         } catch (frameError) {
           const error = `Failed to capture frame ${i}: ${frameError instanceof Error ? frameError.message : 'Unknown frame error'}`;
@@ -477,13 +492,18 @@ export class CoinExporter {
       recorder.start();
       await debugLog('🎬 Recording started...');
 
-      // Animate the coin for the specified duration
-      const totalFrames = 30; // Always use 30 frames for 3 seconds
+      // Animate the coin for the specified duration matching the live THREE.js speed
+      const totalFrames = 30; // Always use 30 frames for smooth animation
       const frameDelay = (duration * 1000) / totalFrames; // Delay between frames in ms
 
       for (let i = 0; i < totalFrames; i++) {
-        const angle = (2 * Math.PI * i) / totalFrames;
-        this.turntable.rotation.y = angle;
+        // Calculate rotation based on actual settings rotation speed
+        const timeProgress = (i / (totalFrames - 1)) * duration; // Time in seconds
+        const rotationSpeed = settings.rotationSpeed || 0.02; // Default to medium speed
+        const rotationPerSecond = rotationSpeed * 60; // Convert to radians per second
+        const totalRotation = timeProgress * rotationPerSecond;
+        
+        this.turntable.rotation.y = totalRotation;
         
         // Render frame
         offscreenRenderer.render(this.scene, exportCamera);
@@ -494,7 +514,7 @@ export class CoinExporter {
         }
         
         if (i % 10 === 0) {
-          await debugLog(`📹 Recording frame ${i + 1}/${totalFrames}`);
+          await debugLog(`📹 Recording frame ${i + 1}/${totalFrames}, rotation: ${totalRotation.toFixed(2)} rad`);
         }
       }
 

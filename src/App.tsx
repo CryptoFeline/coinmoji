@@ -82,7 +82,8 @@ const AppContent: React.FC = () => {
       const webmBlob = await exporter.exportAsWebM({
         fps: 30,
         duration: Math.max(1, Math.min(3, timeForFullRotation)), // Clamp between 1-3 seconds
-        size: 100
+        size: 100,
+        rotationSpeed: rotationSpeed // Pass the actual rotation speed to match live animation
       });
       
       // Send file to Telegram via bot
@@ -142,7 +143,8 @@ const AppContent: React.FC = () => {
       const webmBlob = await exporter.exportAsWebM({
         fps: 30,
         duration: Math.max(1, Math.min(3, timeForFullRotation)), // Clamp between 1-3 seconds
-        size: 100
+        size: 100,
+        rotationSpeed: rotationSpeed // Pass the actual rotation speed to match live animation
       });
       
       // Create custom emoji in Telegram
