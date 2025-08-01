@@ -494,8 +494,17 @@ export class CoinExporter {
         size: result.size,
         codec: result.codec,
         transparency: result.transparency,
-        method: result.method
+        method: result.method,
+        mock: result.mock || false,
+        framesProcessed: result.frames_processed || frames.length,
+        alphaDetected: result.alpha_detected || false
       });
+      
+      // Show user notification if using mock approach
+      if (result.mock) {
+        await debugLog('🎭 Using headless mock WebM with transparency simulation');
+        console.log('🎭 MOCK: This is a simulated transparent WebM for demonstration purposes');
+      }
       
       // Convert base64 back to blob
       const webmBuffer = Uint8Array.from(atob(result.webm_base64), c => c.charCodeAt(0));
