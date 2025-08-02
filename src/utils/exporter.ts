@@ -179,45 +179,21 @@ export class CoinExporter {
   private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, _sourceSize: number, _targetSize: number): Promise<Blob> {
     return new Promise((resolve) => {
       try {
-        // Try WebP first, but fallback to PNG if WebP is not supported
+        // FIXED: Use PNG directly for perfect transparency preservation
+        // WebP quality compression can interfere with alpha channel
         renderer.domElement.toBlob((blob) => {
           if (!blob) {
-            // If WebP fails, try PNG as fallback
-            console.log('⚠️ WebP capture failed, trying PNG fallback...');
-            renderer.domElement.toBlob((pngBlob) => {
-              if (!pngBlob) {
-                resolve(new Blob());
-                return;
-              }
-              console.log('✅ PNG fallback successful');
-              resolve(pngBlob);
-            }, 'image/png');
+            console.error('❌ PNG capture failed');
+            resolve(new Blob());
             return;
           }
-
-          // Verify this is actually WebP by checking the blob type
-          if (blob.type === 'image/webp') {
-            console.log('✅ WebP capture successful');
-            resolve(blob);
-          } else {
-            // Browser gave us a different format, fallback to PNG
-            console.log('⚠️ Browser did not support WebP, using PNG fallback...');
-            renderer.domElement.toBlob((pngBlob) => {
-              resolve(pngBlob || new Blob());
-            }, 'image/png');
-          }
-        }, 'image/webp', 0.9); // REDUCED: Lower quality (0.9) for smaller file size suitable for Telegram emoji
+          
+          console.log('✅ PNG capture successful with transparency');
+          resolve(blob);
+        }, 'image/png'); // FIXED: Always use PNG for guaranteed transparency preservation
       } catch (error) {
         console.error('Frame capture error:', error);
-        // Final fallback to PNG
-        try {
-          renderer.domElement.toBlob((pngBlob) => {
-            resolve(pngBlob || new Blob());
-          }, 'image/png');
-        } catch (pngError) {
-          console.error('PNG fallback also failed:', pngError);
-          resolve(new Blob());
-        }
+        resolve(new Blob());
       }
     });
   }
