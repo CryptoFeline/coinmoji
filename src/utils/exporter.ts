@@ -82,7 +82,7 @@ export class CoinExporter {
       this.scene.background = null;
       
       // Create OFFSCREEN renderer for export (doesn't affect live view!)
-      const captureSize = 1024; // High resolution for better quality
+      const captureSize = 2048; // High resolution for better quality
       console.log('🎨 Creating offscreen renderer...');
       
       const offscreenRenderer = new THREE.WebGLRenderer({
