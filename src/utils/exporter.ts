@@ -827,7 +827,7 @@ export class CoinExporter {
         },
         firstTimestampBehavior: 'offset',
         // CRITICAL: Add comprehensive timing metadata for WebM header
-        duration: duration * 1000, // Duration in milliseconds for WebM header
+        duration: duration * 1000, // Duration in milliseconds for WebM header (3000ms for 3 seconds)
         // ENHANCED: Add more explicit timing configuration
         streaming: false, // Ensure complete file with proper headers
         type: 'webm' // Explicit container type
@@ -909,14 +909,27 @@ export class CoinExporter {
             });
           }
 
-          // Create VideoFrame with timestamp based on REQUESTED fps
-          const timestamp = (i * 1000000) / requestedFPS; // microseconds - use requested fps
-          const frameDuration = 1000000 / requestedFPS; // microseconds - use requested fps
+          // FIXED: Create VideoFrame with corrected timing for 30fps over 3 seconds
+          // For 30 frames over 3 seconds: each frame should be 100ms apart (100,000 microseconds)
+          const frameDurationMicroseconds = (duration * 1000000) / frames.length; // 100,000 μs for 3s/30frames
+          const timestamp = i * frameDurationMicroseconds; // Progressive timestamp
           
-          // ENHANCED: Create VideoFrame with comprehensive timing metadata
+          // Debug timing for first few frames
+          if (i < 3 || i === frames.length - 1) {
+            await debugLog(`⏱️ Frame ${i} timing:`, {
+              timestamp: timestamp,
+              duration: frameDurationMicroseconds,
+              timestampMs: timestamp / 1000,
+              durationMs: frameDurationMicroseconds / 1000,
+              totalDurationMs: duration * 1000,
+              frameCount: frames.length
+            });
+          }
+          
+          // ENHANCED: Create VideoFrame with corrected timing metadata for 3-second duration
           const videoFrame = new (window as any).VideoFrame(imageBitmap, {
-            timestamp: Math.round(timestamp), // Ensure integer timestamps
-            duration: Math.round(frameDuration), // Ensure integer duration
+            timestamp: Math.round(timestamp), // Progressive timestamps: 0, 100000, 200000, etc.
+            duration: Math.round(frameDurationMicroseconds), // Each frame lasts 100ms (100,000 μs)
             // CRITICAL: Add display timestamp for better WebM compatibility
             displayTimestamp: Math.round(timestamp),
             // Force visible rect to ensure full frame
