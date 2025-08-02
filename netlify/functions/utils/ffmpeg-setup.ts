@@ -222,7 +222,6 @@ export class FFmpegManager {
     const ffmpegArgs = [
       '-f', 'concat',
       '-safe', '0',
-      '-framerate', effectiveFPS.toString(), // CRITICAL: Set INPUT frame rate to prevent frame duplication
       '-i', frameListPath,
       '-c:v', 'libvpx-vp9',
       '-pix_fmt', 'yuva420p',  // CRITICAL: yuva420p for alpha channel
@@ -231,8 +230,8 @@ export class FFmpegManager {
       '-error-resilient', '1', // Better for streaming
       '-crf', '30',            // Good quality balance
       '-b:v', '200K',          // Target bitrate
+      '-r', effectiveFPS.toString(), // Use calculated effective FPS for correct duration
       '-s', `${settings.size}x${settings.size}`,
-      '-vsync', '0',           // CRITICAL: Don't duplicate/drop frames - use each image exactly once
       '-y',                    // Overwrite output
       outputPath
     ];

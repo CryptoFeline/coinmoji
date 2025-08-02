@@ -133,10 +133,6 @@ export class CoinExporter {
           // Render to offscreen canvas with export camera
           offscreenRenderer.render(this.scene, exportCamera);
 
-          // CRITICAL: Wait for GPU to flush the frame buffer before capturing
-          // This prevents capturing the previous frame due to async rendering
-          await new Promise(requestAnimationFrame);
-
           // Capture frame and resize to target size
           const blob = await this.captureFrameFromRenderer(offscreenRenderer, captureSize, captureSize); // Keep high res
           
@@ -183,10 +179,10 @@ export class CoinExporter {
     }
   }
 
-  private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, _sourceSize: number, _targetSize: number): Promise<Blob> {
+  private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, sourceSize: number, targetSize: number): Promise<Blob> {
     return new Promise((resolve) => {
       try {
-        // Try WebP first for smaller file sizes (especially for server uploads)
+        // Try WebP first, but fallback to PNG if WebP is not supported
         renderer.domElement.toBlob((blob) => {
           if (!blob) {
             // If WebP fails, try PNG as fallback
@@ -204,7 +200,7 @@ export class CoinExporter {
 
           // Verify this is actually WebP by checking the blob type
           if (blob.type === 'image/webp') {
-            console.log('✅ WebP capture successful, smaller payload for server');
+            console.log('✅ WebP capture successful');
             resolve(blob);
           } else {
             // Browser gave us a different format, fallback to PNG
@@ -213,7 +209,7 @@ export class CoinExporter {
               resolve(pngBlob || new Blob());
             }, 'image/png');
           }
-        }, 'image/webp', 0.95); // Try WebP first with high quality but smaller than PNG
+        }, 'image/webp', 0.9); // Try WebP first with high quality
       } catch (error) {
         console.error('Frame capture error:', error);
         // Final fallback to PNG
@@ -512,9 +508,6 @@ export class CoinExporter {
         
         // Render frame
         offscreenRenderer.render(this.scene, exportCamera);
-        
-        // CRITICAL: Wait for GPU to flush before next frame
-        await new Promise(requestAnimationFrame);
         
         // Wait for next frame
         if (i < totalFrames - 1) {
