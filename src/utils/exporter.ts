@@ -876,8 +876,11 @@ export class CoinExporter {
           frameRate: effectiveFPS // Use the ACTUAL fps, not the requested fps
         },
         firstTimestampBehavior: 'offset',
-        // CRITICAL: Add explicit duration to WebM header
-        duration: duration * 1000 // Duration in milliseconds for WebM header
+        // CRITICAL: Add comprehensive timing metadata for WebM header
+        duration: duration * 1000, // Duration in milliseconds for WebM header
+        // ENHANCED: Add more explicit timing configuration
+        streaming: false, // Ensure complete file with proper headers
+        type: 'webm' // Explicit container type
       };
       
       // Enable alpha in muxer if we have any VP9 codec or alpha-capable codec
@@ -976,9 +979,14 @@ export class CoinExporter {
           const timestamp = (i * 1000000) / effectiveFPS; // microseconds - use effective fps
           const frameDuration = 1000000 / effectiveFPS; // microseconds - use effective fps
           
+          // ENHANCED: Create VideoFrame with comprehensive timing metadata
           const videoFrame = new (window as any).VideoFrame(imageBitmap, {
-            timestamp: timestamp,
-            duration: frameDuration // Explicit frame duration for proper timing
+            timestamp: Math.round(timestamp), // Ensure integer timestamps
+            duration: Math.round(frameDuration), // Ensure integer duration
+            // CRITICAL: Add display timestamp for better WebM compatibility
+            displayTimestamp: Math.round(timestamp),
+            // Force visible rect to ensure full frame
+            visibleRect: { x: 0, y: 0, width: imageBitmap.width, height: imageBitmap.height }
           });
 
           // Encode frame
@@ -1005,6 +1013,13 @@ export class CoinExporter {
       for (const { chunk, meta } of chunks) {
         muxer.addVideoChunk(chunk, meta);
       }
+      
+      // ENHANCED: Finalize with explicit duration to ensure proper WebM headers
+      await debugLog('🔧 Finalizing WebM with duration metadata...', {
+        totalChunks: chunks.length,
+        expectedDuration: duration,
+        effectiveFPS
+      });
       
       muxer.finalize();
 
@@ -1274,13 +1289,13 @@ const getTelegramUserId = (initData: string): number => {
   return user.id;
 };
 
-// Verify WebM duration for debugging
+// Verify WebM duration for debugging - enhanced version
 export async function verifyWebMDuration(blob: Blob): Promise<number | null> {
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
       console.log('⏱️ Duration verification timed out');
       resolve(null);
-    }, 5000); // 5 second timeout
+    }, 8000); // Increased timeout to 8 seconds
 
     (async () => {
       try {
@@ -1290,56 +1305,104 @@ export async function verifyWebMDuration(blob: Blob): Promise<number | null> {
           v.src = url;
           v.muted = true;
           v.playsInline = true;
-          v.preload = 'metadata'; // Only load metadata for faster check
+          v.preload = 'metadata';
+          v.crossOrigin = 'anonymous';
+          
+          // Enhanced approach: try multiple loading strategies
+          let durationFound = false;
           
           await new Promise((r, reject) => {
             const metadataTimeout = setTimeout(() => {
-              console.log('⏱️ Metadata loading timed out after 3 seconds');
-              reject(new Error('Metadata loading timeout'));
-            }, 3000);
+              if (!durationFound) {
+                console.log('⏱️ Metadata loading timed out, trying alternative approach...');
+                // Don't reject, try alternative approach
+                r(undefined);
+              }
+            }, 4000);
 
             v.onloadedmetadata = () => {
-              clearTimeout(metadataTimeout);
-              console.log('⏱️ Video metadata loaded:', {
-                duration: (v.duration !== undefined && isFinite(v.duration)) ? v.duration.toFixed(2) + 's' : 'unknown',
-                durationRaw: v.duration,
-                videoWidth: v.videoWidth,
-                videoHeight: v.videoHeight,
-                readyState: v.readyState,
-                networkState: v.networkState
-              });
-              r(undefined);
+              if (!durationFound) {
+                durationFound = true;
+                clearTimeout(metadataTimeout);
+                console.log('⏱️ Video metadata loaded via onloadedmetadata:', {
+                  duration: (v.duration !== undefined && isFinite(v.duration)) ? v.duration.toFixed(2) + 's' : 'unknown',
+                  durationRaw: v.duration,
+                  videoWidth: v.videoWidth,
+                  videoHeight: v.videoHeight,
+                  readyState: v.readyState,
+                  networkState: v.networkState
+                });
+                r(undefined);
+              }
             };
             
-            // Try to load and play to get duration
             v.oncanplay = () => {
-              clearTimeout(metadataTimeout);
-              console.log('⏱️ Video can play, duration should be available now');
-              r(undefined);
+              if (!durationFound) {
+                durationFound = true;
+                clearTimeout(metadataTimeout);
+                console.log('⏱️ Video can play, duration available via oncanplay');
+                r(undefined);
+              }
+            };
+
+            v.oncanplaythrough = () => {
+              if (!durationFound) {
+                durationFound = true;
+                clearTimeout(metadataTimeout);
+                console.log('⏱️ Video can play through, duration available');
+                r(undefined);
+              }
+            };
+
+            v.ondurationchange = () => {
+              if (!durationFound && v.duration && isFinite(v.duration)) {
+                durationFound = true;
+                clearTimeout(metadataTimeout);
+                console.log('⏱️ Duration changed event fired:', v.duration);
+                r(undefined);
+              }
             };
             
             v.onerror = (e) => {
               clearTimeout(metadataTimeout);
               console.error('⏱️ Video load error:', e);
-              reject(new Error('Video load failed'));
+              r(undefined); // Don't reject, return null duration
             };
             
             v.load();
           });
           
+          // Alternative approach: try to seek to end to force duration calculation
+          if (!durationFound || !isFinite(v.duration)) {
+            console.log('⏱️ Trying alternative duration detection...');
+            try {
+              v.currentTime = 999999; // Seek to end
+              await new Promise(r => setTimeout(r, 1000)); // Wait for seek
+              if (v.duration && isFinite(v.duration)) {
+                console.log('⏱️ Duration found via seek method:', v.duration);
+                durationFound = true;
+              }
+            } catch (seekError) {
+              console.log('⏱️ Seek method failed:', seekError);
+            }
+          }
+          
           const duration = v.duration;
           
-          console.log('⏱️ Final duration check:', {
+          console.log('⏱️ Final duration check (enhanced):', {
             durationRaw: duration,
             isFinite: isFinite(duration),
             isValidNumber: typeof duration === 'number' && !isNaN(duration),
-            willReturn: (duration !== undefined && isFinite(duration)) ? duration : null
+            durationFound,
+            finalResult: (duration !== undefined && isFinite(duration)) ? duration : null,
+            videoReadyState: v.readyState,
+            videoNetworkState: v.networkState
           });
           
           clearTimeout(timeout);
           resolve((duration !== undefined && isFinite(duration)) ? duration : null);
         } catch (error) {
-          console.error('⏱️ Duration verification failed:', error);
+          console.error('⏱️ Enhanced duration verification failed:', error);
           clearTimeout(timeout);
           resolve(null);
         } finally {
