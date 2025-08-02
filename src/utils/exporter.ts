@@ -50,9 +50,9 @@ export class CoinExporter {
     const { fps, duration, size } = settings;
     const totalFrames = Math.floor(fps * duration);
     
-    // FIXED: Remove arbitrary frame cap and use actual requested frames for smooth animation
-    // For Telegram emoji: use 60 frames for 3s = 20fps effective rate for smaller file size
-    const maxFrames = Math.max(60, totalFrames); // REDUCED: 60 frames for smaller file size while maintaining smoothness
+    // FIXED: Force 60 frames maximum for Telegram emoji (smaller file size)
+    // This gives us 20fps effective rate for smooth animation with smaller files
+    const maxFrames = 60; // FORCE 60 frames for smaller file size suitable for Telegram
     const actualFrames = Math.min(totalFrames, maxFrames);
     
     const frames: Blob[] = [];
@@ -65,7 +65,7 @@ export class CoinExporter {
         actualFrames,
         maxAllowed: maxFrames,
         rotationStrategy: 'Complete 360° rotation independent of UI speed setting',
-        qualityImprovement: 'Optimized frame count (60) for smaller file size suitable for Telegram emoji'
+        qualityImprovement: 'FORCED 60 frames for smaller file size suitable for Telegram emoji'
       });    // Store original rotation (we don't touch the live renderer anymore)
     const originalRotation = this.turntable.rotation.y;
 
@@ -77,7 +77,7 @@ export class CoinExporter {
       this.scene.background = null;
       
       // Create OFFSCREEN renderer for export (doesn't affect live view!)
-      const captureSize = 2048; // IMPROVED: Much higher resolution (2048x2048) for excellent quality before downscaling
+      const captureSize = 1024; // REDUCED: Lower resolution (1024x1024) for smaller file size suitable for Telegram emoji
       console.log('🎨 Creating offscreen renderer...');
       
       const offscreenRenderer = new THREE.WebGLRenderer({
@@ -104,7 +104,7 @@ export class CoinExporter {
         size: captureSize, 
         transparent: true,
         cameraPosition: exportCamera.position.toArray(),
-        note: 'High-res capture (1024x1024) for quality before downscaling to target size'
+        note: 'Optimized capture (1024x1024) for smaller file size suitable for Telegram emoji'
       });
 
       for (let i = 0; i < actualFrames; i++) {
@@ -206,7 +206,7 @@ export class CoinExporter {
               resolve(pngBlob || new Blob());
             }, 'image/png');
           }
-        }, 'image/webp', 1.0); // IMPROVED: Maximum quality (1.0) for best results before downscaling
+        }, 'image/webp', 0.9); // REDUCED: Lower quality (0.9) for smaller file size suitable for Telegram emoji
       } catch (error) {
         console.error('Frame capture error:', error);
         // Final fallback to PNG
@@ -675,7 +675,7 @@ export class CoinExporter {
     // Calculate the ACTUAL fps and frame count that will be used
     const { fps, duration } = settings;
     const totalFrames = Math.floor(fps * duration);
-    const maxFrames = Math.max(60, totalFrames); // REDUCED: 60 frames for smaller file size while maintaining smoothness
+    const maxFrames = 60; // FORCE 60 frames for smaller file size suitable for Telegram
     const actualFrames = Math.min(totalFrames, maxFrames);
     const effectiveFPS = fps; // FIXED: Use actual FPS for proper timing
     
@@ -686,7 +686,7 @@ export class CoinExporter {
       actualFrames,
       effectiveFPS: effectiveFPS.toFixed(2),
       maxFrames,
-      improvement: 'Optimized frame count (60) for smaller file size suitable for Telegram emoji'
+      improvement: 'FORCED 60 frames for smaller file size suitable for Telegram emoji'
     });
     
     // Check if WebCodecs is available
@@ -1087,7 +1087,7 @@ export const createCustomEmoji = async (
   blob: Blob, 
   initData: string, 
   emojiList: string[] = ['🪙'],
-  setTitle: string = 'Coinmoji' // TODO: Allow user to set title in webapp or bot UI
+  setTitle: string = '@Coinmoji'
 ) => {
   await debugLog('🎭 Creating custom emoji:', { 
     blobSize: blob.size, 
