@@ -118,16 +118,18 @@ export class FFmpegManager {
     
     console.log('📦 Extracting FFmpeg from ZIP...');
     
-    // Extract using built-in Node.js ZIP support (no external dependencies)
+    // For Linux environments, try using unzip command directly instead of adm-zip
     try {
-      // Import AdmZip dynamically to extract
-      const AdmZip = require('adm-zip');
-      const zip = new AdmZip(zipPath);
+      console.log('🐧 Attempting native unzip extraction...');
       
-      // Extract all files to temp directory
-      zip.extractAllTo(tempDir, true);
+      // Try to use system unzip command (available in most Linux containers)
+      const { execSync } = require('child_process');
+      execSync(`cd ${tempDir} && unzip -o ffmpeg.zip`, { 
+        stdio: 'pipe',
+        timeout: 30000 
+      });
       
-      // Find the ffmpeg binary (should be directly in the ZIP)
+      // Find the ffmpeg binary
       const extractedFiles = await fs.readdir(tempDir);
       const ffmpegFile = extractedFiles.find(file => file === 'ffmpeg' || file.startsWith('ffmpeg'));
       
@@ -148,20 +150,60 @@ export class FFmpegManager {
       // Make executable
       await fs.chmod(ffmpegBinaryPath, 0o755);
       
-      console.log('✅ Linux FFmpeg binary extracted and configured from ZIP');
+      console.log('✅ Linux FFmpeg binary extracted with native unzip');
       
-      // Verify the binary works
+    } catch (unzipError) {
+      console.log('⚠️ Native unzip failed, trying manual extraction...');
+      
+      // Fallback: manual ZIP parsing (basic implementation for simple ZIP files)
       try {
-        execSync(`${ffmpegBinaryPath} -version`, { stdio: 'pipe', timeout: 5000 });
-        console.log('✅ FFmpeg binary verification successful');
-      } catch (verifyError) {
-        console.error('⚠️ FFmpeg binary verification failed:', verifyError);
-        throw new Error(`FFmpeg binary verification failed: ${verifyError}`);
+        const zipBuffer = await fs.readFile(zipPath);
+        
+        // Simple ZIP file parsing for single-file ZIP (FFmpeg binary)
+        // This is a minimal implementation that works for simple ZIP files
+        const zipData = new Uint8Array(zipBuffer);
+        
+        // Look for the local file header signature (0x04034b50)
+        let found = false;
+        for (let i = 0; i < zipData.length - 30; i++) {
+          if (zipData[i] === 0x50 && zipData[i+1] === 0x4b && 
+              zipData[i+2] === 0x03 && zipData[i+3] === 0x04) {
+            // Found local file header
+            const nameLength = zipData[i + 26] | (zipData[i + 27] << 8);
+            const extraLength = zipData[i + 28] | (zipData[i + 29] << 8);
+            const compressedSize = zipData[i + 18] | (zipData[i + 19] << 8) | 
+                                 (zipData[i + 20] << 16) | (zipData[i + 21] << 24);
+            
+            const dataOffset = i + 30 + nameLength + extraLength;
+            
+            if (dataOffset + compressedSize <= zipData.length) {
+              const fileData = zipData.slice(dataOffset, dataOffset + compressedSize);
+              await fs.writeFile(ffmpegBinaryPath, fileData);
+              await fs.chmod(ffmpegBinaryPath, 0o755);
+              found = true;
+              console.log('✅ FFmpeg binary extracted with manual ZIP parsing');
+              break;
+            }
+          }
+        }
+        
+        if (!found) {
+          throw new Error('Could not parse ZIP file structure');
+        }
+        
+      } catch (manualError) {
+        console.error('❌ Manual ZIP extraction also failed:', manualError);
+        throw new Error(`All ZIP extraction methods failed. Unzip error: ${unzipError}. Manual error: ${manualError}`);
       }
-      
-    } catch (extractError) {
-      console.error('❌ ZIP extraction failed:', extractError);
-      throw new Error(`FFmpeg extraction failed: ${extractError}`);
+    }
+    
+    // Verify the binary works
+    try {
+      execSync(`${ffmpegBinaryPath} -version`, { stdio: 'pipe', timeout: 5000 });
+      console.log('✅ FFmpeg binary verification successful');
+    } catch (verifyError) {
+      console.error('⚠️ FFmpeg binary verification failed:', verifyError);
+      throw new Error(`FFmpeg binary verification failed: ${verifyError}`);
     }
   }
 

@@ -484,7 +484,7 @@ export class CoinExporter {
 
       const recorder = new MediaRecorder(stream, {
         mimeType: MediaRecorder.isTypeSupported(mimeType) ? mimeType : 'video/webm;codecs=vp8',
-        videoBitsPerSecond: 1000000 // 1Mbps for good quality
+        videoBitsPerSecond: 500000 // REDUCED: 0.5Mbps for smaller file size (was 1Mbps)
       });
 
       const chunks: Blob[] = [];
@@ -688,20 +688,13 @@ export class CoinExporter {
     const maxDuration = 3.0; // Telegram emoji limit
     const targetFPS = 20; // Good balance between smoothness and file size
     const maxFrames = Math.floor(targetFPS * maxDuration); // 60 frames max
-    const totalFrames = Math.floor(fps * duration);
-    const actualFrames = Math.min(totalFrames, maxFrames);
-    const actualDuration = Math.min(duration, maxDuration); // Never exceed 3 seconds
-    const effectiveFPS = actualFrames / actualDuration; // This is the REAL fps for the WebM
     
     await debugLog('🎯 WebM timing calculation:', {
       requestedFPS: fps,
       requestedDuration: duration,
-      requestedFrames: totalFrames,
-      actualFrames,
-      actualDuration,
-      effectiveFPS: effectiveFPS.toFixed(2),
       telegramLimit: maxDuration + 's',
-      note: 'Using actualDuration and effectiveFPS for WebM encoder to ensure Telegram compatibility'
+      maxFrames,
+      note: 'Frame count will be determined by exportFrames() method'
     });
     
     // Check if WebCodecs is available
@@ -828,6 +821,20 @@ export class CoinExporter {
       
       await debugLog(`✅ Captured ${frames.length} PNG frames for webm-muxer`);
       
+      // CRITICAL: Use ALL the frames that were exported, not our own calculation
+      // The exportFrames() already did the frame limiting correctly
+      const actualFrames = frames.length; // Use all exported frames
+      const actualDuration = Math.min(duration, maxDuration); // Never exceed 3 seconds
+      const effectiveFPS = actualFrames / actualDuration; // This is the REAL fps for the WebM
+      
+      await debugLog('🔧 Using ALL exported frames for webm-muxer:', {
+        exportedFrames: frames.length,
+        actualFrames,
+        actualDuration,
+        effectiveFPS: effectiveFPS.toFixed(2),
+        note: 'Using all frames exported by exportFrames() method'
+      });
+      
       // Create WebM using webm-muxer with WebCodecs
       const target = new ArrayBufferTarget();
       
@@ -878,7 +885,7 @@ export class CoinExporter {
           codec: bestCodec.codec,
           width: settings.size,
           height: settings.size,
-          bitrate: 200000, // 200kbps for small file size
+          bitrate: 100000, // REDUCED: 100kbps for smaller file size (was 200kbps)
           framerate: effectiveFPS // Use the ACTUAL fps for proper timing (max ~20fps for 3s)
         };
         
