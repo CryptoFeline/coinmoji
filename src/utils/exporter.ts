@@ -1155,7 +1155,7 @@ export const createCustomEmoji = async (
 
   // CACHE BUSTING: Add timestamp to set title to force Telegram to treat as new emoji
   const timestamp = Date.now();
-  const cacheDebuggingTitle = `${setTitle} ${timestamp}`;
+  const cacheDebuggingTitle = `@${setTitle} ${timestamp}`; // added @ to make the title clickable @Coinmoji
 
   const payload = {
     initData,
