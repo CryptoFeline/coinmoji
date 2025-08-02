@@ -225,7 +225,7 @@ export class FFmpegManager {
       '-f', 'concat',
       '-safe', '0',
       '-i', frameListPath,
-      '-vf', `scale=${Math.min(settings.size, 64)}:${Math.min(settings.size, 64)}:flags=lanczos,format=yuva420p`, // Force max 64x64 for emoji
+      '-vf', `scale=${settings.size}:${settings.size}:flags=lanczos,format=yuva420p`, // Use exact requested size for Telegram emoji dimensions
       '-c:v', 'libvpx-vp9',
       '-pix_fmt', 'yuva420p',  // CRITICAL: yuva420p for alpha channel
       '-auto-alt-ref', '0',    // CRITICAL: Disable auto alt-ref for alpha

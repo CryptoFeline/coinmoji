@@ -648,7 +648,7 @@ export class CoinExporter {
         frame_format: 'webp', // Indicate we're sending WebP frames
         settings: {
           fps: settings.fps, // Keep original FPS for smooth playback
-          size: Math.min(settings.size, 64), // Force max 64x64 for emoji size optimization
+          size: settings.size, // Use exact requested size for Telegram emoji dimensions (100x100)
           duration: settings.duration
         }
       };
