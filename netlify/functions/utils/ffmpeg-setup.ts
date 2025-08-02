@@ -230,7 +230,7 @@ export class FFmpegManager {
       '-lag-in-frames', '0',   // Reduce encoding delay
       '-error-resilient', '1', // Better for streaming
       '-b:v', '0',             // Use constant quality mode (honors CRF)
-      '-crf', '40',            // Higher CRF for smaller files (was 30, now 40 for <64kB)
+      '-crf', '35',            // Reduced CRF for better quality (was 40, now 35 for more frames)
       '-r', effectiveFPS.toString(), // Use calculated effective FPS for correct duration
       '-deadline', 'realtime', // Fast encoding for Netlify timeout limits
       '-cpu-used', '8',        // Fastest CPU preset

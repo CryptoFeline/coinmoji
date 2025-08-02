@@ -416,16 +416,21 @@ export class CoinExporter {
     }
 
     // Decision logic for encoding approach
-    if (capabilities.isLimitedWebView && !capabilities.hasAlphaCapableCodecs) {
-      capabilities.shouldUseServerSide = true;
-      capabilities.reason = 'Limited WebView environment detected (Telegram) with only VP9 Profile 0 - server-side FFmpeg required for transparency';
-    } else if (!capabilities.hasWebCodecs || !capabilities.hasAlphaCapableCodecs) {
-      capabilities.shouldUseServerSide = true;
-      capabilities.reason = 'No alpha-capable codecs available locally - server-side FFmpeg preferred';
-    } else {
-      capabilities.shouldUseServerSide = false;
-      capabilities.reason = 'Alpha-capable codecs available locally - client-side encoding suitable';
-    }
+    // TEMPORARY: Force client-side to test if it produces better results
+    capabilities.shouldUseServerSide = false;
+    capabilities.reason = 'TESTING: Forcing client-side to debug frame issue';
+    
+    // Original logic (commented for testing):
+    // if (capabilities.isLimitedWebView && !capabilities.hasAlphaCapableCodecs) {
+    //   capabilities.shouldUseServerSide = true;
+    //   capabilities.reason = 'Limited WebView environment detected (Telegram) with only VP9 Profile 0 - server-side FFmpeg required for transparency';
+    // } else if (!capabilities.hasWebCodecs || !capabilities.hasAlphaCapableCodecs) {
+    //   capabilities.shouldUseServerSide = true;
+    //   capabilities.reason = 'No alpha-capable codecs available locally - server-side FFmpeg preferred';
+    // } else {
+    //   capabilities.shouldUseServerSide = false;
+    //   capabilities.reason = 'Alpha-capable codecs available locally - client-side encoding suitable';
+    // }
 
     return capabilities;
   }
@@ -866,7 +871,7 @@ export class CoinExporter {
           codec: bestCodec.codec,
           width: settings.size,
           height: settings.size,
-          bitrate: 200000, // 200kbps for small file size
+          bitrate: 300000, // Increased bitrate for better quality (was 200k, now 300k)
           framerate: effectiveFPS // Use the ACTUAL fps for proper timing
         };
         
