@@ -291,46 +291,16 @@ export class CoinExporter {
       const capabilities = await this.detectTransparencyCapabilities();
       await debugLog('🔍 Transparency capabilities detected:', capabilities);
 
-      // Choose encoding strategy based on capabilities
+      // FORCE server-side FFmpeg for guaranteed transparency - NO FALLBACKS
       if (capabilities.shouldUseServerSide) {
-        await debugLog('� Using server-side FFmpeg approach for transparency...');
-        try {
-          const webmBlob = await this.createWebMViaServer(settings);
-          await debugLog('✅ Server-side WebM creation completed:', { size: webmBlob.size });
-          return webmBlob;
-        } catch (serverError) {
-          await debugLog('⚠️ Server-side failed, falling back to client-side:', { 
-            error: serverError instanceof Error ? serverError.message : 'Unknown error' 
-          });
-          // Continue to client-side fallback
-        }
+        await debugLog('🎬 Using ONLY server-side FFmpeg approach for transparency...');
+        const webmBlob = await this.createWebMViaServer(settings);
+        await debugLog('✅ Server-side WebM creation completed:', { size: webmBlob.size });
+        return webmBlob;
       }
 
-      // Try native MediaRecorder first for environments that support it well
-      if (capabilities.hasNativeRecorder && !capabilities.isLimitedWebView) {
-        try {
-          await debugLog('🎥 Attempting native MediaRecorder...');
-          const webmBlob = await this.recordCanvasToWebM(settings);
-          await debugLog('✅ Native WebM recording completed:', { size: webmBlob.size });
-          return webmBlob;
-        } catch (mediaRecorderError) {
-          await debugLog('⚠️ MediaRecorder failed, trying client-side webm-muxer:', { 
-            error: mediaRecorderError instanceof Error ? mediaRecorderError.message : 'Unknown error' 
-          });
-        }
-      }
-      
-      // Fallback to client-side WebM creation with webm-muxer
-      try {
-        const webmBlob = await this.createWebMViaWebMuxer(settings);
-        await debugLog('✅ Client-side webm-muxer completed:', { size: webmBlob.size });
-        return webmBlob;
-      } catch (webMuxerError) {
-        await debugLog('❌ Client-side webm-muxer also failed:', { 
-          error: webMuxerError instanceof Error ? webMuxerError.message : 'Unknown error' 
-        });
-        throw webMuxerError;
-      }
+      // For non-Telegram environments, we can try other approaches
+      throw new Error('Server-side FFmpeg is required for transparency in Telegram environment, but capability detection indicated otherwise');
     } catch (error) {
       await debugLog('❌ WebM export failed at top level:', { error: error instanceof Error ? error.message : 'Unknown error' });
       alert(`WebM export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);

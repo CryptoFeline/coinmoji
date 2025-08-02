@@ -270,8 +270,10 @@ export class FFmpegManager {
       '-auto-alt-ref', '0',    // CRITICAL: Disable auto alt-ref for alpha
       '-lag-in-frames', '0',   // Reduce encoding delay
       '-error-resilient', '1', // Better for streaming
-      '-crf', '30',            // Good quality balance
-      '-b:v', '200K',          // Target bitrate
+      '-crf', '35',            // INCREASED: Higher CRF for smaller file size (was 30)
+      '-b:v', '100K',          // REDUCED: Target bitrate for smaller file size (was 200K)
+      '-maxrate', '150K',      // Add max bitrate constraint
+      '-bufsize', '200K',      // Add buffer size constraint
       '-r', effectiveFPS.toString(), // Use calculated effective FPS for correct duration
       '-s', `${settings.size}x${settings.size}`,
       '-y',                    // Overwrite output
