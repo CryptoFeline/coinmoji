@@ -48,15 +48,15 @@ export class CoinExporter {
     const { fps, duration, size } = settings;
     const totalFrames = Math.floor(fps * duration);
     
-    // Limit frames more aggressively to prevent stack overflow
-    // Max 30 frames but keep the SAME DURATION for proper timing
-    const maxFrames = 30;
-    const actualFrames = Math.min(totalFrames, maxFrames);
+    // CRITICAL: For smooth 3-second emoji animation, we need the full frame count
+    // Remove artificial 30-frame cap to support full 90 frames at 30fps for 3 seconds
+    // This gives us smooth high-quality animation matching the THREE.js live speed
+    const maxFrames = Math.min(totalFrames, 90); // Allow up to 90 frames for 3-second 30fps animation
+    const actualFrames = maxFrames;
     
-    // CRITICAL: Keep original duration even with fewer frames
-    // This will slow down the animation to match the 3-second window
-    const actualDuration = duration; // Always use full duration
-    const effectiveFPS = actualFrames / actualDuration; // Slower effective FPS
+    // Use the actual duration for proper timing
+    const actualDuration = duration;
+    const effectiveFPS = actualFrames / actualDuration; // Should equal requested FPS
     
     const frames: Blob[] = [];
 
@@ -68,7 +68,9 @@ export class CoinExporter {
       actualFrames,
       maxAllowed: maxFrames,
       effectiveFPS: effectiveFPS.toFixed(2),
-      actualDuration
+      actualDuration,
+      rotationSpeed: settings.rotationSpeed || 'default(medium)',
+      note: 'Full frame count for smooth 3-second animation'
     });
 
     // Store original rotation (we don't touch the live renderer anymore)
@@ -113,18 +115,30 @@ export class CoinExporter {
 
       for (let i = 0; i < actualFrames; i++) {
         try {
-          // CRITICAL: Calculate rotation for COMPLETE 360° rotation over duration
-          // Ensure we always do exactly one full rotation regardless of speed settings
+          // CRITICAL: Match the actual THREE.js rotation speed over the duration
+          // Calculate how much the coin should rotate based on the live animation speed
           
           // Progress through the frames (0 to 1) - use frames, not time
           const frameProgress = i / (actualFrames - 1); // 0 to 1 across all frames
           
-          // FORCE a complete 360° rotation (2π radians) over the entire duration
-          const totalRotation = frameProgress * Math.PI * 2; // Full circle: 0 to 2π
+          // Calculate total rotation amount matching THREE.js live animation
+          // Default to medium speed if rotationSpeed not provided
+          const speedMap = { slow: 0.01, medium: 0.02, fast: 0.035 };
+          const defaultRotationSpeed = speedMap.medium; // 0.02 rad/frame at 60fps
+          const rotationPerFrame = settings.rotationSpeed || defaultRotationSpeed;
           
-          // Debug: Log rotation for first few frames to verify
+          // Calculate total rotation over the actual duration (matching App.tsx logic)
+          const rotationInDuration = rotationPerFrame * 60 * actualDuration; // rad/frame * frames/sec * seconds
+          const totalRotation = frameProgress * rotationInDuration;
+          
+          // Debug: Log rotation for first few frames to verify speed matching
           if (i === 0 || i === 1 || i === actualFrames - 1) {
-            console.log(`📐 Frame ${i}: progress=${frameProgress.toFixed(3)}, rotation=${totalRotation.toFixed(3)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°)`);
+            console.log(`📐 Frame ${i}: progress=${frameProgress.toFixed(3)}, rotation=${totalRotation.toFixed(3)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°)`, {
+              rotationPerFrame,
+              totalRotationInDuration: rotationInDuration.toFixed(3),
+              fullRotations: (rotationInDuration / (2 * Math.PI)).toFixed(2),
+              matchesThreeJS: 'Should match live animation speed'
+            });
           }
           
           // Set rotation for this frame to match the live animation timing
@@ -725,12 +739,12 @@ export class CoinExporter {
   private async createWebMViaWebMuxer(settings: ExportSettings): Promise<Blob> {
     await debugLog('🔧 Creating WebM via client-side webm-muxer...');
     
-    // Calculate the ACTUAL fps and frame count that will be used
+    // Calculate the ACTUAL fps and frame count that will be used (match exportFrames logic)
     const { fps, duration } = settings;
     const totalFrames = Math.floor(fps * duration);
-    const maxFrames = 30;
-    const actualFrames = Math.min(totalFrames, maxFrames);
-    const effectiveFPS = actualFrames / duration; // This is the REAL fps for the WebM
+    const maxFrames = Math.min(totalFrames, 90); // Allow up to 90 frames for 3-second 30fps animation
+    const actualFrames = maxFrames;
+    const effectiveFPS = actualFrames / duration; // Should equal requested FPS for 3-second animation
     
     await debugLog('🎯 WebM timing calculation:', {
       requestedFPS: fps,
