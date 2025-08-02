@@ -48,9 +48,9 @@ export class CoinExporter {
     const { fps, duration, size } = settings;
     const totalFrames = Math.floor(fps * duration);
     
-    // IMPROVED: Increase frame cap for smoother animation (90 frames = 30fps × 3s)
-    // Use different caps for server vs client-side processing
-    const maxFrames = 90; // Increased from 30 to match full 30fps × 3s
+    // ADJUSTED: Balance between smoothness and file size for Telegram emoji limits
+    // Telegram emoji video stickers have strict size limits (~64KB for smooth playback)
+    const maxFrames = 60; // Reduced from 90 - good balance between smoothness and size
     const actualFrames = Math.min(totalFrames, maxFrames);
     
     // CRITICAL: Keep original duration even with fewer frames
@@ -60,7 +60,7 @@ export class CoinExporter {
     
     const frames: Blob[] = [];
 
-    console.log('📹 Starting frame export (FULL ROTATION with improved quality):', { 
+    console.log('📹 Starting frame export (FULL ROTATION optimized for Telegram):', { 
       fps, 
       duration, 
       size, 
@@ -436,8 +436,8 @@ export class CoinExporter {
     
     await debugLog('🎥 Setting up canvas recording...', { fps, duration, size });
     
-    // IMPROVED: Create offscreen renderer for recording with higher resolution
-    const captureSize = 200; // Increased from target size (100) for better quality before compression
+      // ADJUSTED: Create offscreen renderer for recording with balanced resolution
+      const captureSize = 150; // Reduced from 200 to lower file size while maintaining quality
     const offscreenRenderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: true,
@@ -482,7 +482,7 @@ export class CoinExporter {
 
       const recorder = new MediaRecorder(stream, {
         mimeType: MediaRecorder.isTypeSupported(mimeType) ? mimeType : 'video/webm;codecs=vp8',
-        videoBitsPerSecond: 500000 // IMPROVED: Balanced quality (was 1Mbps, now 500kbps for size)
+        videoBitsPerSecond: 300000 // REDUCED: Lower bitrate for Telegram emoji size limits (was 500K, now 300K)
       });
 
       const chunks: Blob[] = [];

@@ -219,27 +219,23 @@ export class FFmpegManager {
 
     // Build FFmpeg command for transparent WebM with VP9
     // IMPROVED: Better quality settings while maintaining transparency
-    const ffmpegArgs = [
-      '-f', 'concat',
-      '-safe', '0',
-      '-i', frameListPath,
-      '-c:v', 'libvpx-vp9',
-      '-pix_fmt', 'yuva420p',  // CRITICAL: yuva420p for alpha channel
-      '-auto-alt-ref', '0',    // CRITICAL: Disable auto alt-ref for alpha
-      '-lag-in-frames', '0',   // Reduce encoding delay
-      '-error-resilient', '1', // Better for streaming
-      '-crf', '22',            // IMPROVED: Better quality (was 30, now 22)
-      '-b:v', '350K',          // IMPROVED: Higher bitrate (was 200K, now 350K)
-      '-vf', 'scale=100:100:flags=lanczos', // IMPROVED: High-quality Lanczos downscaling
-      '-r', effectiveFPS.toString(), // Use calculated effective FPS for correct duration
-      '-y',                    // Overwrite output
-      outputPath
-    ];
-
-    console.log('🔧 FFmpeg command:', `${ffmpegPath} ${ffmpegArgs.join(' ')}`);
+  const args = [
+    '-f', 'webm',
+    '-i', '-',
+    '-vcodec', 'libvpx-vp9',
+    '-pix_fmt', 'yuva420p',
+    '-crf', '26', // ADJUSTED: Slightly lower quality for smaller size (was 22, now 26)
+    '-b:v', '300K', // REDUCED: Lower bitrate for Telegram size limits (was 350K, now 300K)
+    '-filter:v', 'scale=100:100:flags=lanczos',
+    '-an',
+    '-f', 'webm',
+    '-'
+  ];
+    
+    console.log('🔧 FFmpeg command:', `${ffmpegPath} ${args.join(' ')}`);
 
     try {
-      const command = `${ffmpegPath} ${ffmpegArgs.join(' ')}`;
+      const command = `${ffmpegPath} ${args.join(' ')}`;
       const output = execSync(command, { 
         timeout: 45000, // 45 second timeout (within Netlify's 60s limit)
         stdio: 'pipe',  // Capture output
