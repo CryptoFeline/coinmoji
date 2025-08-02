@@ -218,7 +218,7 @@ export class FFmpegManager {
     });
 
     // Build FFmpeg command for transparent WebM with VP9
-    // CRITICAL: Use yuva420p pixel format + auto-alt-ref 0 for alpha support
+    // IMPROVED: Better quality settings while maintaining transparency
     const ffmpegArgs = [
       '-f', 'concat',
       '-safe', '0',
@@ -228,10 +228,10 @@ export class FFmpegManager {
       '-auto-alt-ref', '0',    // CRITICAL: Disable auto alt-ref for alpha
       '-lag-in-frames', '0',   // Reduce encoding delay
       '-error-resilient', '1', // Better for streaming
-      '-crf', '30',            // Good quality balance
-      '-b:v', '200K',          // Target bitrate
+      '-crf', '22',            // IMPROVED: Better quality (was 30, now 22)
+      '-b:v', '350K',          // IMPROVED: Higher bitrate (was 200K, now 350K)
+      '-vf', 'scale=100:100:flags=lanczos', // IMPROVED: High-quality Lanczos downscaling
       '-r', effectiveFPS.toString(), // Use calculated effective FPS for correct duration
-      '-s', `${settings.size}x${settings.size}`,
       '-y',                    // Overwrite output
       outputPath
     ];

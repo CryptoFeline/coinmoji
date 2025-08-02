@@ -48,9 +48,9 @@ export class CoinExporter {
     const { fps, duration, size } = settings;
     const totalFrames = Math.floor(fps * duration);
     
-    // Limit frames more aggressively to prevent stack overflow
-    // Max 30 frames but keep the SAME DURATION for proper timing
-    const maxFrames = 30;
+    // IMPROVED: Increase frame cap for smoother animation (90 frames = 30fps × 3s)
+    // Use different caps for server vs client-side processing
+    const maxFrames = 90; // Increased from 30 to match full 30fps × 3s
     const actualFrames = Math.min(totalFrames, maxFrames);
     
     // CRITICAL: Keep original duration even with fewer frames
@@ -60,7 +60,7 @@ export class CoinExporter {
     
     const frames: Blob[] = [];
 
-    console.log('📹 Starting frame export (matching live THREE.js animation speed):', { 
+    console.log('📹 Starting frame export (FULL ROTATION with improved quality):', { 
       fps, 
       duration, 
       size, 
@@ -82,7 +82,8 @@ export class CoinExporter {
       this.scene.background = null;
       
       // Create OFFSCREEN renderer for export (doesn't affect live view!)
-      const captureSize = 512; // High resolution for better quality
+      // IMPROVED: Higher capture resolution for better quality before downscaling
+      const captureSize = 1024; // Increased from 512 to reduce aliasing when downscaling to 100x100
       console.log('🎨 Creating offscreen renderer...');
       
       const offscreenRenderer = new THREE.WebGLRenderer({
@@ -182,7 +183,7 @@ export class CoinExporter {
   private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, sourceSize: number, targetSize: number): Promise<Blob> {
     return new Promise((resolve) => {
       try {
-        // Try WebP first, but fallback to PNG if WebP is not supported
+        // IMPROVED: Try WebP at maximum quality (1.0) for better quality
         renderer.domElement.toBlob((blob) => {
           if (!blob) {
             // If WebP fails, try PNG as fallback
@@ -209,7 +210,7 @@ export class CoinExporter {
               resolve(pngBlob || new Blob());
             }, 'image/png');
           }
-        }, 'image/webp', 0.9); // Try WebP first with high quality
+        }, 'image/webp', 1.0); // IMPROVED: Maximum quality (was 0.9)
       } catch (error) {
         console.error('Frame capture error:', error);
         // Final fallback to PNG
@@ -435,8 +436,8 @@ export class CoinExporter {
     
     await debugLog('🎥 Setting up canvas recording...', { fps, duration, size });
     
-    // Create offscreen renderer for recording
-    const captureSize = size; // Use target size directly
+    // IMPROVED: Create offscreen renderer for recording with higher resolution
+    const captureSize = 200; // Increased from target size (100) for better quality before compression
     const offscreenRenderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: true,
@@ -481,7 +482,7 @@ export class CoinExporter {
 
       const recorder = new MediaRecorder(stream, {
         mimeType: MediaRecorder.isTypeSupported(mimeType) ? mimeType : 'video/webm;codecs=vp8',
-        videoBitsPerSecond: 1000000 // 1Mbps for good quality
+        videoBitsPerSecond: 500000 // IMPROVED: Balanced quality (was 1Mbps, now 500kbps for size)
       });
 
       const chunks: Blob[] = [];
@@ -495,8 +496,8 @@ export class CoinExporter {
       recorder.start();
       await debugLog('🎬 Recording started...');
 
-      // Animate the coin for the specified duration matching the live THREE.js speed
-      const totalFrames = 30; // Always use 30 frames for smooth animation
+      // IMPROVED: More frames for smoother MediaRecorder animation
+      const totalFrames = 90; // Increased from 30 to match exportFrames improvement
       const frameDelay = (duration * 1000) / totalFrames; // Delay between frames in ms
 
       for (let i = 0; i < totalFrames; i++) {
@@ -865,7 +866,7 @@ export class CoinExporter {
           codec: bestCodec.codec,
           width: settings.size,
           height: settings.size,
-          bitrate: 200000, // 200kbps for small file size
+          bitrate: 350000, // IMPROVED: Higher bitrate (was 200000, now 350000)
           framerate: effectiveFPS // Use the ACTUAL fps for proper timing
         };
         
