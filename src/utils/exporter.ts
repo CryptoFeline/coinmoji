@@ -98,6 +98,17 @@ export class CoinExporter {
       // CRITICAL: Ensure renderer actually uses alpha
       offscreenRenderer.shadowMap.enabled = false; // Disable shadows that can interfere
       offscreenRenderer.autoClear = true;
+      
+      // ADDITIONAL DEBUG: Verify renderer context alpha settings
+      const gl = offscreenRenderer.getContext();
+      const clearColor = new THREE.Color();
+      offscreenRenderer.getClearColor(clearColor);
+      console.log('🔍 WebGL context alpha settings:', {
+        hasAlpha: gl.getContextAttributes()?.alpha,
+        premultipliedAlpha: gl.getContextAttributes()?.premultipliedAlpha,
+        clearColor: clearColor.getHex(),
+        clearAlpha: offscreenRenderer.getClearAlpha()
+      });
 
       // Create dedicated camera for export with perfect coin framing
       const exportCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
@@ -179,8 +190,8 @@ export class CoinExporter {
     }
   }
 
-  private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, sourceSize: number, targetSize: number): Promise<Blob> {
-    return new Promise((resolve) => {
+  private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, sourceSize: number, _targetSize: number): Promise<Blob> {
+    return new Promise((resolve, reject) => {
       try {
         // CRITICAL FIX: Manually extract image data with proper alpha preservation
         const canvas = renderer.domElement;
@@ -197,7 +208,7 @@ export class CoinExporter {
 
         if (!exportCtx) {
           console.error('❌ Could not create export canvas context');
-          resolve(new Blob());
+          reject(new Error('Could not create export canvas context'));
           return;
         }
 
@@ -216,19 +227,11 @@ export class CoinExporter {
           canvasSize: `${exportCanvas.width}x${exportCanvas.height}`
         });
 
-        // Try WebP with lossless mode for perfect transparency preservation
+        // CRITICAL: Only try WebP, no PNG fallback to keep file sizes small
         exportCanvas.toBlob((webpBlob) => {
           if (!webpBlob) {
-            console.log('⚠️ WebP lossless capture failed, trying PNG fallback...');
-            // Fallback to PNG which definitely preserves transparency
-            exportCanvas.toBlob((pngBlob) => {
-              if (!pngBlob) {
-                resolve(new Blob());
-                return;
-              }
-              console.log('✅ PNG fallback successful with transparency');
-              resolve(pngBlob);
-            }, 'image/png');
+            console.error('❌ WebP capture failed - no PNG fallback allowed for size constraints');
+            reject(new Error('WebP capture failed and PNG fallback not allowed for size constraints'));
             return;
           }
 
@@ -240,24 +243,14 @@ export class CoinExporter {
             });
             resolve(webpBlob);
           } else {
-            // Browser gave us a different format, fallback to PNG
-            console.log('⚠️ Browser did not support WebP, using PNG fallback...');
-            exportCanvas.toBlob((pngBlob) => {
-              resolve(pngBlob || new Blob());
-            }, 'image/png');
+            // Browser gave us a different format - this is not acceptable
+            console.error('❌ Browser did not return WebP format, got:', webpBlob.type);
+            reject(new Error(`Browser returned ${webpBlob.type} instead of WebP - not acceptable for size constraints`));
           }
-        }, 'image/webp', 1.0); // Use lossless WebP (quality 1.0) to preserve transparency perfectly
+        }, 'image/webp', 0.98); // Use very high quality WebP (0.98) to preserve transparency while being more compatible than lossless
       } catch (error) {
-        console.error('Frame capture error:', error);
-        // Final fallback to PNG
-        try {
-          renderer.domElement.toBlob((pngBlob) => {
-            resolve(pngBlob || new Blob());
-          }, 'image/png');
-        } catch (pngError) {
-          console.error('PNG fallback also failed:', pngError);
-          resolve(new Blob());
-        }
+        console.error('❌ Frame capture error:', error);
+        reject(new Error(`Frame capture failed: ${error instanceof Error ? error.message : 'Unknown error'}`));
       }
     });
   }
@@ -848,15 +841,15 @@ export class CoinExporter {
       // Import webm-muxer dynamically
       const { Muxer, ArrayBufferTarget } = await import('webm-muxer');
       
-      // First export frames as high-quality PNGs
-      await debugLog('📸 Capturing PNG frames for webm-muxer...');
+      // First export frames as high-quality WebP with verified transparency
+      await debugLog('📸 Capturing WebP frames for webm-muxer...');
       const frames = await this.exportFrames(settings);
       
       if (frames.length === 0) {
         throw new Error('No frames captured for WebM creation');
       }
       
-      await debugLog(`✅ Captured ${frames.length} PNG frames for webm-muxer`);
+      await debugLog(`✅ Captured ${frames.length} WebP frames for webm-muxer`);
       
       // Create WebM using webm-muxer with WebCodecs
       const target = new ArrayBufferTarget();
