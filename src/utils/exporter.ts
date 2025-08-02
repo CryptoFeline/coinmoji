@@ -420,15 +420,21 @@ export class CoinExporter {
             if (support.supported) {
               capabilities.detectedCodecs.push(codec);
               
-              // Test alpha support specifically
-              try {
-                const alphaConfig = { ...config, alpha: 'keep' };
-                const alphaSupport = await (window as any).VideoEncoder.isConfigSupported(alphaConfig);
-                if (alphaSupport.supported && (codec.includes('vp09.02') || codec === 'vp9')) {
-                  capabilities.hasAlphaCapableCodecs = true;
+              // CRITICAL: Only VP9 Profile 2 actually supports alpha transparency
+              // VP9 Profile 0 (vp09.00.10.08) does NOT support alpha despite the name
+              const isProfile2VP9 = codec.includes('vp09.02'); // Only Profile 2 has alpha
+              const isGenericVP9 = codec === 'vp9';
+              
+              if (isProfile2VP9 || isGenericVP9) {
+                try {
+                  const alphaConfig = { ...config, alpha: 'keep' };
+                  const alphaSupport = await (window as any).VideoEncoder.isConfigSupported(alphaConfig);
+                  if (alphaSupport.supported) {
+                    capabilities.hasAlphaCapableCodecs = true;
+                  }
+                } catch {
+                  // Alpha test failed for this codec
                 }
-              } catch {
-                // Alpha test failed, but basic codec works
               }
             }
           }
@@ -439,21 +445,17 @@ export class CoinExporter {
     }
 
     // Decision logic for encoding approach
-    // TEMPORARY: Force client-side to test if it produces better results
-    capabilities.shouldUseServerSide = false;
-    capabilities.reason = 'TESTING: Forcing client-side to debug frame issue';
-    
-    // Original logic (commented for testing):
-    // if (capabilities.isLimitedWebView && !capabilities.hasAlphaCapableCodecs) {
-    //   capabilities.shouldUseServerSide = true;
-    //   capabilities.reason = 'Limited WebView environment detected (Telegram) with only VP9 Profile 0 - server-side FFmpeg required for transparency';
-    // } else if (!capabilities.hasWebCodecs || !capabilities.hasAlphaCapableCodecs) {
-    //   capabilities.shouldUseServerSide = true;
-    //   capabilities.reason = 'No alpha-capable codecs available locally - server-side FFmpeg preferred';
-    // } else {
-    //   capabilities.shouldUseServerSide = false;
-    //   capabilities.reason = 'Alpha-capable codecs available locally - client-side encoding suitable';
-    // }
+    // CRITICAL: Telegram WebView only supports VP9 Profile 0 (no alpha) - MUST use server-side FFmpeg
+    if (capabilities.isLimitedWebView && !capabilities.hasAlphaCapableCodecs) {
+      capabilities.shouldUseServerSide = true;
+      capabilities.reason = 'LIMITED WEBVIEW: Telegram environment detected with only VP9 Profile 0 - server-side FFmpeg required for VP9 Profile 2 with alpha transparency';
+    } else if (!capabilities.hasWebCodecs || !capabilities.hasAlphaCapableCodecs) {
+      capabilities.shouldUseServerSide = true;
+      capabilities.reason = 'No alpha-capable codecs available locally - server-side FFmpeg preferred for transparency';
+    } else {
+      capabilities.shouldUseServerSide = false;
+      capabilities.reason = 'Alpha-capable codecs available locally - client-side encoding suitable';
+    }
 
     return capabilities;
   }
