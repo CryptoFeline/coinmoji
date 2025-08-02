@@ -217,21 +217,23 @@ export class FFmpegManager {
       originalFPS: settings.fps
     });
 
-    // Build FFmpeg command for transparent WebM with VP9
-    // CRITICAL: Use yuva420p pixel format + auto-alt-ref 0 for alpha support
+    // Build FFmpeg command for transparent WebM with VP9 optimized for small file size
+    // CRITICAL: Use yuva420p pixel format + optimized settings for <64kB output
     const ffmpegArgs = [
       '-f', 'concat',
       '-safe', '0',
       '-i', frameListPath,
+      '-vf', `scale=${settings.size}:${settings.size}:flags=lanczos,format=yuva420p`, // High-quality scaling + force alpha format
       '-c:v', 'libvpx-vp9',
       '-pix_fmt', 'yuva420p',  // CRITICAL: yuva420p for alpha channel
       '-auto-alt-ref', '0',    // CRITICAL: Disable auto alt-ref for alpha
       '-lag-in-frames', '0',   // Reduce encoding delay
       '-error-resilient', '1', // Better for streaming
-      '-crf', '30',            // Good quality balance
-      '-b:v', '200K',          // Target bitrate
+      '-b:v', '0',             // Use constant quality mode (honors CRF)
+      '-crf', '40',            // Higher CRF for smaller files (was 30, now 40 for <64kB)
       '-r', effectiveFPS.toString(), // Use calculated effective FPS for correct duration
-      '-s', `${settings.size}x${settings.size}`,
+      '-deadline', 'realtime', // Fast encoding for Netlify timeout limits
+      '-cpu-used', '8',        // Fastest CPU preset
       '-y',                    // Overwrite output
       outputPath
     ];
@@ -257,8 +259,16 @@ export class FFmpegManager {
       
       console.log('📊 WebM file created:', {
         path: outputPath,
-        size: stats.size
+        size: stats.size,
+        sizeKB: (stats.size / 1024).toFixed(1) + 'kB',
+        targetSizeOK: stats.size <= 64 * 1024, // Check if under 64kB
+        telegramSizeOK: stats.size <= 256 * 1024 // Check if under Telegram's 256kB limit
       });
+      
+      // Warn if file is too large
+      if (stats.size > 64 * 1024) {
+        console.warn(`⚠️ WebM file ${(stats.size / 1024).toFixed(1)}kB exceeds 64kB target - consider increasing CRF`);
+      }
       
     } catch (error) {
       console.error('❌ FFmpeg command failed:', error);

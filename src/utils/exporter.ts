@@ -182,7 +182,7 @@ export class CoinExporter {
   private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, sourceSize: number, targetSize: number): Promise<Blob> {
     return new Promise((resolve) => {
       try {
-        // Try WebP first, but fallback to PNG if WebP is not supported
+        // Capture directly as WebP with optimized quality for small file sizes
         renderer.domElement.toBlob((blob) => {
           if (!blob) {
             // If WebP fails, try PNG as fallback
@@ -200,7 +200,7 @@ export class CoinExporter {
 
           // Verify this is actually WebP by checking the blob type
           if (blob.type === 'image/webp') {
-            console.log('✅ WebP capture successful');
+            console.log('✅ WebP capture successful:', { size: blob.size });
             resolve(blob);
           } else {
             // Browser gave us a different format, fallback to PNG
@@ -209,7 +209,7 @@ export class CoinExporter {
               resolve(pngBlob || new Blob());
             }, 'image/png');
           }
-        }, 'image/webp', 0.9); // Try WebP first with high quality
+        }, 'image/webp', 0.92); // Optimized quality: good detail while keeping files small
       } catch (error) {
         console.error('Frame capture error:', error);
         // Final fallback to PNG
@@ -563,7 +563,7 @@ export class CoinExporter {
         throw new Error('No frames captured for server-side WebM creation');
       }
       
-      await debugLog(`✅ Captured ${frames.length} PNG frames for server-side processing`);
+      await debugLog(`✅ Captured ${frames.length} WebP frames for server-side processing`);
       
       // Convert frames to base64 for server transmission
       const framesBase64: string[] = [];
@@ -582,15 +582,16 @@ export class CoinExporter {
         framesBase64.push(base64);
         
         if (i === 0 || i === frames.length - 1 || i % 10 === 0) {
-          await debugLog(`🔄 Converted frame ${i + 1}/${frames.length} to base64`);
+          await debugLog(`🔄 Converted WebP frame ${i + 1}/${frames.length} to base64`);
         }
       }
       
-      await debugLog(`📤 Sending ${framesBase64.length} frames to server for FFmpeg WebM creation...`);
+      await debugLog(`📤 Sending ${framesBase64.length} WebP frames to server for FFmpeg WebM creation...`);
       
       // Send frames to server-side function with timeout protection
       const payload = {
         frames_base64: framesBase64,
+        frame_format: 'webp', // Indicate we're sending WebP frames
         settings: {
           fps: settings.fps,
           size: settings.size,

@@ -36,7 +36,7 @@ export const handler: Handler = async (event) => {
 
   try {
     // Parse the request body
-    const { frames_base64, settings } = JSON.parse(event.body || '{}');
+    const { frames_base64, frame_format, settings } = JSON.parse(event.body || '{}');
     
     if (!frames_base64 || !Array.isArray(frames_base64) || frames_base64.length === 0) {
       return {
@@ -54,19 +54,20 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    console.log(`📊 Processing ${frames_base64.length} frames with settings:`, settings);
+    console.log(`📊 Processing ${frames_base64.length} ${frame_format || 'PNG'} frames with settings:`, settings);
 
     // Create temp directory for frames
     const tempDir = '/tmp/frames';
     await fs.mkdir(tempDir, { recursive: true });
 
-    // Convert base64 frames to PNG files
-    console.log('🖼️ Converting base64 frames to PNG files...');
+    // Convert base64 frames to image files (WebP or PNG)
+    console.log('🖼️ Converting base64 frames to image files...');
     const framePaths: string[] = [];
+    const frameFormat = frame_format === 'webp' ? 'webp' : 'png';
     
     for (let i = 0; i < frames_base64.length; i++) {
       const frameNumber = String(i).padStart(4, '0');
-      const framePath = join(tempDir, `frame_${frameNumber}.png`);
+      const framePath = join(tempDir, `frame_${frameNumber}.${frameFormat}`);
       
       // Decode base64 to buffer
       const frameBuffer = Buffer.from(frames_base64[i], 'base64');
@@ -76,7 +77,7 @@ export const handler: Handler = async (event) => {
       tempFiles.push(framePath);
       
       if (i === 0 || i === frames_base64.length - 1 || i % 10 === 0) {
-        console.log(`💾 Saved frame ${i + 1}/${frames_base64.length}: ${framePath}`);
+        console.log(`💾 Saved ${frameFormat.toUpperCase()} frame ${i + 1}/${frames_base64.length}: ${framePath}`);
       }
     }
 
