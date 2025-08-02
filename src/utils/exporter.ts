@@ -51,7 +51,7 @@ export class CoinExporter {
     // Limit frames more aggressively to prevent stack overflow
     // Max 30 frames but keep the SAME DURATION for proper timing
     const maxFrames = 30;
-    const actualFrames = Math.min(totalFrames, maxFrames);
+    const actualFrames = totalFrames;
     
     // CRITICAL: Keep original duration even with fewer frames
     // This will slow down the animation to match the 3-second window
@@ -82,7 +82,7 @@ export class CoinExporter {
       this.scene.background = null;
       
       // Create OFFSCREEN renderer for export (doesn't affect live view!)
-      const captureSize = 512; // High resolution for better quality
+      const captureSize = 1024; // High resolution for better quality
       console.log('🎨 Creating offscreen renderer...');
       
       const offscreenRenderer = new THREE.WebGLRenderer({
