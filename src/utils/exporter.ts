@@ -10,21 +10,25 @@ export interface ExportSettings {
 
 // Debug logging helper for Telegram environment
 const debugLog = async (message: string, data?: any) => {
+  // Always log to console first for immediate visibility
+  console.log(`[EXPORTER] ${message}`, data);
+  
   try {
-    console.log(message, data); // Still log to console for non-Telegram environments
-    
     // Also send to Netlify function for Telegram debugging
     await fetch('/.netlify/functions/debug-log', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        message,
+        message: `[EXPORTER] ${message}`,
         data,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        source: 'exporter.ts'
       })
-    }).catch(() => {}); // Silent fail if function not available
+    }).catch((fetchError) => {
+      console.warn('[EXPORTER] Debug log fetch failed:', fetchError.message);
+    });
   } catch (error) {
-    console.log(message, data); // Fallback to console only
+    console.warn('[EXPORTER] Debug log error:', error);
   }
 };
 
@@ -47,8 +51,8 @@ export class CoinExporter {
     const totalFrames = Math.floor(fps * duration);
     
     // FIXED: Remove arbitrary frame cap and use actual requested frames for smooth animation
-    // For 30fps × 3s = 90 frames, which is reasonable for modern browsers
-    const maxFrames = Math.max(totalFrames, 90); // Allow at least 90 frames, or more if requested
+    // For Telegram emoji: use 60 frames for 3s = 20fps effective rate for smaller file size
+    const maxFrames = Math.max(60, totalFrames); // REDUCED: 60 frames for smaller file size while maintaining smoothness
     const actualFrames = Math.min(totalFrames, maxFrames);
     
     const frames: Blob[] = [];
@@ -61,7 +65,7 @@ export class CoinExporter {
         actualFrames,
         maxAllowed: maxFrames,
         rotationStrategy: 'Complete 360° rotation independent of UI speed setting',
-        qualityImprovement: 'Increased frame count for smoother animation'
+        qualityImprovement: 'Optimized frame count (60) for smaller file size suitable for Telegram emoji'
       });    // Store original rotation (we don't touch the live renderer anymore)
     const originalRotation = this.turntable.rotation.y;
 
@@ -474,7 +478,7 @@ export class CoinExporter {
 
       const recorder = new MediaRecorder(stream, {
         mimeType: MediaRecorder.isTypeSupported(mimeType) ? mimeType : 'video/webm;codecs=vp8',
-        videoBitsPerSecond: 2000000 // IMPROVED: 2Mbps for higher quality (increased from 1Mbps)
+        videoBitsPerSecond: 150000 // REDUCED: Lower bitrate for smaller file size suitable for Telegram emoji
       });
 
       const chunks: Blob[] = [];
@@ -489,7 +493,7 @@ export class CoinExporter {
       await debugLog('🎬 Recording started...');
 
       // Animate the coin for the specified duration with FORCED 360° rotation
-      const totalFrames = 60; // IMPROVED: More frames for smoother MediaRecorder animation
+      const totalFrames = 60; // OPTIMIZED: Reduced frames for smaller WebM file size suitable for Telegram
       const frameDelay = (duration * 1000) / totalFrames; // Delay between frames in ms
 
       for (let i = 0; i < totalFrames; i++) {
@@ -671,7 +675,7 @@ export class CoinExporter {
     // Calculate the ACTUAL fps and frame count that will be used
     const { fps, duration } = settings;
     const totalFrames = Math.floor(fps * duration);
-    const maxFrames = Math.max(totalFrames, 120); // IMPROVED: Increased to 120 frames for very smooth animation
+    const maxFrames = Math.max(60, totalFrames); // REDUCED: 60 frames for smaller file size while maintaining smoothness
     const actualFrames = Math.min(totalFrames, maxFrames);
     const effectiveFPS = fps; // FIXED: Use actual FPS for proper timing
     
@@ -682,7 +686,7 @@ export class CoinExporter {
       actualFrames,
       effectiveFPS: effectiveFPS.toFixed(2),
       maxFrames,
-      improvement: 'Increased frame limit to 120 for smoother animation, proper FPS timing'
+      improvement: 'Optimized frame count (60) for smaller file size suitable for Telegram emoji'
     });
     
     // Check if WebCodecs is available
@@ -1083,7 +1087,7 @@ export const createCustomEmoji = async (
   blob: Blob, 
   initData: string, 
   emojiList: string[] = ['🪙'],
-  setTitle: string = 'Custom Coinmoji' // TODO: Allow user to set title in webapp or bot UI
+  setTitle: string = 'Coinmoji' // TODO: Allow user to set title in webapp or bot UI
 ) => {
   await debugLog('🎭 Creating custom emoji:', { 
     blobSize: blob.size, 

@@ -140,7 +140,7 @@ const AppContent: React.FC = () => {
         webmBlob,
         initData,
         ['🪙'],
-        'My Coinmoji'
+        'Coinmoji'
       );
       
       if (result.success) {
