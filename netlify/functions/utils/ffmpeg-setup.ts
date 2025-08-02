@@ -219,23 +219,26 @@ export class FFmpegManager {
       note: 'Using requested FPS for smooth animation, not frameCount/duration'
     });
 
-    // Build FFmpeg command for transparent WebM with VP9 optimized for small file size
-    // CRITICAL: Use yuva420p pixel format + optimized settings for <64kB output
+    // Build FFmpeg command for transparent WebM with VP9 optimized for MINIMAL file size
+    // CRITICAL: Target <32kB for Telegram custom emoji (much stricter than stickers)
     const ffmpegArgs = [
       '-f', 'concat',
       '-safe', '0',
       '-i', frameListPath,
-      '-vf', `scale=${settings.size}:${settings.size}:flags=lanczos,format=yuva420p`, // High-quality scaling + force alpha format
+      '-vf', `scale=${Math.min(settings.size, 64)}:${Math.min(settings.size, 64)}:flags=lanczos,format=yuva420p`, // Force max 64x64 for emoji
       '-c:v', 'libvpx-vp9',
       '-pix_fmt', 'yuva420p',  // CRITICAL: yuva420p for alpha channel
       '-auto-alt-ref', '0',    // CRITICAL: Disable auto alt-ref for alpha
       '-lag-in-frames', '0',   // Reduce encoding delay
       '-error-resilient', '1', // Better for streaming
       '-b:v', '0',             // Use constant quality mode (honors CRF)
-      '-crf', '35',            // Reduced CRF for better quality (was 40, now 35 for more frames)
+      '-crf', '45',            // INCREASED CRF for much smaller file size (was 35, now 45)
+      '-quality', 'realtime',  // Prioritize speed and compression over quality
       '-r', requestedFPS.toString(), // Use requested FPS for smooth animation
       '-deadline', 'realtime', // Fast encoding for Netlify timeout limits
       '-cpu-used', '8',        // Fastest CPU preset
+      '-row-mt', '1',          // Enable row-based multithreading for better compression
+      '-tile-columns', '1',    // Enable tile encoding for better compression
       '-y',                    // Overwrite output
       outputPath
     ];
@@ -263,13 +266,14 @@ export class FFmpegManager {
         path: outputPath,
         size: stats.size,
         sizeKB: (stats.size / 1024).toFixed(1) + 'kB',
-        targetSizeOK: stats.size <= 64 * 1024, // Check if under 64kB
+        emojiSizeOK: stats.size <= 32 * 1024, // Check if under 32kB for custom emoji
+        stickerSizeOK: stats.size <= 64 * 1024, // Check if under 64kB for stickers
         telegramSizeOK: stats.size <= 256 * 1024 // Check if under Telegram's 256kB limit
       });
       
-      // Warn if file is too large
-      if (stats.size > 64 * 1024) {
-        console.warn(`⚠️ WebM file ${(stats.size / 1024).toFixed(1)}kB exceeds 64kB target - consider increasing CRF`);
+      // Warn if file is too large for emoji
+      if (stats.size > 32 * 1024) {
+        console.warn(`⚠️ WebM file ${(stats.size / 1024).toFixed(1)}kB may be too large for Telegram custom emoji (recommended <32kB)`);
       }
       
     } catch (error) {

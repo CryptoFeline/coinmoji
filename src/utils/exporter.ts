@@ -632,13 +632,23 @@ export class CoinExporter {
       
       await debugLog(`📤 Sending ${framesBase64.length} WebP frames to server for FFmpeg WebM creation...`);
       
+      // OPTIMIZATION: For server-side processing, reduce frame count to prevent timeouts
+      // while maintaining smooth animation. Use adaptive frame reduction based on file size target
+      let optimizedFrames = framesBase64;
+      if (framesBase64.length > 60) {
+        // For large frame counts, reduce to 60 frames max for server stability
+        const step = Math.ceil(framesBase64.length / 60);
+        optimizedFrames = framesBase64.filter((_, index) => index % step === 0);
+        await debugLog(`🎯 Reduced ${framesBase64.length} frames to ${optimizedFrames.length} frames for server processing (every ${step}th frame)`);
+      }
+      
       // Send frames to server-side function with timeout protection
       const payload = {
-        frames_base64: framesBase64,
+        frames_base64: optimizedFrames,
         frame_format: 'webp', // Indicate we're sending WebP frames
         settings: {
-          fps: settings.fps,
-          size: settings.size,
+          fps: settings.fps, // Keep original FPS for smooth playback
+          size: Math.min(settings.size, 64), // Force max 64x64 for emoji size optimization
           duration: settings.duration
         }
       };
