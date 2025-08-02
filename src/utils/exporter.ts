@@ -109,15 +109,19 @@ export class CoinExporter {
 
       for (let i = 0; i < actualFrames; i++) {
         try {
-          // FIXED: Calculate rotation for COMPLETE 360° rotation independent of speed settings
-          // Always complete exactly one full rotation over the entire duration
+          // CRITICAL: Calculate rotation for COMPLETE 360° rotation over duration
+          // Ensure we always do exactly one full rotation regardless of speed settings
           
-          // Progress through the frames (0 to 1) - ensures smooth progression
-          // CRITICAL FIX: Use proper frame progression that avoids duplicate start/end frames
-          const frameProgress = actualFrames > 1 ? i / actualFrames : 0; // 0 to (n-1)/n to avoid duplicate at 2π
+          // Progress through the frames (0 to 1) - use frames, not time
+          const frameProgress = i / (actualFrames - 1); // 0 to 1 across all frames
           
-          // FORCE a complete 360° rotation (2π radians) - INDEPENDENT of user's rotation speed setting
+          // FORCE a complete 360° rotation (2π radians) over the entire duration
           const totalRotation = frameProgress * Math.PI * 2; // Full circle: 0 to 2π
+          
+          // Debug: Log rotation for first few frames to verify
+          if (i === 0 || i === 1 || i === actualFrames - 1) {
+            console.log(`📐 Frame ${i}: progress=${frameProgress.toFixed(3)}, rotation=${totalRotation.toFixed(3)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°)`);
+          }
           
           // Debug: Log rotation for first few and last frames to verify
           if (i === 0 || i === 1 || i === Math.floor(actualFrames / 2) || i === actualFrames - 1) {
@@ -651,9 +655,9 @@ export class CoinExporter {
     // Calculate the ACTUAL fps and frame count that will be used
     const { fps, duration } = settings;
     const totalFrames = Math.floor(fps * duration);
-    const maxFrames = 60; // FORCE 60 frames for smaller file size suitable for Telegram
+    const maxFrames = 30; // FIXED: Use 30 frames max for proper timing
     const actualFrames = Math.min(totalFrames, maxFrames);
-    const effectiveFPS = fps; // FIXED: Use actual FPS for proper timing
+    const effectiveFPS = actualFrames / duration; // FIXED: Calculate correct effective FPS
     
     await debugLog('🎯 WebM timing calculation:', {
       requestedFPS: fps,
@@ -661,8 +665,7 @@ export class CoinExporter {
       requestedFrames: totalFrames,
       actualFrames,
       effectiveFPS: effectiveFPS.toFixed(2),
-      maxFrames,
-      improvement: 'FORCED 60 frames for smaller file size suitable for Telegram emoji'
+      note: 'Using effectiveFPS for WebM encoder to ensure correct duration'
     });
     
     // Check if WebCodecs is available
@@ -839,8 +842,8 @@ export class CoinExporter {
           codec: bestCodec.codec,
           width: settings.size,
           height: settings.size,
-          bitrate: 350000, // IMPROVED: Increased from 200kbps to 350kbps for better quality
-          framerate: effectiveFPS // Use the actual fps for proper timing
+          bitrate: 200000, // 200kbps for small file size (balanced for Telegram)
+          framerate: effectiveFPS // Use the ACTUAL fps for proper timing
         };
         
         // For ANY VP9 codec, always try to enable alpha
@@ -1063,7 +1066,7 @@ export const createCustomEmoji = async (
   blob: Blob, 
   initData: string, 
   emojiList: string[] = ['🪙'],
-  setTitle: string = '@Coinmoji'
+  setTitle: string = 'Coinmoji'
 ) => {
   await debugLog('🎭 Creating custom emoji:', { 
     blobSize: blob.size, 

@@ -228,11 +228,10 @@ export class FFmpegManager {
       '-auto-alt-ref', '0',    // CRITICAL: Disable auto alt-ref for alpha
       '-lag-in-frames', '0',   // Reduce encoding delay
       '-error-resilient', '1', // Better for streaming
-      '-crf', '25',            // OPTIMIZED: Higher CRF for smaller file size (was 20)
-      '-b:v', '150K',          // REDUCED: Lower bitrate for Telegram emoji (was 400K)
+      '-crf', '30',            // Good quality balance for small files
+      '-b:v', '200K',          // Target bitrate for Telegram emoji (balanced)
       '-r', effectiveFPS.toString(), // Use calculated effective FPS for correct duration
       '-s', `${settings.size}x${settings.size}`,
-      '-vf', `scale=${settings.size}:${settings.size}:flags=lanczos`, // IMPROVED: Use Lanczos scaling for better quality
       '-y',                    // Overwrite output
       outputPath
     ];
