@@ -5,7 +5,7 @@ export interface ExportSettings {
   fps: number;
   duration: number; // in seconds
   size: number; // output size (100 for emoji)
-  rotationSpeed?: number; // radians per frame at 60fps (optional, defaults to medium speed)
+  rotationSpeed?: number; // DEPRECATED: Exporter now forces 360° rotation for consistent emoji quality
 }
 
 // Debug logging helper for Telegram environment
@@ -30,17 +30,15 @@ const debugLog = async (message: string, data?: any) => {
 
 export class CoinExporter {
   private scene: THREE.Scene;
-  private renderer: THREE.WebGLRenderer;
   private turntable: THREE.Group;
 
   constructor(
     scene: THREE.Scene,
     _camera: THREE.PerspectiveCamera, // Keep for API compatibility but don't use
-    renderer: THREE.WebGLRenderer,
+    _renderer: THREE.WebGLRenderer, // Keep for API compatibility but don't use
     turntable: THREE.Group
   ) {
     this.scene = scene;
-    this.renderer = renderer;
     this.turntable = turntable;
   }
 
@@ -48,30 +46,23 @@ export class CoinExporter {
     const { fps, duration, size } = settings;
     const totalFrames = Math.floor(fps * duration);
     
-    // Limit frames more aggressively to prevent stack overflow
-    // Max 30 frames but keep the SAME DURATION for proper timing
-    const maxFrames = 30;
+    // FIXED: Remove arbitrary frame cap and use actual requested frames for smooth animation
+    // For 30fps × 3s = 90 frames, which is reasonable for modern browsers
+    const maxFrames = Math.max(totalFrames, 90); // Allow at least 90 frames, or more if requested
     const actualFrames = Math.min(totalFrames, maxFrames);
-    
-    // CRITICAL: Keep original duration even with fewer frames
-    // This will slow down the animation to match the 3-second window
-    const actualDuration = duration; // Always use full duration
-    const effectiveFPS = actualFrames / actualDuration; // Slower effective FPS
     
     const frames: Blob[] = [];
 
-    console.log('📹 Starting frame export (matching live THREE.js animation speed):', { 
-      fps, 
-      duration, 
-      size, 
-      requestedFrames: totalFrames, 
-      actualFrames,
-      maxAllowed: maxFrames,
-      effectiveFPS: effectiveFPS.toFixed(2),
-      actualDuration
-    });
-
-    // Store original rotation (we don't touch the live renderer anymore)
+      console.log('📹 Starting frame export with full 360° rotation:', { 
+        fps, 
+        duration, 
+        size, 
+        requestedFrames: totalFrames, 
+        actualFrames,
+        maxAllowed: maxFrames,
+        rotationStrategy: 'Complete 360° rotation independent of UI speed setting',
+        qualityImprovement: 'Increased frame count for smoother animation'
+      });    // Store original rotation (we don't touch the live renderer anymore)
     const originalRotation = this.turntable.rotation.y;
 
     console.log('💾 Stored original rotation:', originalRotation);
@@ -82,7 +73,7 @@ export class CoinExporter {
       this.scene.background = null;
       
       // Create OFFSCREEN renderer for export (doesn't affect live view!)
-      const captureSize = 512; // High resolution for better quality
+      const captureSize = 2048; // IMPROVED: Much higher resolution (2048x2048) for excellent quality before downscaling
       console.log('🎨 Creating offscreen renderer...');
       
       const offscreenRenderer = new THREE.WebGLRenderer({
@@ -108,25 +99,26 @@ export class CoinExporter {
       console.log('🎯 Created offscreen renderer:', { 
         size: captureSize, 
         transparent: true,
-        cameraPosition: exportCamera.position.toArray()
+        cameraPosition: exportCamera.position.toArray(),
+        note: 'High-res capture (1024x1024) for quality before downscaling to target size'
       });
 
       for (let i = 0; i < actualFrames; i++) {
         try {
-          // CRITICAL: Calculate rotation angle based on the actual rotation speed from settings
-          // Match the live THREE.js animation timing exactly
+          // FIXED: Calculate rotation for COMPLETE 360° rotation independent of speed settings
+          // Always complete exactly one full rotation over the entire duration
           
-          // Progress through the duration (0 to 1)
-          const timeProgress = (i / (actualFrames - 1)) * actualDuration; // Time in seconds
+          // Progress through the frames (0 to 1) - ensures smooth progression
+          // CRITICAL FIX: Use proper frame progression that avoids duplicate start/end frames
+          const frameProgress = actualFrames > 1 ? i / actualFrames : 0; // 0 to (n-1)/n to avoid duplicate at 2π
           
-          // Get rotation speed from settings (defaults to medium if not provided)
-          const rotationSpeed = settings.rotationSpeed || 0.02; // Default to medium speed
+          // FORCE a complete 360° rotation (2π radians) - INDEPENDENT of user's rotation speed setting
+          const totalRotation = frameProgress * Math.PI * 2; // Full circle: 0 to 2π
           
-          // Calculate rotation based on the actual THREE.js animation speed
-          // The animation speed is expressed as radians per frame at 60fps
-          // So at 60fps, rotation per second = rotationSpeed * 60
-          const rotationPerSecond = rotationSpeed * 60;
-          const totalRotation = timeProgress * rotationPerSecond;
+          // Debug: Log rotation for first few and last frames to verify
+          if (i === 0 || i === 1 || i === Math.floor(actualFrames / 2) || i === actualFrames - 1) {
+            console.log(`📐 Frame ${i}: progress=${frameProgress.toFixed(3)}, rotation=${totalRotation.toFixed(3)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°)`);
+          }
           
           // Set rotation for this frame to match the live animation timing
           this.turntable.rotation.y = totalRotation;
@@ -134,8 +126,8 @@ export class CoinExporter {
           // Render to offscreen canvas with export camera
           offscreenRenderer.render(this.scene, exportCamera);
 
-          // Capture frame and resize to target size
-          const blob = await this.captureFrameFromRenderer(offscreenRenderer, captureSize, captureSize); // Keep high res
+          // Capture frame at high resolution for better quality
+          const blob = await this.captureFrameFromRenderer(offscreenRenderer, captureSize, settings.size);
           
           if (!blob || blob.size === 0) {
             const error = `Frame ${i} capture failed - empty blob`;
@@ -147,7 +139,7 @@ export class CoinExporter {
           frames.push(blob);
           
           if (i === 0 || i === actualFrames - 1 || i % 10 === 0) {
-            console.log(`📸 Captured frame ${i + 1}/${actualFrames}, size: ${blob.size} bytes, rotation: ${totalRotation.toFixed(2)} rad, time: ${timeProgress.toFixed(2)}s, speed: ${rotationSpeed}`);
+            console.log(`📸 Captured frame ${i + 1}/${actualFrames}, size: ${blob.size} bytes, rotation: ${totalRotation.toFixed(2)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°)`);
           }
         } catch (frameError) {
           const error = `Failed to capture frame ${i}: ${frameError instanceof Error ? frameError.message : 'Unknown frame error'}`;
@@ -180,7 +172,7 @@ export class CoinExporter {
     }
   }
 
-  private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, sourceSize: number, targetSize: number): Promise<Blob> {
+  private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, _sourceSize: number, _targetSize: number): Promise<Blob> {
     return new Promise((resolve) => {
       try {
         // Try WebP first, but fallback to PNG if WebP is not supported
@@ -210,7 +202,7 @@ export class CoinExporter {
               resolve(pngBlob || new Blob());
             }, 'image/png');
           }
-        }, 'image/webp', 0.9); // Try WebP first with high quality
+        }, 'image/webp', 1.0); // IMPROVED: Maximum quality (1.0) for best results before downscaling
       } catch (error) {
         console.error('Frame capture error:', error);
         // Final fallback to PNG
@@ -436,8 +428,8 @@ export class CoinExporter {
     
     await debugLog('🎥 Setting up canvas recording...', { fps, duration, size });
     
-    // Create offscreen renderer for recording
-    const captureSize = size; // Use target size directly
+    // Create offscreen renderer for recording at higher resolution
+    const captureSize = 1024; // IMPROVED: Higher resolution for better quality
     const offscreenRenderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: true,
@@ -482,7 +474,7 @@ export class CoinExporter {
 
       const recorder = new MediaRecorder(stream, {
         mimeType: MediaRecorder.isTypeSupported(mimeType) ? mimeType : 'video/webm;codecs=vp8',
-        videoBitsPerSecond: 1000000 // 1Mbps for good quality
+        videoBitsPerSecond: 2000000 // IMPROVED: 2Mbps for higher quality (increased from 1Mbps)
       });
 
       const chunks: Blob[] = [];
@@ -496,16 +488,14 @@ export class CoinExporter {
       recorder.start();
       await debugLog('🎬 Recording started...');
 
-      // Animate the coin for the specified duration matching the live THREE.js speed
-      const totalFrames = 30; // Always use 30 frames for smooth animation
+      // Animate the coin for the specified duration with FORCED 360° rotation
+      const totalFrames = 60; // IMPROVED: More frames for smoother MediaRecorder animation
       const frameDelay = (duration * 1000) / totalFrames; // Delay between frames in ms
 
       for (let i = 0; i < totalFrames; i++) {
-        // Calculate rotation based on actual settings rotation speed
-        const timeProgress = (i / (totalFrames - 1)) * duration; // Time in seconds
-        const rotationSpeed = settings.rotationSpeed || 0.02; // Default to medium speed
-        const rotationPerSecond = rotationSpeed * 60; // Convert to radians per second
-        const totalRotation = timeProgress * rotationPerSecond;
+        // FORCE complete 360° rotation over all frames (independent of UI speed setting)
+        const frameProgress = i / (totalFrames - 1); // 0 to 1 across all frames
+        const totalRotation = frameProgress * Math.PI * 2; // Full circle: 0 to 2π
         
         this.turntable.rotation.y = totalRotation;
         
@@ -518,7 +508,7 @@ export class CoinExporter {
         }
         
         if (i % 10 === 0) {
-          await debugLog(`📹 Recording frame ${i + 1}/${totalFrames}, rotation: ${totalRotation.toFixed(2)} rad`);
+          await debugLog(`📹 Recording frame ${i + 1}/${totalFrames}, rotation: ${totalRotation.toFixed(2)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°)`);
         }
       }
 
@@ -681,9 +671,9 @@ export class CoinExporter {
     // Calculate the ACTUAL fps and frame count that will be used
     const { fps, duration } = settings;
     const totalFrames = Math.floor(fps * duration);
-    const maxFrames = 30;
+    const maxFrames = Math.max(totalFrames, 120); // IMPROVED: Increased to 120 frames for very smooth animation
     const actualFrames = Math.min(totalFrames, maxFrames);
-    const effectiveFPS = actualFrames / duration; // This is the REAL fps for the WebM
+    const effectiveFPS = fps; // FIXED: Use actual FPS for proper timing
     
     await debugLog('🎯 WebM timing calculation:', {
       requestedFPS: fps,
@@ -691,7 +681,8 @@ export class CoinExporter {
       requestedFrames: totalFrames,
       actualFrames,
       effectiveFPS: effectiveFPS.toFixed(2),
-      note: 'Using effectiveFPS for WebM encoder to ensure correct duration'
+      maxFrames,
+      improvement: 'Increased frame limit to 120 for smoother animation, proper FPS timing'
     });
     
     // Check if WebCodecs is available
@@ -868,8 +859,8 @@ export class CoinExporter {
           codec: bestCodec.codec,
           width: settings.size,
           height: settings.size,
-          bitrate: 200000, // 200kbps for small file size
-          framerate: effectiveFPS // Use the ACTUAL fps for proper timing
+          bitrate: 350000, // IMPROVED: Increased from 200kbps to 350kbps for better quality
+          framerate: effectiveFPS // Use the actual fps for proper timing
         };
         
         // For ANY VP9 codec, always try to enable alpha
@@ -923,11 +914,11 @@ export class CoinExporter {
             });
           }
 
-          // Create VideoFrame with timestamp based on EFFECTIVE fps
-          const timestamp = (i * 1000000) / effectiveFPS; // microseconds - use effective fps
+          // Create VideoFrame with timestamp based on ACTUAL fps (not reduced effective fps)
+          const timestamp = (i * 1000000) / effectiveFPS; // microseconds - use actual fps for proper timing
           const videoFrame = new (window as any).VideoFrame(imageBitmap, {
             timestamp: timestamp,
-            duration: 1000000 / effectiveFPS // microseconds - use effective fps
+            duration: 1000000 / effectiveFPS // microseconds - use actual fps
           });
 
           // Encode frame

@@ -60,34 +60,24 @@ const AppContent: React.FC = () => {
 
       const exporter = new CoinExporter(scene, camera, renderer, turntable);
       
-      // Calculate perfect rotation timing based on current rotation speed
-      const speedMap = {
-        slow: 0.01,
-        medium: 0.02,
-        fast: 0.035,
-      };
-      
-      const rotationSpeed = speedMap[coinSettings.rotationSpeed];
-      
-      // FIXED: Always use 3 seconds and calculate the appropriate rotation amount
+      // FIXED: Always export with a full 360° rotation regardless of UI rotation speed
+      // This ensures the exported emoji always shows a complete rotation
       const targetDuration = 3; // Always 3 seconds for emoji
-      const rotationAmount = rotationSpeed * 60 * targetDuration; // How much rotation in 3 seconds
       
-      console.log('🎬 Export settings:', {
+      console.log('🎬 Export settings (FIXED rotation):', {
         rotationSpeed: coinSettings.rotationSpeed,
-        speedValue: rotationSpeed,
+        uiSpeedNote: 'UI rotation speed preserved for live view',
         targetDuration,
-        rotationAmount: `${(rotationAmount / (2 * Math.PI)).toFixed(2)} full rotations`,
-        radiansAmount: rotationAmount.toFixed(3),
+        exportRotation: 'Fixed 360° rotation for export (independent of UI speed)',
         fps: 30
       });
       
-      // Export as WebM for emoji use (100x100, 30fps, 3 seconds with proper rotation)
+      // Export as WebM for emoji use (100x100, 30fps, 3 seconds with FIXED 360° rotation)
       const webmBlob = await exporter.exportAsWebM({
         fps: 30,
         duration: targetDuration, // Always 3 seconds
-        size: 100,
-        rotationSpeed: rotationSpeed // Pass the actual rotation speed to match live animation
+        size: 100
+        // Note: rotationSpeed removed - exporter now forces 360° rotation internally
       });
       
       // Send file to Telegram via bot
@@ -125,30 +115,24 @@ const AppContent: React.FC = () => {
 
       const exporter = new CoinExporter(scene, camera, renderer, turntable);
       
-      // Calculate perfect rotation timing based on current rotation speed (same as download)
-      const speedMap = {
-        slow: 0.01,
-        medium: 0.02,
-        fast: 0.035,
-      };
+      // FIXED: Always export with a full 360° rotation for consistent emoji quality
+      // The export is independent of the UI rotation speed setting
+      const targetDuration = 3; // Always 3 seconds for emoji
       
-      const rotationSpeed = speedMap[coinSettings.rotationSpeed];
-      // Calculate time for one full rotation (2π radians)
-      const timeForFullRotation = (2 * Math.PI) / rotationSpeed / 60; // Convert to seconds (assuming 60fps)
-      
-      console.log('🎭 Emoji export settings:', {
+      console.log('🎭 Emoji export settings (FIXED rotation):', {
         rotationSpeed: coinSettings.rotationSpeed,
-        speedValue: rotationSpeed,
-        timeForFullRotation: timeForFullRotation,
+        uiSpeedNote: 'UI rotation speed preserved for live view',
+        targetDuration,
+        exportRotation: 'Fixed 360° rotation for emoji (independent of UI speed)',
         fps: 30
       });
       
-      // Export as WebM for Telegram emoji (100x100, 30fps, perfect rotation)
+      // Export as WebM for Telegram emoji (100x100, 30fps, FIXED 360° rotation)
       const webmBlob = await exporter.exportAsWebM({
         fps: 30,
-        duration: Math.max(1, Math.min(3, timeForFullRotation)), // Clamp between 1-3 seconds
-        size: 100,
-        rotationSpeed: rotationSpeed // Pass the actual rotation speed to match live animation
+        duration: targetDuration, // Always 3 seconds for consistent timing
+        size: 100
+        // Note: rotationSpeed removed - exporter now forces 360° rotation internally
       });
       
       // Create custom emoji in Telegram

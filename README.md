@@ -1,6 +1,6 @@
 # Coinmoji WebApp
 
-A modern, mobile-first React application for creating custom emoji from 3D coin designs. Built specifically for Telegram Mini Apps with a clean, Apple-inspired design.
+A modern, mobile-first React application for creating custom emoji from 3D coin designs. Built specifically for Telegram Mini Apps with a clean design.
 
 ## Features
 
@@ -20,7 +20,7 @@ A modern, mobile-first React application for creating custom emoji from 3D coin 
 
 - **Frontend**: React 18 + TypeScript + Vite
 - **3D Graphics**: Three.js
-- **Styling**: Tailwind CSS with custom iOS-inspired design tokens
+- **Styling**: Tailwind CSS with custom design tokens
 - **Animations**: Framer Motion
 - **Build**: Vite with optimized production builds
 - **Deployment**: Netlify with serverless functions
