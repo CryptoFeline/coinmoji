@@ -118,18 +118,16 @@ export class FFmpegManager {
     
     console.log('📦 Extracting FFmpeg from ZIP...');
     
-    // For Linux environments, try using unzip command directly instead of adm-zip
+    // Extract using built-in Node.js ZIP support (no external dependencies)
     try {
-      console.log('🐧 Attempting native unzip extraction...');
+      // Import AdmZip dynamically to extract
+      const AdmZip = require('adm-zip');
+      const zip = new AdmZip(zipPath);
       
-      // Try to use system unzip command (available in most Linux containers)
-      const { execSync } = require('child_process');
-      execSync(`cd ${tempDir} && unzip -o ffmpeg.zip`, { 
-        stdio: 'pipe',
-        timeout: 30000 
-      });
+      // Extract all files to temp directory
+      zip.extractAllTo(tempDir, true);
       
-      // Find the ffmpeg binary
+      // Find the ffmpeg binary (should be directly in the ZIP)
       const extractedFiles = await fs.readdir(tempDir);
       const ffmpegFile = extractedFiles.find(file => file === 'ffmpeg' || file.startsWith('ffmpeg'));
       
@@ -150,60 +148,20 @@ export class FFmpegManager {
       // Make executable
       await fs.chmod(ffmpegBinaryPath, 0o755);
       
-      console.log('✅ Linux FFmpeg binary extracted with native unzip');
+      console.log('✅ Linux FFmpeg binary extracted and configured from ZIP');
       
-    } catch (unzipError) {
-      console.log('⚠️ Native unzip failed, trying manual extraction...');
-      
-      // Fallback: manual ZIP parsing (basic implementation for simple ZIP files)
+      // Verify the binary works
       try {
-        const zipBuffer = await fs.readFile(zipPath);
-        
-        // Simple ZIP file parsing for single-file ZIP (FFmpeg binary)
-        // This is a minimal implementation that works for simple ZIP files
-        const zipData = new Uint8Array(zipBuffer);
-        
-        // Look for the local file header signature (0x04034b50)
-        let found = false;
-        for (let i = 0; i < zipData.length - 30; i++) {
-          if (zipData[i] === 0x50 && zipData[i+1] === 0x4b && 
-              zipData[i+2] === 0x03 && zipData[i+3] === 0x04) {
-            // Found local file header
-            const nameLength = zipData[i + 26] | (zipData[i + 27] << 8);
-            const extraLength = zipData[i + 28] | (zipData[i + 29] << 8);
-            const compressedSize = zipData[i + 18] | (zipData[i + 19] << 8) | 
-                                 (zipData[i + 20] << 16) | (zipData[i + 21] << 24);
-            
-            const dataOffset = i + 30 + nameLength + extraLength;
-            
-            if (dataOffset + compressedSize <= zipData.length) {
-              const fileData = zipData.slice(dataOffset, dataOffset + compressedSize);
-              await fs.writeFile(ffmpegBinaryPath, fileData);
-              await fs.chmod(ffmpegBinaryPath, 0o755);
-              found = true;
-              console.log('✅ FFmpeg binary extracted with manual ZIP parsing');
-              break;
-            }
-          }
-        }
-        
-        if (!found) {
-          throw new Error('Could not parse ZIP file structure');
-        }
-        
-      } catch (manualError) {
-        console.error('❌ Manual ZIP extraction also failed:', manualError);
-        throw new Error(`All ZIP extraction methods failed. Unzip error: ${unzipError}. Manual error: ${manualError}`);
+        execSync(`${ffmpegBinaryPath} -version`, { stdio: 'pipe', timeout: 5000 });
+        console.log('✅ FFmpeg binary verification successful');
+      } catch (verifyError) {
+        console.error('⚠️ FFmpeg binary verification failed:', verifyError);
+        throw new Error(`FFmpeg binary verification failed: ${verifyError}`);
       }
-    }
-    
-    // Verify the binary works
-    try {
-      execSync(`${ffmpegBinaryPath} -version`, { stdio: 'pipe', timeout: 5000 });
-      console.log('✅ FFmpeg binary verification successful');
-    } catch (verifyError) {
-      console.error('⚠️ FFmpeg binary verification failed:', verifyError);
-      throw new Error(`FFmpeg binary verification failed: ${verifyError}`);
+      
+    } catch (extractError) {
+      console.error('❌ ZIP extraction failed:', extractError);
+      throw new Error(`FFmpeg extraction failed: ${extractError}`);
     }
   }
 
@@ -270,10 +228,8 @@ export class FFmpegManager {
       '-auto-alt-ref', '0',    // CRITICAL: Disable auto alt-ref for alpha
       '-lag-in-frames', '0',   // Reduce encoding delay
       '-error-resilient', '1', // Better for streaming
-      '-crf', '35',            // INCREASED: Higher CRF for smaller file size (was 30)
-      '-b:v', '100K',          // REDUCED: Target bitrate for smaller file size (was 200K)
-      '-maxrate', '150K',      // Add max bitrate constraint
-      '-bufsize', '200K',      // Add buffer size constraint
+      '-crf', '30',            // Good quality balance
+      '-b:v', '200K',          // Target bitrate
       '-r', effectiveFPS.toString(), // Use calculated effective FPS for correct duration
       '-s', `${settings.size}x${settings.size}`,
       '-y',                    // Overwrite output

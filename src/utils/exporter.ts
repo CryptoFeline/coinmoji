@@ -48,16 +48,15 @@ export class CoinExporter {
     const { fps, duration, size } = settings;
     const totalFrames = Math.floor(fps * duration);
     
-    // CRITICAL: Telegram emoji videos must be exactly 3 seconds or less
-    // Limit frames to ensure 3-second max duration with reasonable FPS
-    const maxDuration = 3.0; // Telegram limit
-    const targetFPS = 20; // Good balance between smoothness and file size
-    const maxFrames = Math.floor(targetFPS * maxDuration); // 60 frames max
+    // Limit frames more aggressively to prevent stack overflow
+    // Max 30 frames but keep the SAME DURATION for proper timing
+    const maxFrames = 30;
     const actualFrames = Math.min(totalFrames, maxFrames);
     
-    // CRITICAL: Keep duration at exactly 3 seconds for Telegram compatibility
-    const actualDuration = Math.min(duration, maxDuration); // Never exceed 3 seconds
-    const effectiveFPS = actualFrames / actualDuration; // Calculate actual FPS
+    // CRITICAL: Keep original duration even with fewer frames
+    // This will slow down the animation to match the 3-second window
+    const actualDuration = duration; // Always use full duration
+    const effectiveFPS = actualFrames / actualDuration; // Slower effective FPS
     
     const frames: Blob[] = [];
 
@@ -103,7 +102,7 @@ export class CoinExporter {
       // Create dedicated camera for export with perfect coin framing
       const exportCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
       // Position camera much closer to make coin fill more of the frame
-      exportCamera.position.set(0, 0, 2.8); // Keep it at 2.8
+      exportCamera.position.set(0, 0, 2.8); // Even closer for bigger coin in frame
       exportCamera.lookAt(0, 0, 0);
 
       console.log('🎯 Created offscreen renderer:', { 
@@ -118,16 +117,14 @@ export class CoinExporter {
           // Ensure we always do exactly one full rotation regardless of speed settings
           
           // Progress through the frames (0 to 1) - use frames, not time
-          // FIXED: Handle edge case when actualFrames = 1
-          const frameProgress = actualFrames > 1 ? i / (actualFrames - 1) : 0; // 0 to 1 across all frames
+          const frameProgress = i / (actualFrames - 1); // 0 to 1 across all frames
           
           // FORCE a complete 360° rotation (2π radians) over the entire duration
           const totalRotation = frameProgress * Math.PI * 2; // Full circle: 0 to 2π
           
-          // Enhanced debugging: Log rotation for multiple frames to verify full rotation
-          if (i === 0 || i === Math.floor(actualFrames / 4) || i === Math.floor(actualFrames / 2) || 
-              i === Math.floor(3 * actualFrames / 4) || i === actualFrames - 1) {
-            console.log(`📐 Frame ${i}/${actualFrames}: progress=${frameProgress.toFixed(3)}, rotation=${totalRotation.toFixed(3)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°)`);
+          // Debug: Log rotation for first few frames to verify
+          if (i === 0 || i === 1 || i === actualFrames - 1) {
+            console.log(`📐 Frame ${i}: progress=${frameProgress.toFixed(3)}, rotation=${totalRotation.toFixed(3)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°)`);
           }
           
           // Set rotation for this frame to match the live animation timing
@@ -291,16 +288,46 @@ export class CoinExporter {
       const capabilities = await this.detectTransparencyCapabilities();
       await debugLog('🔍 Transparency capabilities detected:', capabilities);
 
-      // FORCE server-side FFmpeg for guaranteed transparency - NO FALLBACKS
+      // Choose encoding strategy based on capabilities
       if (capabilities.shouldUseServerSide) {
-        await debugLog('🎬 Using ONLY server-side FFmpeg approach for transparency...');
-        const webmBlob = await this.createWebMViaServer(settings);
-        await debugLog('✅ Server-side WebM creation completed:', { size: webmBlob.size });
-        return webmBlob;
+        await debugLog('� Using server-side FFmpeg approach for transparency...');
+        try {
+          const webmBlob = await this.createWebMViaServer(settings);
+          await debugLog('✅ Server-side WebM creation completed:', { size: webmBlob.size });
+          return webmBlob;
+        } catch (serverError) {
+          await debugLog('⚠️ Server-side failed, falling back to client-side:', { 
+            error: serverError instanceof Error ? serverError.message : 'Unknown error' 
+          });
+          // Continue to client-side fallback
+        }
       }
 
-      // For non-Telegram environments, we can try other approaches
-      throw new Error('Server-side FFmpeg is required for transparency in Telegram environment, but capability detection indicated otherwise');
+      // Try native MediaRecorder first for environments that support it well
+      if (capabilities.hasNativeRecorder && !capabilities.isLimitedWebView) {
+        try {
+          await debugLog('🎥 Attempting native MediaRecorder...');
+          const webmBlob = await this.recordCanvasToWebM(settings);
+          await debugLog('✅ Native WebM recording completed:', { size: webmBlob.size });
+          return webmBlob;
+        } catch (mediaRecorderError) {
+          await debugLog('⚠️ MediaRecorder failed, trying client-side webm-muxer:', { 
+            error: mediaRecorderError instanceof Error ? mediaRecorderError.message : 'Unknown error' 
+          });
+        }
+      }
+      
+      // Fallback to client-side WebM creation with webm-muxer
+      try {
+        const webmBlob = await this.createWebMViaWebMuxer(settings);
+        await debugLog('✅ Client-side webm-muxer completed:', { size: webmBlob.size });
+        return webmBlob;
+      } catch (webMuxerError) {
+        await debugLog('❌ Client-side webm-muxer also failed:', { 
+          error: webMuxerError instanceof Error ? webMuxerError.message : 'Unknown error' 
+        });
+        throw webMuxerError;
+      }
     } catch (error) {
       await debugLog('❌ WebM export failed at top level:', { error: error instanceof Error ? error.message : 'Unknown error' });
       alert(`WebM export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -454,7 +481,7 @@ export class CoinExporter {
 
       const recorder = new MediaRecorder(stream, {
         mimeType: MediaRecorder.isTypeSupported(mimeType) ? mimeType : 'video/webm;codecs=vp8',
-        videoBitsPerSecond: 500000 // REDUCED: 0.5Mbps for smaller file size (was 1Mbps)
+        videoBitsPerSecond: 1000000 // 1Mbps for good quality
       });
 
       const chunks: Blob[] = [];
@@ -468,18 +495,13 @@ export class CoinExporter {
       recorder.start();
       await debugLog('🎬 Recording started...');
 
-      // CRITICAL: Use same timing logic as exportFrames for Telegram compatibility
-      const maxDuration = 3.0; // Telegram limit
-      const targetFPS = 20; // Good balance
-      const maxFrames = Math.floor(targetFPS * maxDuration); // 60 frames max
-      const totalFrames = Math.min(Math.floor(fps * duration), maxFrames);
-      const actualDuration = Math.min(duration, maxDuration); // Never exceed 3 seconds
-      const frameDelay = (actualDuration * 1000) / totalFrames; // Delay between frames in ms
+      // Animate the coin for the specified duration matching the live THREE.js speed
+      const totalFrames = 30; // Always use 30 frames for smooth animation
+      const frameDelay = (duration * 1000) / totalFrames; // Delay between frames in ms
 
       for (let i = 0; i < totalFrames; i++) {
         // FORCE complete 360° rotation over all frames
-        // FIXED: Handle edge case when totalFrames = 1
-        const frameProgress = totalFrames > 1 ? i / (totalFrames - 1) : 0; // 0 to 1 across all frames
+        const frameProgress = i / (totalFrames - 1); // 0 to 1 across all frames
         const totalRotation = frameProgress * Math.PI * 2; // Full circle: 0 to 2π
         
         this.turntable.rotation.y = totalRotation;
@@ -492,7 +514,7 @@ export class CoinExporter {
           await new Promise(resolve => setTimeout(resolve, frameDelay));
         }
         
-        if (i % 10 === 0 || i === totalFrames - 1) {
+        if (i % 10 === 0) {
           await debugLog(`📹 Recording frame ${i + 1}/${totalFrames}, rotation: ${totalRotation.toFixed(2)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°)`);
         }
       }
@@ -653,18 +675,20 @@ export class CoinExporter {
   private async createWebMViaWebMuxer(settings: ExportSettings): Promise<Blob> {
     await debugLog('🔧 Creating WebM via client-side webm-muxer...');
     
-    // CRITICAL: Calculate timing to ensure exactly 3 seconds for Telegram compatibility
+    // Calculate the ACTUAL fps and frame count that will be used
     const { fps, duration } = settings;
-    const maxDuration = 3.0; // Telegram emoji limit
-    const targetFPS = 20; // Good balance between smoothness and file size
-    const maxFrames = Math.floor(targetFPS * maxDuration); // 60 frames max
+    const totalFrames = Math.floor(fps * duration);
+    const maxFrames = 30;
+    const actualFrames = Math.min(totalFrames, maxFrames);
+    const effectiveFPS = actualFrames / duration; // This is the REAL fps for the WebM
     
     await debugLog('🎯 WebM timing calculation:', {
       requestedFPS: fps,
       requestedDuration: duration,
-      telegramLimit: maxDuration + 's',
-      maxFrames,
-      note: 'Frame count will be determined by exportFrames() method'
+      requestedFrames: totalFrames,
+      actualFrames,
+      effectiveFPS: effectiveFPS.toFixed(2),
+      note: 'Using effectiveFPS for WebM encoder to ensure correct duration'
     });
     
     // Check if WebCodecs is available
@@ -791,20 +815,6 @@ export class CoinExporter {
       
       await debugLog(`✅ Captured ${frames.length} PNG frames for webm-muxer`);
       
-      // CRITICAL: Use ALL the frames that were exported, not our own calculation
-      // The exportFrames() already did the frame limiting correctly
-      const actualFrames = frames.length; // Use all exported frames
-      const actualDuration = Math.min(duration, maxDuration); // Never exceed 3 seconds
-      const effectiveFPS = actualFrames / actualDuration; // This is the REAL fps for the WebM
-      
-      await debugLog('🔧 Using ALL exported frames for webm-muxer:', {
-        exportedFrames: frames.length,
-        actualFrames,
-        actualDuration,
-        effectiveFPS: effectiveFPS.toFixed(2),
-        note: 'Using all frames exported by exportFrames() method'
-      });
-      
       // Create WebM using webm-muxer with WebCodecs
       const target = new ArrayBufferTarget();
       
@@ -815,7 +825,7 @@ export class CoinExporter {
           codec: 'V_VP9',
           width: settings.size,
           height: settings.size,
-          frameRate: effectiveFPS // Use the ACTUAL fps for exact timing
+          frameRate: effectiveFPS // Use the ACTUAL fps, not the requested fps
         },
         firstTimestampBehavior: 'offset'
       };
@@ -855,8 +865,8 @@ export class CoinExporter {
           codec: bestCodec.codec,
           width: settings.size,
           height: settings.size,
-          bitrate: 100000, // REDUCED: 100kbps for smaller file size (was 200kbps)
-          framerate: effectiveFPS // Use the ACTUAL fps for proper timing (max ~20fps for 3s)
+          bitrate: 200000, // 200kbps for small file size
+          framerate: effectiveFPS // Use the ACTUAL fps for proper timing
         };
         
         // For ANY VP9 codec, always try to enable alpha
@@ -910,11 +920,11 @@ export class CoinExporter {
             });
           }
 
-          // Create VideoFrame with timestamp based on EFFECTIVE fps for exact 3-second duration
-          const timestamp = (i * 1000000) / effectiveFPS; // microseconds - ensures exact timing
+          // Create VideoFrame with timestamp based on EFFECTIVE fps
+          const timestamp = (i * 1000000) / effectiveFPS; // microseconds - use effective fps
           const videoFrame = new (window as any).VideoFrame(imageBitmap, {
             timestamp: timestamp,
-            duration: 1000000 / effectiveFPS // microseconds - frame duration for exact timing
+            duration: 1000000 / effectiveFPS // microseconds - use effective fps
           });
 
           // Encode frame
@@ -945,16 +955,14 @@ export class CoinExporter {
       muxer.finalize();
 
       const webmBuffer = target.buffer;
-    await debugLog(`📊 WebM created with webm-muxer: ${webmBuffer.byteLength} bytes`, {
-      codec: bestCodec.codec,
-      alphaSupport: bestCodec.supportsAlpha,
-      transparencyPreserved: hasAlphaCodec,
-      telegramCompatible: true,
-      actualDuration: actualDuration + 's',
-      effectiveFPS: effectiveFPS.toFixed(2),
-      frameCount: frames.length,
-      durationCheck: 'Should be exactly ' + actualDuration + 's for Telegram'
-    });      const webmBlob = new Blob([webmBuffer], { type: 'video/webm' });
+      await debugLog(`📊 WebM created with webm-muxer: ${webmBuffer.byteLength} bytes`, {
+        codec: bestCodec.codec,
+        alphaSupport: bestCodec.supportsAlpha,
+        transparencyPreserved: hasAlphaCodec,
+        telegramCompatible: true
+      });
+      
+      const webmBlob = new Blob([webmBuffer], { type: 'video/webm' });
       
       // Verify if the WebM actually has transparency
       const hasAlpha = await verifyWebMHasAlpha(webmBlob);
@@ -1104,13 +1112,9 @@ export const createCustomEmoji = async (
     });
     
     // CRITICAL: Check if WebM meets Telegram emoji requirements
-    if (!duration || duration < 0.1 || duration > 3.1) {
-      await debugLog('❌ WebM validation failed: Duration outside Telegram limits', {
-        duration: duration ? duration.toFixed(2) + 's' : 'unknown',
-        telegramLimit: '0.1s - 3.0s',
-        recommendation: 'Duration must be between 0.1 and 3.0 seconds for Telegram emoji'
-      });
-      throw new Error(`WebM duration ${duration ? duration.toFixed(2) + 's' : 'unknown'} is outside Telegram emoji limits (0.1-3.0s)`);
+    if (!duration || duration < 0.1) {
+      await debugLog('❌ WebM validation failed: Invalid or missing duration');
+      throw new Error('WebM has invalid duration - Telegram will reject this emoji');
     }
     
     if (blob.size < 1000) {
