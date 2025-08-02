@@ -182,34 +182,71 @@ export class CoinExporter {
   private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, sourceSize: number, targetSize: number): Promise<Blob> {
     return new Promise((resolve) => {
       try {
-        // Capture directly as WebP with optimized quality for small file sizes
-        renderer.domElement.toBlob((blob) => {
-          if (!blob) {
-            // If WebP fails, try PNG as fallback
-            console.log('⚠️ WebP capture failed, trying PNG fallback...');
-            renderer.domElement.toBlob((pngBlob) => {
+        // CRITICAL FIX: Manually extract image data with proper alpha preservation
+        const canvas = renderer.domElement;
+        
+        // Create a new canvas with proper alpha settings for WebP export
+        const exportCanvas = document.createElement('canvas');
+        exportCanvas.width = sourceSize;
+        exportCanvas.height = sourceSize;
+        const exportCtx = exportCanvas.getContext('2d', { 
+          alpha: true,
+          premultipliedAlpha: false, // Critical for transparency
+          colorSpace: 'srgb'
+        }) as CanvasRenderingContext2D;
+
+        if (!exportCtx) {
+          console.error('❌ Could not create export canvas context');
+          resolve(new Blob());
+          return;
+        }
+
+        // CRITICAL: Clear with fully transparent background
+        exportCtx.clearRect(0, 0, sourceSize, sourceSize);
+        
+        // Copy renderer content to export canvas, preserving alpha
+        exportCtx.globalCompositeOperation = 'source-over';
+        exportCtx.drawImage(canvas, 0, 0, sourceSize, sourceSize);
+
+        // Verify transparency is preserved in the export canvas
+        const cornerSample = exportCtx.getImageData(0, 0, 1, 1).data;
+        console.log('🔍 Export canvas transparency check:', {
+          cornerAlpha: cornerSample[3],
+          isTransparent: cornerSample[3] < 255,
+          canvasSize: `${exportCanvas.width}x${exportCanvas.height}`
+        });
+
+        // Try WebP with lossless mode for perfect transparency preservation
+        exportCanvas.toBlob((webpBlob) => {
+          if (!webpBlob) {
+            console.log('⚠️ WebP lossless capture failed, trying PNG fallback...');
+            // Fallback to PNG which definitely preserves transparency
+            exportCanvas.toBlob((pngBlob) => {
               if (!pngBlob) {
                 resolve(new Blob());
                 return;
               }
-              console.log('✅ PNG fallback successful');
+              console.log('✅ PNG fallback successful with transparency');
               resolve(pngBlob);
             }, 'image/png');
             return;
           }
 
           // Verify this is actually WebP by checking the blob type
-          if (blob.type === 'image/webp') {
-            console.log('✅ WebP capture successful:', { size: blob.size });
-            resolve(blob);
+          if (webpBlob.type === 'image/webp') {
+            console.log('✅ WebP lossless capture successful:', { 
+              size: webpBlob.size,
+              transparencyPreserved: cornerSample[3] < 255 
+            });
+            resolve(webpBlob);
           } else {
             // Browser gave us a different format, fallback to PNG
             console.log('⚠️ Browser did not support WebP, using PNG fallback...');
-            renderer.domElement.toBlob((pngBlob) => {
+            exportCanvas.toBlob((pngBlob) => {
               resolve(pngBlob || new Blob());
             }, 'image/png');
           }
-        }, 'image/webp', 0.92); // Optimized quality: good detail while keeping files small
+        }, 'image/webp', 1.0); // Use lossless WebP (quality 1.0) to preserve transparency perfectly
       } catch (error) {
         console.error('Frame capture error:', error);
         // Final fallback to PNG
