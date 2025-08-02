@@ -725,20 +725,21 @@ export class CoinExporter {
   private async createWebMViaWebMuxer(settings: ExportSettings): Promise<Blob> {
     await debugLog('🔧 Creating WebM via client-side webm-muxer...');
     
-    // Calculate the ACTUAL fps and frame count that will be used
+    // FIXED: Use the requested FPS directly instead of calculating effectiveFPS
+    // This matches the server-side FFmpeg fix for consistent frame rates
     const { fps, duration } = settings;
     const totalFrames = Math.floor(fps * duration);
     const maxFrames = 30;
     const actualFrames = Math.min(totalFrames, maxFrames);
-    const effectiveFPS = actualFrames / duration; // This is the REAL fps for the WebM
+    const requestedFPS = fps; // Use the REQUESTED fps, not calculated effectiveFPS
     
-    await debugLog('🎯 WebM timing calculation:', {
+    await debugLog('🎯 WebM timing calculation (FIXED):', {
       requestedFPS: fps,
       requestedDuration: duration,
       requestedFrames: totalFrames,
       actualFrames,
-      effectiveFPS: effectiveFPS.toFixed(2),
-      note: 'Using effectiveFPS for WebM encoder to ensure correct duration'
+      usingFPS: requestedFPS,
+      note: 'FIXED: Using requested FPS instead of effectiveFPS for consistent frame rate with server'
     });
     
     // Check if WebCodecs is available
@@ -746,27 +747,21 @@ export class CoinExporter {
       throw new Error('WebCodecs not supported in this browser');
     }
     
-    // Check supported codecs before proceeding - prioritize simple VP9 first
+    // Check supported codecs - prioritize VP9 WITHOUT alpha to prevent encoding errors
     const supportedCodecs = [];
     const codecsToTest = [
-      // Start with simple VP9 - most likely to work with alpha
-      { codec: 'vp9', supportsAlpha: true },            // Simple VP9 (best chance for alpha)
-      // VP9 Profile 2 variants (alpha capable)
-      { codec: 'vp09.02.10.08', supportsAlpha: true },  // VP9 Profile 2 with alpha
-      { codec: 'vp09.02.10.10', supportsAlpha: true },  // VP9 Profile 2 with alpha
-      { codec: 'vp09.02.51.10', supportsAlpha: true },  // VP9 Profile 2, different level
-      { codec: 'vp09.02.41.10', supportsAlpha: true },  // VP9 Profile 2, different level
-      // VP9 Profile 1 variants (may support alpha)
-      { codec: 'vp09.01.10.08', supportsAlpha: true },  // VP9 Profile 1 (may support alpha)
-      { codec: 'vp09.01.51.08', supportsAlpha: true },  // VP9 Profile 1 variant
-      // VP9 Profile 0 (no alpha)
-      { codec: 'vp09.00.10.08', supportsAlpha: false }, // VP9 Profile 0 (no alpha)
+      // Start with VP9 Profile 0 (no alpha) to prevent "Alpha encoding not supported" errors
+      { codec: 'vp09.00.10.08', supportsAlpha: false }, // VP9 Profile 0 (no alpha, most compatible)
       { codec: 'vp09.00.51.08', supportsAlpha: false }, // VP9 Profile 0 variant
+      { codec: 'vp9', supportsAlpha: false },            // Simple VP9 (disable alpha for compatibility)
       // VP8 fallback (no alpha)
-      { codec: 'vp8', supportsAlpha: false }            // VP8 fallback (no alpha)
+      { codec: 'vp8', supportsAlpha: false },            // VP8 fallback (no alpha)
+      // VP9 Profile 2 variants (alpha capable but causes errors)
+      { codec: 'vp09.02.10.08', supportsAlpha: false },  // VP9 Profile 2 (disable alpha for now)
+      { codec: 'vp09.02.10.10', supportsAlpha: false }   // VP9 Profile 2 (disable alpha for now)
     ];
     
-    for (const { codec, supportsAlpha } of codecsToTest) {
+    for (const { codec } of codecsToTest) {
       try {
         const config = {
           codec,
@@ -780,40 +775,9 @@ export class CoinExporter {
         if ((window as any).VideoEncoder && (window as any).VideoEncoder.isConfigSupported) {
           const support = await (window as any).VideoEncoder.isConfigSupported(config);
           if (support.supported) {
-            // For ANY VP9 codec (including Profile 0), force alpha support
-            const isVP9 = codec.includes('vp9') || codec.startsWith('vp09.');
-            
-            if (supportsAlpha || isVP9) {
-              try {
-                const alphaConfig = { ...config, alpha: 'keep' };
-                const alphaSupport = await (window as any).VideoEncoder.isConfigSupported(alphaConfig);
-                if (alphaSupport.supported) {
-                  supportedCodecs.push({ codec, supportsAlpha: true });
-                  await debugLog(`✅ Codec ${codec} supported WITH alpha: TRUE`);
-                } else {
-                  // Force alpha support for ALL VP9 codecs, even if test fails
-                  if (isVP9) {
-                    supportedCodecs.push({ codec, supportsAlpha: true });
-                    await debugLog(`✅ Codec ${codec} supported, FORCING alpha support (VP9 can handle it)`);
-                  } else {
-                    supportedCodecs.push({ codec, supportsAlpha: false });
-                    await debugLog(`⚠️ Codec ${codec} supported but alpha: FALSE`);
-                  }
-                }
-              } catch (alphaTestError) {
-                // Force alpha support for ALL VP9 codecs, even if test throws error
-                if (isVP9) {
-                  supportedCodecs.push({ codec, supportsAlpha: true });
-                  await debugLog(`✅ Codec ${codec} supported, FORCING alpha support despite test error (VP9 Profile 0 hack):`, alphaTestError);
-                } else {
-                  supportedCodecs.push({ codec, supportsAlpha: false });
-                  await debugLog(`⚠️ Codec ${codec} supported, alpha test failed:`, alphaTestError);
-                }
-              }
-            } else {
-              supportedCodecs.push({ codec, supportsAlpha: false });
-              await debugLog(`✅ Codec ${codec} supported (alpha: false)`);
-            }
+            // Add all supported codecs without alpha testing to prevent encoder errors
+            supportedCodecs.push({ codec, supportsAlpha: false });
+            await debugLog(`✅ Codec ${codec} supported (alpha disabled for compatibility)`);
           }
         } else {
           // Fallback: assume basic VP8 is supported if no isConfigSupported
@@ -825,30 +789,14 @@ export class CoinExporter {
       }
     }
     
-    if (supportedCodecs.length === 0) {
+    // Check if we have any supported codecs
+    const hasAnyCodec = supportedCodecs.length > 0;
+    
+    if (!hasAnyCodec) {
       throw new Error('No supported video codecs found for WebM creation. This browser may not support WebCodecs API.');
     }
     
-    // Check if we have any alpha-capable codecs
-    const hasAlphaCodec = supportedCodecs.some(codec => codec.supportsAlpha);
-    
-    if (!hasAlphaCodec) {
-      await debugLog('⚠️ No alpha-capable codecs found locally, trying server-side WebM creation...');
-      
-      try {
-        // Fallback to server-side WebM creation with alpha support
-        const webmBlob = await this.createWebMViaServer(settings);
-        await debugLog('✅ Server-side WebM creation completed:', { size: webmBlob.size });
-        return webmBlob;
-      } catch (serverError) {
-        await debugLog('❌ Server-side WebM creation also failed:', { 
-          error: serverError instanceof Error ? serverError.message : 'Unknown error' 
-        });
-        // Continue with client-side approach without alpha - create real WebM for Telegram
-        await debugLog('🔄 Continuing with client-side WebM creation (NO transparency for Telegram compatibility)...');
-      }
-    }
-    
+    await debugLog('🎯 Client-side WebM creation (no alpha, solid background for Telegram compatibility)');
     await debugLog('🎯 Supported video codecs:', supportedCodecs);
     
     try {
@@ -868,14 +816,14 @@ export class CoinExporter {
       // Create WebM using webm-muxer with WebCodecs
       const target = new ArrayBufferTarget();
       
-      // Configure muxer based on codec alpha support - be aggressive with VP9
+      // Configure muxer - DISABLE alpha to prevent encoding errors
       const muxerConfig: any = {
         target,
         video: {
           codec: 'V_VP9',
           width: settings.size,
           height: settings.size,
-          frameRate: effectiveFPS // Use the ACTUAL fps, not the requested fps
+          frameRate: requestedFPS // Use the REQUESTED fps for consistent timing
         },
         firstTimestampBehavior: 'offset',
         // CRITICAL: Add comprehensive timing metadata for WebM header
@@ -885,16 +833,8 @@ export class CoinExporter {
         type: 'webm' // Explicit container type
       };
       
-      // Enable alpha in muxer if we have any VP9 codec or alpha-capable codec
-      const firstCodec = supportedCodecs[0];
-      const isVP9 = firstCodec && (firstCodec.codec.includes('vp9') || firstCodec.codec.startsWith('vp09.'));
-      
-      if (hasAlphaCodec || isVP9) {
-        muxerConfig.video.alpha = true;
-        await debugLog('🎨 WebM muxer configured WITH alpha channel (VP9 detected)');
-      } else {
-        await debugLog('⚠️ WebM muxer configured WITHOUT alpha channel for Telegram compatibility');
-      }
+      // DISABLE alpha in muxer to prevent client-side encoding errors
+      await debugLog('⚠️ WebM muxer configured WITHOUT alpha channel (client-side compatibility)');
       
       const muxer = new Muxer(muxerConfig);
 
@@ -921,20 +861,12 @@ export class CoinExporter {
           width: settings.size,
           height: settings.size,
           bitrate: 500000, // Increased from 300k to 500k for better transparency preservation
-          framerate: effectiveFPS // Use the ACTUAL fps for proper timing
+          framerate: requestedFPS // Use the REQUESTED fps for consistent timing
         };
         
-        // FORCE alpha for ALL VP9 variants regardless of test results
-        const isVP9 = bestCodec.codec.includes('vp9') || bestCodec.codec.startsWith('vp09.');
-        
-        if (isVP9) {
-          encoderConfig.alpha = 'keep';
-          // Also try additional transparency hints
-          encoderConfig.alphaQuality = 'lossless'; // Force lossless alpha if supported
-          await debugLog('🎨 Alpha channel FORCED in encoder config (VP9 detected)');
-        } else {
-          await debugLog('⚠️ Creating WebM WITHOUT transparency (non-VP9 codec)');
-        }
+        // DISABLE alpha encoding to prevent "Alpha encoding is not currently supported" error
+        // This prevents the VideoEncoder from closing and causing "Cannot call 'encode' on a closed codec"
+        await debugLog('⚠️ Creating WebM WITHOUT alpha to prevent encoder closure (client-side limitation)');
         
         await videoEncoder.configure(encoderConfig);
       } catch (configError) {
@@ -977,9 +909,9 @@ export class CoinExporter {
             });
           }
 
-          // Create VideoFrame with timestamp based on EFFECTIVE fps
-          const timestamp = (i * 1000000) / effectiveFPS; // microseconds - use effective fps
-          const frameDuration = 1000000 / effectiveFPS; // microseconds - use effective fps
+          // Create VideoFrame with timestamp based on REQUESTED fps
+          const timestamp = (i * 1000000) / requestedFPS; // microseconds - use requested fps
+          const frameDuration = 1000000 / requestedFPS; // microseconds - use requested fps
           
           // ENHANCED: Create VideoFrame with comprehensive timing metadata
           const videoFrame = new (window as any).VideoFrame(imageBitmap, {
@@ -1020,7 +952,7 @@ export class CoinExporter {
       await debugLog('🔧 Finalizing WebM with duration metadata...', {
         totalChunks: chunks.length,
         expectedDuration: duration,
-        effectiveFPS
+        requestedFPS
       });
       
       muxer.finalize();
@@ -1028,21 +960,18 @@ export class CoinExporter {
       const webmBuffer = target.buffer;
       await debugLog(`📊 WebM created with webm-muxer: ${webmBuffer.byteLength} bytes`, {
         codec: bestCodec.codec,
-        alphaSupport: bestCodec.supportsAlpha,
-        transparencyPreserved: hasAlphaCodec,
+        alphaSupport: false,
+        transparencyPreserved: false,
         telegramCompatible: true
       });
       
       const webmBlob = new Blob([webmBuffer], { type: 'video/webm' });
       
-      // Verify if the WebM actually has transparency
-      const hasAlpha = await verifyWebMHasAlpha(webmBlob);
-      
       await debugLog('🎬 WebM blob created from webm-muxer:', { 
         size: webmBlob.size,
-        hasTransparency: hasAlpha,
-        codecSupported: hasAlphaCodec,
-        note: hasAlpha ? 'Transparency preserved ✅' : 'Solid background for Telegram compatibility'
+        hasTransparency: false,
+        codecSupported: true,
+        note: 'Solid background for Telegram compatibility (no alpha encoding)'
       });
       
       return webmBlob;
@@ -1313,7 +1242,7 @@ export async function verifyWebMDuration(blob: Blob): Promise<number | null> {
           // Enhanced approach: try multiple loading strategies
           let durationFound = false;
           
-          await new Promise((r, reject) => {
+          await new Promise((r) => {
             const metadataTimeout = setTimeout(() => {
               if (!durationFound) {
                 console.log('⏱️ Metadata loading timed out, trying alternative approach...');
