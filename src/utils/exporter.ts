@@ -49,8 +49,8 @@ export class CoinExporter {
     const totalFrames = Math.floor(fps * duration);
     
     // Limit frames more aggressively to prevent stack overflow
-    // Max 30 frames but keep the SAME DURATION for proper timing
-    const maxFrames = 30;
+    // Increased from 30 to 60 frames for smoother animation
+    const maxFrames = 60;
     const actualFrames = Math.min(totalFrames, maxFrames);
     
     // CRITICAL: Keep original duration even with fewer frames
@@ -117,14 +117,16 @@ export class CoinExporter {
           // Ensure we always do exactly one full rotation regardless of speed settings
           
           // Progress through the frames (0 to 1) - use frames, not time
-          const frameProgress = i / (actualFrames - 1); // 0 to 1 across all frames
+          // FIXED: Handle edge case when actualFrames = 1
+          const frameProgress = actualFrames > 1 ? i / (actualFrames - 1) : 0; // 0 to 1 across all frames
           
           // FORCE a complete 360° rotation (2π radians) over the entire duration
           const totalRotation = frameProgress * Math.PI * 2; // Full circle: 0 to 2π
           
-          // Debug: Log rotation for first few frames to verify
-          if (i === 0 || i === 1 || i === actualFrames - 1) {
-            console.log(`📐 Frame ${i}: progress=${frameProgress.toFixed(3)}, rotation=${totalRotation.toFixed(3)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°)`);
+          // Enhanced debugging: Log rotation for multiple frames to verify full rotation
+          if (i === 0 || i === Math.floor(actualFrames / 4) || i === Math.floor(actualFrames / 2) || 
+              i === Math.floor(3 * actualFrames / 4) || i === actualFrames - 1) {
+            console.log(`📐 Frame ${i}/${actualFrames}: progress=${frameProgress.toFixed(3)}, rotation=${totalRotation.toFixed(3)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°)`);
           }
           
           // Set rotation for this frame to match the live animation timing
@@ -496,12 +498,13 @@ export class CoinExporter {
       await debugLog('🎬 Recording started...');
 
       // Animate the coin for the specified duration matching the live THREE.js speed
-      const totalFrames = 30; // Always use 30 frames for smooth animation
+      const totalFrames = 60; // Increased from 30 to 60 frames for smoother animation
       const frameDelay = (duration * 1000) / totalFrames; // Delay between frames in ms
 
       for (let i = 0; i < totalFrames; i++) {
         // FORCE complete 360° rotation over all frames
-        const frameProgress = i / (totalFrames - 1); // 0 to 1 across all frames
+        // FIXED: Handle edge case when totalFrames = 1
+        const frameProgress = totalFrames > 1 ? i / (totalFrames - 1) : 0; // 0 to 1 across all frames
         const totalRotation = frameProgress * Math.PI * 2; // Full circle: 0 to 2π
         
         this.turntable.rotation.y = totalRotation;
@@ -514,7 +517,7 @@ export class CoinExporter {
           await new Promise(resolve => setTimeout(resolve, frameDelay));
         }
         
-        if (i % 10 === 0) {
+        if (i % 10 === 0 || i === totalFrames - 1) {
           await debugLog(`📹 Recording frame ${i + 1}/${totalFrames}, rotation: ${totalRotation.toFixed(2)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°)`);
         }
       }
