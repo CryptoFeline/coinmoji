@@ -218,24 +218,28 @@ export class FFmpegManager {
     });
 
     // Build FFmpeg command for transparent WebM with VP9
-    // IMPROVED: Better quality settings while maintaining transparency
-  const args = [
-    '-f', 'webm',
-    '-i', '-',
-    '-vcodec', 'libvpx-vp9',
-    '-pix_fmt', 'yuva420p',
-    '-crf', '26', // ADJUSTED: Slightly lower quality for smaller size (was 22, now 26)
-    '-b:v', '300K', // REDUCED: Lower bitrate for Telegram size limits (was 350K, now 300K)
-    '-filter:v', 'scale=100:100:flags=lanczos',
-    '-an',
-    '-f', 'webm',
-    '-'
-  ];
-    
-    console.log('🔧 FFmpeg command:', `${ffmpegPath} ${args.join(' ')}`);
+    // CRITICAL: Use yuva420p pixel format + auto-alt-ref 0 for alpha support
+    const ffmpegArgs = [
+      '-f', 'concat',
+      '-safe', '0',
+      '-i', frameListPath,
+      '-c:v', 'libvpx-vp9',
+      '-pix_fmt', 'yuva420p',  // CRITICAL: yuva420p for alpha channel
+      '-auto-alt-ref', '0',    // CRITICAL: Disable auto alt-ref for alpha
+      '-lag-in-frames', '0',   // Reduce encoding delay
+      '-error-resilient', '1', // Better for streaming
+      '-crf', '30',            // Good quality balance
+      '-b:v', '200K',          // Target bitrate
+      '-r', effectiveFPS.toString(), // Use calculated effective FPS for correct duration
+      '-s', `${settings.size}x${settings.size}`,
+      '-y',                    // Overwrite output
+      outputPath
+    ];
+
+    console.log('🔧 FFmpeg command:', `${ffmpegPath} ${ffmpegArgs.join(' ')}`);
 
     try {
-      const command = `${ffmpegPath} ${args.join(' ')}`;
+      const command = `${ffmpegPath} ${ffmpegArgs.join(' ')}`;
       const output = execSync(command, { 
         timeout: 45000, // 45 second timeout (within Netlify's 60s limit)
         stdio: 'pipe',  // Capture output

@@ -48,9 +48,9 @@ export class CoinExporter {
     const { fps, duration, size } = settings;
     const totalFrames = Math.floor(fps * duration);
     
-    // ADJUSTED: Balance between smoothness and file size for Telegram emoji limits
-    // Telegram emoji video stickers have strict size limits (~64KB for smooth playback)
-    const maxFrames = 60; // Reduced from 90 - good balance between smoothness and size
+    // Limit frames more aggressively to prevent stack overflow
+    // Max 30 frames but keep the SAME DURATION for proper timing
+    const maxFrames = 30;
     const actualFrames = Math.min(totalFrames, maxFrames);
     
     // CRITICAL: Keep original duration even with fewer frames
@@ -60,7 +60,7 @@ export class CoinExporter {
     
     const frames: Blob[] = [];
 
-    console.log('📹 Starting frame export (FULL ROTATION optimized for Telegram):', { 
+    console.log('📹 Starting frame export (matching live THREE.js animation speed):', { 
       fps, 
       duration, 
       size, 
@@ -82,8 +82,7 @@ export class CoinExporter {
       this.scene.background = null;
       
       // Create OFFSCREEN renderer for export (doesn't affect live view!)
-      // IMPROVED: Higher capture resolution for better quality before downscaling
-      const captureSize = 1024; // Increased from 512 to reduce aliasing when downscaling to 100x100
+      const captureSize = 512; // High resolution for better quality
       console.log('🎨 Creating offscreen renderer...');
       
       const offscreenRenderer = new THREE.WebGLRenderer({
@@ -183,7 +182,7 @@ export class CoinExporter {
   private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, sourceSize: number, targetSize: number): Promise<Blob> {
     return new Promise((resolve) => {
       try {
-        // IMPROVED: Try WebP at maximum quality (1.0) for better quality
+        // Try WebP first, but fallback to PNG if WebP is not supported
         renderer.domElement.toBlob((blob) => {
           if (!blob) {
             // If WebP fails, try PNG as fallback
@@ -210,7 +209,7 @@ export class CoinExporter {
               resolve(pngBlob || new Blob());
             }, 'image/png');
           }
-        }, 'image/webp', 1.0); // IMPROVED: Maximum quality (was 0.9)
+        }, 'image/webp', 0.9); // Try WebP first with high quality
       } catch (error) {
         console.error('Frame capture error:', error);
         // Final fallback to PNG
@@ -436,8 +435,8 @@ export class CoinExporter {
     
     await debugLog('🎥 Setting up canvas recording...', { fps, duration, size });
     
-      // ADJUSTED: Create offscreen renderer for recording with balanced resolution
-      const captureSize = 150; // Reduced from 200 to lower file size while maintaining quality
+    // Create offscreen renderer for recording
+    const captureSize = size; // Use target size directly
     const offscreenRenderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: true,
@@ -482,7 +481,7 @@ export class CoinExporter {
 
       const recorder = new MediaRecorder(stream, {
         mimeType: MediaRecorder.isTypeSupported(mimeType) ? mimeType : 'video/webm;codecs=vp8',
-        videoBitsPerSecond: 300000 // REDUCED: Lower bitrate for Telegram emoji size limits (was 500K, now 300K)
+        videoBitsPerSecond: 1000000 // 1Mbps for good quality
       });
 
       const chunks: Blob[] = [];
@@ -496,8 +495,8 @@ export class CoinExporter {
       recorder.start();
       await debugLog('🎬 Recording started...');
 
-      // IMPROVED: More frames for smoother MediaRecorder animation
-      const totalFrames = 90; // Increased from 30 to match exportFrames improvement
+      // Animate the coin for the specified duration matching the live THREE.js speed
+      const totalFrames = 30; // Always use 30 frames for smooth animation
       const frameDelay = (duration * 1000) / totalFrames; // Delay between frames in ms
 
       for (let i = 0; i < totalFrames; i++) {
@@ -866,7 +865,7 @@ export class CoinExporter {
           codec: bestCodec.codec,
           width: settings.size,
           height: settings.size,
-          bitrate: 350000, // IMPROVED: Higher bitrate (was 200000, now 350000)
+          bitrate: 200000, // 200kbps for small file size
           framerate: effectiveFPS // Use the ACTUAL fps for proper timing
         };
         
