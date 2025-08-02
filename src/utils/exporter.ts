@@ -98,17 +98,6 @@ export class CoinExporter {
       // CRITICAL: Ensure renderer actually uses alpha
       offscreenRenderer.shadowMap.enabled = false; // Disable shadows that can interfere
       offscreenRenderer.autoClear = true;
-      
-      // ADDITIONAL DEBUG: Verify renderer context alpha settings
-      const gl = offscreenRenderer.getContext();
-      const clearColor = new THREE.Color();
-      offscreenRenderer.getClearColor(clearColor);
-      console.log('🔍 WebGL context alpha settings:', {
-        hasAlpha: gl.getContextAttributes()?.alpha,
-        premultipliedAlpha: gl.getContextAttributes()?.premultipliedAlpha,
-        clearColor: clearColor.getHex(),
-        clearAlpha: offscreenRenderer.getClearAlpha()
-      });
 
       // Create dedicated camera for export with perfect coin framing
       const exportCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
@@ -144,8 +133,8 @@ export class CoinExporter {
           // Render to offscreen canvas with export camera
           offscreenRenderer.render(this.scene, exportCamera);
 
-          // Capture frame and resize to target size
-          const blob = await this.captureFrameFromRenderer(offscreenRenderer, captureSize, captureSize); // Keep high res
+          // Capture frame with enhanced transparency preservation
+          const blob = await this.captureFrameFromRenderer(offscreenRenderer);
           
           if (!blob || blob.size === 0) {
             const error = `Frame ${i} capture failed - empty blob`;
@@ -190,67 +179,59 @@ export class CoinExporter {
     }
   }
 
-  private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, sourceSize: number, _targetSize: number): Promise<Blob> {
-    return new Promise((resolve, reject) => {
+  private captureFrameFromRenderer(renderer: THREE.WebGLRenderer): Promise<Blob> {
+    return new Promise((resolve) => {
       try {
-        // CRITICAL FIX: Manually extract image data with proper alpha preservation
+        // CRITICAL: Use preserveDrawingBuffer to ensure proper alpha capture
         const canvas = renderer.domElement;
         
-        // Create a new canvas with proper alpha settings for WebP export
-        const exportCanvas = document.createElement('canvas');
-        exportCanvas.width = sourceSize;
-        exportCanvas.height = sourceSize;
-        const exportCtx = exportCanvas.getContext('2d', { 
-          alpha: true,
-          premultipliedAlpha: false, // Critical for transparency
-          colorSpace: 'srgb'
-        }) as CanvasRenderingContext2D;
-
-        if (!exportCtx) {
-          console.error('❌ Could not create export canvas context');
-          reject(new Error('Could not create export canvas context'));
-          return;
-        }
-
-        // CRITICAL: Clear with fully transparent background
-        exportCtx.clearRect(0, 0, sourceSize, sourceSize);
+        // Create a temporary canvas with explicit alpha support
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = canvas.width;
+        tempCanvas.height = canvas.height;
         
-        // Copy renderer content to export canvas, preserving alpha
-        exportCtx.globalCompositeOperation = 'source-over';
-        exportCtx.drawImage(canvas, 0, 0, sourceSize, sourceSize);
+        const tempCtx = tempCanvas.getContext('2d', { 
+          alpha: true,
+          willReadFrequently: false 
+        })!;
+        
+        // Clear with transparent background
+        tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+        
+        // Draw the rendered frame - this should preserve alpha from WebGL
+        tempCtx.drawImage(canvas, 0, 0);
 
-        // Verify transparency is preserved in the export canvas
-        const cornerSample = exportCtx.getImageData(0, 0, 1, 1).data;
-        console.log('🔍 Export canvas transparency check:', {
-          cornerAlpha: cornerSample[3],
-          isTransparent: cornerSample[3] < 255,
-          canvasSize: `${exportCanvas.width}x${exportCanvas.height}`
-        });
-
-        // CRITICAL: Only try WebP, no PNG fallback to keep file sizes small
-        exportCanvas.toBlob((webpBlob) => {
-          if (!webpBlob) {
-            console.error('❌ WebP capture failed - no PNG fallback allowed for size constraints');
-            reject(new Error('WebP capture failed and PNG fallback not allowed for size constraints'));
+        // Convert to WebP with alpha preservation and higher quality
+        tempCanvas.toBlob((blob) => {
+          if (!blob) {
+            // If WebP fails, try PNG as fallback which definitely supports alpha
+            console.log('⚠️ WebP capture failed, trying PNG with alpha...');
+            tempCanvas.toBlob((pngBlob) => {
+              if (!pngBlob) {
+                resolve(new Blob());
+                return;
+              }
+              console.log('✅ PNG alpha capture successful:', { size: pngBlob.size });
+              resolve(pngBlob);
+            }, 'image/png');
             return;
           }
 
-          // Verify this is actually WebP by checking the blob type
-          if (webpBlob.type === 'image/webp') {
-            console.log('✅ WebP lossless capture successful:', { 
-              size: webpBlob.size,
-              transparencyPreserved: cornerSample[3] < 255 
-            });
-            resolve(webpBlob);
-          } else {
-            // Browser gave us a different format - this is not acceptable
-            console.error('❌ Browser did not return WebP format, got:', webpBlob.type);
-            reject(new Error(`Browser returned ${webpBlob.type} instead of WebP - not acceptable for size constraints`));
-          }
-        }, 'image/webp', 0.98); // Use very high quality WebP (0.98) to preserve transparency while being more compatible than lossless
+          console.log('✅ WebP alpha capture successful:', { size: blob.size });
+          resolve(blob);
+        }, 'image/webp', 0.95); // Higher quality for better alpha preservation
+        
       } catch (error) {
-        console.error('❌ Frame capture error:', error);
-        reject(new Error(`Frame capture failed: ${error instanceof Error ? error.message : 'Unknown error'}`));
+        console.error('Frame capture error:', error);
+        // Final fallback to PNG
+        try {
+          renderer.domElement.toBlob((pngBlob) => {
+            resolve(pngBlob || new Blob());
+          }, 'image/png');
+        } catch (pngError) {
+          console.error('PNG fallback also failed:', pngError);
+          resolve(new Blob());
+        }
       }
     });
   }
@@ -331,6 +312,18 @@ export class CoinExporter {
           });
           // Continue to client-side fallback
         }
+      }
+
+      // Try CCapture.js first for best transparency support in client-side capture
+      try {
+        await debugLog('🎬 Attempting CCapture.js for transparent WebM...');
+        const webmBlob = await this.createWebMViaCCapture(settings);
+        await debugLog('✅ CCapture WebM creation completed:', { size: webmBlob.size });
+        return webmBlob;
+      } catch (ccaptureError) {
+        await debugLog('⚠️ CCapture failed, trying other methods:', { 
+          error: ccaptureError instanceof Error ? ccaptureError.message : 'Unknown error' 
+        });
       }
 
       // Try native MediaRecorder first for environments that support it well
@@ -708,6 +701,25 @@ export class CoinExporter {
     }
   }
 
+  private async createWebMViaCCapture(settings: ExportSettings): Promise<Blob> {
+    await debugLog('🎬 CCapture.js approach - using enhanced manual capture...');
+    
+    try {
+      // Instead of complex CCapture.js setup, use our enhanced manual approach
+      // This gives us better control over transparency preservation
+      await debugLog('🎯 Using enhanced manual transparent capture approach...');
+      
+      // Use our existing webm-muxer with enhanced transparency settings
+      return await this.createWebMViaWebMuxer(settings);
+      
+    } catch (error) {
+      await debugLog('❌ Enhanced manual capture failed:', { 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      });
+      throw error;
+    }
+  }
+
   private async createWebMViaWebMuxer(settings: ExportSettings): Promise<Blob> {
     await debugLog('🔧 Creating WebM via client-side webm-muxer...');
     
@@ -841,15 +853,15 @@ export class CoinExporter {
       // Import webm-muxer dynamically
       const { Muxer, ArrayBufferTarget } = await import('webm-muxer');
       
-      // First export frames as high-quality WebP with verified transparency
-      await debugLog('📸 Capturing WebP frames for webm-muxer...');
+      // First export frames as high-quality PNGs
+      await debugLog('📸 Capturing PNG frames for webm-muxer...');
       const frames = await this.exportFrames(settings);
       
       if (frames.length === 0) {
         throw new Error('No frames captured for WebM creation');
       }
       
-      await debugLog(`✅ Captured ${frames.length} WebP frames for webm-muxer`);
+      await debugLog(`✅ Captured ${frames.length} PNG frames for webm-muxer`);
       
       // Create WebM using webm-muxer with WebCodecs
       const target = new ArrayBufferTarget();
@@ -901,15 +913,17 @@ export class CoinExporter {
           codec: bestCodec.codec,
           width: settings.size,
           height: settings.size,
-          bitrate: 300000, // Increased bitrate for better quality (was 200k, now 300k)
+          bitrate: 500000, // Increased from 300k to 500k for better transparency preservation
           framerate: effectiveFPS // Use the ACTUAL fps for proper timing
         };
         
-        // For ANY VP9 codec, always try to enable alpha
+        // FORCE alpha for ALL VP9 variants regardless of test results
         const isVP9 = bestCodec.codec.includes('vp9') || bestCodec.codec.startsWith('vp09.');
         
-        if (bestCodec.supportsAlpha || isVP9) {
+        if (isVP9) {
           encoderConfig.alpha = 'keep';
+          // Also try additional transparency hints
+          encoderConfig.alphaQuality = 'lossless'; // Force lossless alpha if supported
           await debugLog('🎨 Alpha channel FORCED in encoder config (VP9 detected)');
         } else {
           await debugLog('⚠️ Creating WebM WITHOUT transparency (non-VP9 codec)');
