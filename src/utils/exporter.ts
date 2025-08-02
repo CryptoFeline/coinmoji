@@ -5,44 +5,42 @@ export interface ExportSettings {
   fps: number;
   duration: number; // in seconds
   size: number; // output size (100 for emoji)
-  rotationSpeed?: number; // DEPRECATED: Exporter now forces 360° rotation for consistent emoji quality
+  rotationSpeed?: number; // radians per frame at 60fps (optional, defaults to medium speed)
 }
 
 // Debug logging helper for Telegram environment
 const debugLog = async (message: string, data?: any) => {
-  // Always log to console first for immediate visibility
-  console.log(`[EXPORTER] ${message}`, data);
-  
   try {
+    console.log(message, data); // Still log to console for non-Telegram environments
+    
     // Also send to Netlify function for Telegram debugging
     await fetch('/.netlify/functions/debug-log', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        message: `[EXPORTER] ${message}`,
+        message,
         data,
-        timestamp: Date.now(),
-        source: 'exporter.ts'
+        timestamp: Date.now()
       })
-    }).catch((fetchError) => {
-      console.warn('[EXPORTER] Debug log fetch failed:', fetchError.message);
-    });
+    }).catch(() => {}); // Silent fail if function not available
   } catch (error) {
-    console.warn('[EXPORTER] Debug log error:', error);
+    console.log(message, data); // Fallback to console only
   }
 };
 
 export class CoinExporter {
   private scene: THREE.Scene;
+  private renderer: THREE.WebGLRenderer;
   private turntable: THREE.Group;
 
   constructor(
     scene: THREE.Scene,
     _camera: THREE.PerspectiveCamera, // Keep for API compatibility but don't use
-    _renderer: THREE.WebGLRenderer, // Keep for API compatibility but don't use
+    renderer: THREE.WebGLRenderer,
     turntable: THREE.Group
   ) {
     this.scene = scene;
+    this.renderer = renderer;
     this.turntable = turntable;
   }
 
@@ -50,23 +48,30 @@ export class CoinExporter {
     const { fps, duration, size } = settings;
     const totalFrames = Math.floor(fps * duration);
     
-    // FIXED: Force 60 frames maximum for Telegram emoji (smaller file size)
-    // This gives us 20fps effective rate for smooth animation with smaller files
-    const maxFrames = 60; // FORCE 60 frames for smaller file size suitable for Telegram
+    // Limit frames more aggressively to prevent stack overflow
+    // Max 30 frames but keep the SAME DURATION for proper timing
+    const maxFrames = 30;
     const actualFrames = Math.min(totalFrames, maxFrames);
+    
+    // CRITICAL: Keep original duration even with fewer frames
+    // This will slow down the animation to match the 3-second window
+    const actualDuration = duration; // Always use full duration
+    const effectiveFPS = actualFrames / actualDuration; // Slower effective FPS
     
     const frames: Blob[] = [];
 
-      console.log('📹 Starting frame export with full 360° rotation:', { 
-        fps, 
-        duration, 
-        size, 
-        requestedFrames: totalFrames, 
-        actualFrames,
-        maxAllowed: maxFrames,
-        rotationStrategy: 'Complete 360° rotation independent of UI speed setting',
-        qualityImprovement: 'FORCED 60 frames for smaller file size suitable for Telegram emoji'
-      });    // Store original rotation (we don't touch the live renderer anymore)
+    console.log('📹 Starting frame export (matching live THREE.js animation speed):', { 
+      fps, 
+      duration, 
+      size, 
+      requestedFrames: totalFrames, 
+      actualFrames,
+      maxAllowed: maxFrames,
+      effectiveFPS: effectiveFPS.toFixed(2),
+      actualDuration
+    });
+
+    // Store original rotation (we don't touch the live renderer anymore)
     const originalRotation = this.turntable.rotation.y;
 
     console.log('💾 Stored original rotation:', originalRotation);
@@ -77,7 +82,7 @@ export class CoinExporter {
       this.scene.background = null;
       
       // Create OFFSCREEN renderer for export (doesn't affect live view!)
-      const captureSize = 1024; // REDUCED: Lower resolution (1024x1024) for smaller file size suitable for Telegram emoji
+      const captureSize = 512; // High resolution for better quality
       console.log('🎨 Creating offscreen renderer...');
       
       const offscreenRenderer = new THREE.WebGLRenderer({
@@ -103,8 +108,7 @@ export class CoinExporter {
       console.log('🎯 Created offscreen renderer:', { 
         size: captureSize, 
         transparent: true,
-        cameraPosition: exportCamera.position.toArray(),
-        note: 'Optimized capture (1024x1024) for smaller file size suitable for Telegram emoji'
+        cameraPosition: exportCamera.position.toArray()
       });
 
       for (let i = 0; i < actualFrames; i++) {
@@ -123,19 +127,14 @@ export class CoinExporter {
             console.log(`📐 Frame ${i}: progress=${frameProgress.toFixed(3)}, rotation=${totalRotation.toFixed(3)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°)`);
           }
           
-          // Debug: Log rotation for first few and last frames to verify
-          if (i === 0 || i === 1 || i === Math.floor(actualFrames / 2) || i === actualFrames - 1) {
-            console.log(`📐 Frame ${i}: progress=${frameProgress.toFixed(3)}, rotation=${totalRotation.toFixed(3)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°)`);
-          }
-          
           // Set rotation for this frame to match the live animation timing
           this.turntable.rotation.y = totalRotation;
 
           // Render to offscreen canvas with export camera
           offscreenRenderer.render(this.scene, exportCamera);
 
-          // Capture frame at high resolution for better quality
-          const blob = await this.captureFrameFromRenderer(offscreenRenderer, captureSize, settings.size);
+          // Capture frame and resize to target size
+          const blob = await this.captureFrameFromRenderer(offscreenRenderer, captureSize, captureSize); // Keep high res
           
           if (!blob || blob.size === 0) {
             const error = `Frame ${i} capture failed - empty blob`;
@@ -180,24 +179,48 @@ export class CoinExporter {
     }
   }
 
-  private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, _sourceSize: number, _targetSize: number): Promise<Blob> {
+  private captureFrameFromRenderer(renderer: THREE.WebGLRenderer, sourceSize: number, targetSize: number): Promise<Blob> {
     return new Promise((resolve) => {
       try {
-        // FIXED: Use PNG directly for perfect transparency preservation
-        // WebP quality compression can interfere with alpha channel
+        // Try WebP first, but fallback to PNG if WebP is not supported
         renderer.domElement.toBlob((blob) => {
           if (!blob) {
-            console.error('❌ PNG capture failed');
-            resolve(new Blob());
+            // If WebP fails, try PNG as fallback
+            console.log('⚠️ WebP capture failed, trying PNG fallback...');
+            renderer.domElement.toBlob((pngBlob) => {
+              if (!pngBlob) {
+                resolve(new Blob());
+                return;
+              }
+              console.log('✅ PNG fallback successful');
+              resolve(pngBlob);
+            }, 'image/png');
             return;
           }
-          
-          console.log('✅ PNG capture successful with transparency');
-          resolve(blob);
-        }, 'image/png'); // FIXED: Always use PNG for guaranteed transparency preservation
+
+          // Verify this is actually WebP by checking the blob type
+          if (blob.type === 'image/webp') {
+            console.log('✅ WebP capture successful');
+            resolve(blob);
+          } else {
+            // Browser gave us a different format, fallback to PNG
+            console.log('⚠️ Browser did not support WebP, using PNG fallback...');
+            renderer.domElement.toBlob((pngBlob) => {
+              resolve(pngBlob || new Blob());
+            }, 'image/png');
+          }
+        }, 'image/webp', 0.9); // Try WebP first with high quality
       } catch (error) {
         console.error('Frame capture error:', error);
-        resolve(new Blob());
+        // Final fallback to PNG
+        try {
+          renderer.domElement.toBlob((pngBlob) => {
+            resolve(pngBlob || new Blob());
+          }, 'image/png');
+        } catch (pngError) {
+          console.error('PNG fallback also failed:', pngError);
+          resolve(new Blob());
+        }
       }
     });
   }
@@ -412,8 +435,8 @@ export class CoinExporter {
     
     await debugLog('🎥 Setting up canvas recording...', { fps, duration, size });
     
-    // Create offscreen renderer for recording at higher resolution
-    const captureSize = 1024; // IMPROVED: Higher resolution for better quality
+    // Create offscreen renderer for recording
+    const captureSize = size; // Use target size directly
     const offscreenRenderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: true,
@@ -458,7 +481,7 @@ export class CoinExporter {
 
       const recorder = new MediaRecorder(stream, {
         mimeType: MediaRecorder.isTypeSupported(mimeType) ? mimeType : 'video/webm;codecs=vp8',
-        videoBitsPerSecond: 150000 // REDUCED: Lower bitrate for smaller file size suitable for Telegram emoji
+        videoBitsPerSecond: 1000000 // 1Mbps for good quality
       });
 
       const chunks: Blob[] = [];
@@ -472,12 +495,12 @@ export class CoinExporter {
       recorder.start();
       await debugLog('🎬 Recording started...');
 
-      // Animate the coin for the specified duration with FORCED 360° rotation
-      const totalFrames = 60; // OPTIMIZED: Reduced frames for smaller WebM file size suitable for Telegram
+      // Animate the coin for the specified duration matching the live THREE.js speed
+      const totalFrames = 30; // Always use 30 frames for smooth animation
       const frameDelay = (duration * 1000) / totalFrames; // Delay between frames in ms
 
       for (let i = 0; i < totalFrames; i++) {
-        // FORCE complete 360° rotation over all frames (independent of UI speed setting)
+        // FORCE complete 360° rotation over all frames
         const frameProgress = i / (totalFrames - 1); // 0 to 1 across all frames
         const totalRotation = frameProgress * Math.PI * 2; // Full circle: 0 to 2π
         
@@ -655,9 +678,9 @@ export class CoinExporter {
     // Calculate the ACTUAL fps and frame count that will be used
     const { fps, duration } = settings;
     const totalFrames = Math.floor(fps * duration);
-    const maxFrames = 30; // FIXED: Use 30 frames max for proper timing
+    const maxFrames = 30;
     const actualFrames = Math.min(totalFrames, maxFrames);
-    const effectiveFPS = actualFrames / duration; // FIXED: Calculate correct effective FPS
+    const effectiveFPS = actualFrames / duration; // This is the REAL fps for the WebM
     
     await debugLog('🎯 WebM timing calculation:', {
       requestedFPS: fps,
@@ -842,7 +865,7 @@ export class CoinExporter {
           codec: bestCodec.codec,
           width: settings.size,
           height: settings.size,
-          bitrate: 200000, // 200kbps for small file size (balanced for Telegram)
+          bitrate: 200000, // 200kbps for small file size
           framerate: effectiveFPS // Use the ACTUAL fps for proper timing
         };
         
@@ -897,11 +920,11 @@ export class CoinExporter {
             });
           }
 
-          // Create VideoFrame with timestamp based on ACTUAL fps (not reduced effective fps)
-          const timestamp = (i * 1000000) / effectiveFPS; // microseconds - use actual fps for proper timing
+          // Create VideoFrame with timestamp based on EFFECTIVE fps
+          const timestamp = (i * 1000000) / effectiveFPS; // microseconds - use effective fps
           const videoFrame = new (window as any).VideoFrame(imageBitmap, {
             timestamp: timestamp,
-            duration: 1000000 / effectiveFPS // microseconds - use actual fps
+            duration: 1000000 / effectiveFPS // microseconds - use effective fps
           });
 
           // Encode frame
@@ -1066,7 +1089,7 @@ export const createCustomEmoji = async (
   blob: Blob, 
   initData: string, 
   emojiList: string[] = ['🪙'],
-  setTitle: string = 'Coinmoji'
+  setTitle: string = 'Custom Coinmoji' // TODO: Allow user to set title in webapp or bot UI
 ) => {
   await debugLog('🎭 Creating custom emoji:', { 
     blobSize: blob.size, 

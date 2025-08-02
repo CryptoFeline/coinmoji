@@ -228,8 +228,8 @@ export class FFmpegManager {
       '-auto-alt-ref', '0',    // CRITICAL: Disable auto alt-ref for alpha
       '-lag-in-frames', '0',   // Reduce encoding delay
       '-error-resilient', '1', // Better for streaming
-      '-crf', '30',            // Good quality balance for small files
-      '-b:v', '200K',          // Target bitrate for Telegram emoji (balanced)
+      '-crf', '30',            // Good quality balance
+      '-b:v', '200K',          // Target bitrate
       '-r', effectiveFPS.toString(), // Use calculated effective FPS for correct duration
       '-s', `${settings.size}x${settings.size}`,
       '-y',                    // Overwrite output

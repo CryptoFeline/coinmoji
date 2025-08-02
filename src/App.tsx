@@ -60,24 +60,34 @@ const AppContent: React.FC = () => {
 
       const exporter = new CoinExporter(scene, camera, renderer, turntable);
       
-      // FIXED: Always export with a full 360° rotation regardless of UI rotation speed
-      // This ensures the exported emoji always shows a complete rotation
-      const targetDuration = 3; // Always 3 seconds for emoji
+      // Calculate perfect rotation timing based on current rotation speed
+      const speedMap = {
+        slow: 0.01,
+        medium: 0.02,
+        fast: 0.035,
+      };
       
-      console.log('🎬 Export settings (FIXED rotation):', {
+      const rotationSpeed = speedMap[coinSettings.rotationSpeed];
+      
+      // FIXED: Always use 3 seconds and calculate the appropriate rotation amount
+      const targetDuration = 3; // Always 3 seconds for emoji
+      const rotationAmount = rotationSpeed * 60 * targetDuration; // How much rotation in 3 seconds
+      
+      console.log('🎬 Export settings:', {
         rotationSpeed: coinSettings.rotationSpeed,
-        uiSpeedNote: 'UI rotation speed preserved for live view',
+        speedValue: rotationSpeed,
         targetDuration,
-        exportRotation: 'Fixed 360° rotation for export (independent of UI speed)',
+        rotationAmount: `${(rotationAmount / (2 * Math.PI)).toFixed(2)} full rotations`,
+        radiansAmount: rotationAmount.toFixed(3),
         fps: 30
       });
       
-      // Export as WebM for emoji use (100x100, 30fps, 3 seconds with FIXED 360° rotation)
+      // Export as WebM for emoji use (100x100, 30fps, 3 seconds with proper rotation)
       const webmBlob = await exporter.exportAsWebM({
         fps: 30,
         duration: targetDuration, // Always 3 seconds
-        size: 100
-        // Note: rotationSpeed removed - exporter now forces 360° rotation internally
+        size: 100,
+        rotationSpeed: rotationSpeed // Pass the actual rotation speed to match live animation
       });
       
       // Send file to Telegram via bot
@@ -115,24 +125,30 @@ const AppContent: React.FC = () => {
 
       const exporter = new CoinExporter(scene, camera, renderer, turntable);
       
-      // FIXED: Always export with a full 360° rotation for consistent emoji quality
-      // The export is independent of the UI rotation speed setting
-      const targetDuration = 3; // Always 3 seconds for emoji
+      // Calculate perfect rotation timing based on current rotation speed (same as download)
+      const speedMap = {
+        slow: 0.01,
+        medium: 0.02,
+        fast: 0.035,
+      };
       
-      console.log('🎭 Emoji export settings (FIXED rotation):', {
+      const rotationSpeed = speedMap[coinSettings.rotationSpeed];
+      // Calculate time for one full rotation (2π radians)
+      const timeForFullRotation = (2 * Math.PI) / rotationSpeed / 60; // Convert to seconds (assuming 60fps)
+      
+      console.log('🎭 Emoji export settings:', {
         rotationSpeed: coinSettings.rotationSpeed,
-        uiSpeedNote: 'UI rotation speed preserved for live view',
-        targetDuration,
-        exportRotation: 'Fixed 360° rotation for emoji (independent of UI speed)',
+        speedValue: rotationSpeed,
+        timeForFullRotation: timeForFullRotation,
         fps: 30
       });
       
-      // Export as WebM for Telegram emoji (100x100, 30fps, FIXED 360° rotation)
+      // Export as WebM for Telegram emoji (100x100, 30fps, perfect rotation)
       const webmBlob = await exporter.exportAsWebM({
         fps: 30,
-        duration: targetDuration, // Always 3 seconds for consistent timing
-        size: 100
-        // Note: rotationSpeed removed - exporter now forces 360° rotation internally
+        duration: Math.max(1, Math.min(3, timeForFullRotation)), // Clamp between 1-3 seconds
+        size: 100,
+        rotationSpeed: rotationSpeed // Pass the actual rotation speed to match live animation
       });
       
       // Create custom emoji in Telegram
@@ -140,7 +156,7 @@ const AppContent: React.FC = () => {
         webmBlob,
         initData,
         ['🪙'],
-        'Coinmoji'
+        'My Coinmoji'
       );
       
       if (result.success) {
