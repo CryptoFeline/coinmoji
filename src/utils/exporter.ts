@@ -48,15 +48,15 @@ export class CoinExporter {
     const { fps, duration, size } = settings;
     const totalFrames = Math.floor(fps * duration);
     
-    // CRITICAL: For smooth 3-second emoji animation, we need the full frame count
-    // Remove artificial 30-frame cap to support full 90 frames at 30fps for 3 seconds
-    // This gives us smooth high-quality animation matching the THREE.js live speed
-    const maxFrames = Math.min(totalFrames, 90); // Allow up to 90 frames for 3-second 30fps animation
-    const actualFrames = maxFrames;
+    // Limit frames more aggressively to prevent stack overflow
+    // Max 30 frames but keep the SAME DURATION for proper timing
+    const maxFrames = 30;
+    const actualFrames = Math.min(totalFrames, maxFrames);
     
-    // Use the actual duration for proper timing
-    const actualDuration = duration;
-    const effectiveFPS = actualFrames / actualDuration; // Should equal requested FPS
+    // CRITICAL: Keep original duration even with fewer frames
+    // This will slow down the animation to match the 3-second window
+    const actualDuration = duration; // Always use full duration
+    const effectiveFPS = actualFrames / actualDuration; // Slower effective FPS
     
     const frames: Blob[] = [];
 
@@ -68,9 +68,7 @@ export class CoinExporter {
       actualFrames,
       maxAllowed: maxFrames,
       effectiveFPS: effectiveFPS.toFixed(2),
-      actualDuration,
-      rotationSpeed: settings.rotationSpeed || 'default(medium)',
-      note: 'Full frame count for smooth 3-second animation'
+      actualDuration
     });
 
     // Store original rotation (we don't touch the live renderer anymore)
@@ -115,30 +113,18 @@ export class CoinExporter {
 
       for (let i = 0; i < actualFrames; i++) {
         try {
-          // CRITICAL: Match the actual THREE.js rotation speed over the duration
-          // Calculate how much the coin should rotate based on the live animation speed
+          // CRITICAL: Calculate rotation for COMPLETE 360° rotation over duration
+          // Ensure we always do exactly one full rotation regardless of speed settings
           
           // Progress through the frames (0 to 1) - use frames, not time
           const frameProgress = i / (actualFrames - 1); // 0 to 1 across all frames
           
-          // Calculate total rotation amount matching THREE.js live animation
-          // Default to medium speed if rotationSpeed not provided
-          const speedMap = { slow: 0.01, medium: 0.02, fast: 0.035 };
-          const defaultRotationSpeed = speedMap.medium; // 0.02 rad/frame at 60fps
-          const rotationPerFrame = settings.rotationSpeed || defaultRotationSpeed;
+          // FORCE a complete 360° rotation (2π radians) over the entire duration
+          const totalRotation = frameProgress * Math.PI * 2; // Full circle: 0 to 2π
           
-          // Calculate total rotation over the actual duration (matching App.tsx logic)
-          const rotationInDuration = rotationPerFrame * 60 * actualDuration; // rad/frame * frames/sec * seconds
-          const totalRotation = frameProgress * rotationInDuration;
-          
-          // Debug: Log rotation for first few frames to verify speed matching
+          // Debug: Log rotation for first few frames to verify
           if (i === 0 || i === 1 || i === actualFrames - 1) {
-            console.log(`📐 Frame ${i}: progress=${frameProgress.toFixed(3)}, rotation=${totalRotation.toFixed(3)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°)`, {
-              rotationPerFrame,
-              totalRotationInDuration: rotationInDuration.toFixed(3),
-              fullRotations: (rotationInDuration / (2 * Math.PI)).toFixed(2),
-              matchesThreeJS: 'Should match live animation speed'
-            });
+            console.log(`📐 Frame ${i}: progress=${frameProgress.toFixed(3)}, rotation=${totalRotation.toFixed(3)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°)`);
           }
           
           // Set rotation for this frame to match the live animation timing
@@ -459,16 +445,16 @@ export class CoinExporter {
     }
 
     // Decision logic for encoding approach
-    // CRITICAL: Telegram WebView only supports VP9 Profile 0 (no alpha) - MUST use server-side FFmpeg
+    // CRITICAL: FORCE server-side FFmpeg for ALL exports to ensure proper frame rate and transparency
+    // The server-side FFmpeg has been fixed to use the correct FPS (30fps) instead of calculated effectiveFPS (10fps)
+    capabilities.shouldUseServerSide = true;
+    
     if (capabilities.isLimitedWebView && !capabilities.hasAlphaCapableCodecs) {
-      capabilities.shouldUseServerSide = true;
-      capabilities.reason = 'LIMITED WEBVIEW: Telegram environment detected with only VP9 Profile 0 - server-side FFmpeg required for VP9 Profile 2 with alpha transparency';
+      capabilities.reason = 'LIMITED WEBVIEW: Telegram environment detected - server-side FFmpeg required for VP9 Profile 2 with alpha transparency AND correct frame rate';
     } else if (!capabilities.hasWebCodecs || !capabilities.hasAlphaCapableCodecs) {
-      capabilities.shouldUseServerSide = true;
-      capabilities.reason = 'No alpha-capable codecs available locally - server-side FFmpeg preferred for transparency';
+      capabilities.reason = 'No alpha-capable codecs available locally - server-side FFmpeg preferred for transparency AND correct frame rate';
     } else {
-      capabilities.shouldUseServerSide = false;
-      capabilities.reason = 'Alpha-capable codecs available locally - client-side encoding suitable';
+      capabilities.reason = 'FORCED: Using server-side FFmpeg for correct 30fps frame rate (client-side was using 10fps effectiveFPS)';
     }
 
     return capabilities;
@@ -632,23 +618,13 @@ export class CoinExporter {
       
       await debugLog(`📤 Sending ${framesBase64.length} WebP frames to server for FFmpeg WebM creation...`);
       
-      // OPTIMIZATION: For server-side processing, reduce frame count to prevent timeouts
-      // while maintaining smooth animation. Use adaptive frame reduction based on file size target
-      let optimizedFrames = framesBase64;
-      if (framesBase64.length > 60) {
-        // For large frame counts, reduce to 60 frames max for server stability
-        const step = Math.ceil(framesBase64.length / 60);
-        optimizedFrames = framesBase64.filter((_, index) => index % step === 0);
-        await debugLog(`🎯 Reduced ${framesBase64.length} frames to ${optimizedFrames.length} frames for server processing (every ${step}th frame)`);
-      }
-      
       // Send frames to server-side function with timeout protection
       const payload = {
-        frames_base64: optimizedFrames,
+        frames_base64: framesBase64,
         frame_format: 'webp', // Indicate we're sending WebP frames
         settings: {
-          fps: settings.fps, // Keep original FPS for smooth playback
-          size: settings.size, // Use exact requested size for Telegram emoji dimensions (100x100)
+          fps: settings.fps,
+          size: settings.size,
           duration: settings.duration
         }
       };
@@ -749,12 +725,12 @@ export class CoinExporter {
   private async createWebMViaWebMuxer(settings: ExportSettings): Promise<Blob> {
     await debugLog('🔧 Creating WebM via client-side webm-muxer...');
     
-    // Calculate the ACTUAL fps and frame count that will be used (match exportFrames logic)
+    // Calculate the ACTUAL fps and frame count that will be used
     const { fps, duration } = settings;
     const totalFrames = Math.floor(fps * duration);
-    const maxFrames = Math.min(totalFrames, 90); // Allow up to 90 frames for 3-second 30fps animation
-    const actualFrames = maxFrames;
-    const effectiveFPS = actualFrames / duration; // Should equal requested FPS for 3-second animation
+    const maxFrames = 30;
+    const actualFrames = Math.min(totalFrames, maxFrames);
+    const effectiveFPS = actualFrames / duration; // This is the REAL fps for the WebM
     
     await debugLog('🎯 WebM timing calculation:', {
       requestedFPS: fps,
