@@ -204,17 +204,19 @@ export class FFmpegManager {
     
     await fs.writeFile(frameListPath, frameListContent);
 
-    // CRITICAL: Calculate the correct frame rate for the desired duration
-    // If we have 30 frames and want 3 seconds, we need 30/3 = 10 fps
+    // CRITICAL: Use the REQUESTED frame rate for smooth animation
+    // The client already provides the correct FPS and duration
+    // We should respect the requested FPS to maintain smooth animation
     const frameCount = pngFramePaths.length;
     const targetDuration = settings.duration || 3; // Default to 3 seconds if not provided
-    const effectiveFPS = frameCount / targetDuration;
+    const requestedFPS = settings.fps; // Use the FPS requested by the client
     
     console.log('⏱️ Frame rate calculation:', {
       frameCount,
       targetDuration,
-      effectiveFPS: effectiveFPS.toFixed(2),
-      originalFPS: settings.fps
+      requestedFPS,
+      originalFPS: settings.fps,
+      note: 'Using requested FPS for smooth animation, not frameCount/duration'
     });
 
     // Build FFmpeg command for transparent WebM with VP9 optimized for small file size
@@ -231,7 +233,7 @@ export class FFmpegManager {
       '-error-resilient', '1', // Better for streaming
       '-b:v', '0',             // Use constant quality mode (honors CRF)
       '-crf', '35',            // Reduced CRF for better quality (was 40, now 35 for more frames)
-      '-r', effectiveFPS.toString(), // Use calculated effective FPS for correct duration
+      '-r', requestedFPS.toString(), // Use requested FPS for smooth animation
       '-deadline', 'realtime', // Fast encoding for Netlify timeout limits
       '-cpu-used', '8',        // Fastest CPU preset
       '-y',                    // Overwrite output
