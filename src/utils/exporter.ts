@@ -285,7 +285,7 @@ export class CoinExporter {
   }
 
   private async createAnimatedGifViaCanvas(frames: Blob[], settings: ExportSettings): Promise<Blob> {
-    console.log('🎨 Creating animated GIF from transparent frames (client-side fallback)...');
+    console.log('🎨 Creating animated WebM from transparent frames (with improved alpha handling)...');
     
     // Load all frames as images
     const images: HTMLImageElement[] = [];
@@ -294,40 +294,54 @@ export class CoinExporter {
       images.push(img);
     }
     
-    console.log(`📸 Loaded ${images.length} images for GIF animation`);
+    console.log(`📸 Loaded ${images.length} images for animation`);
     
-    // Create canvas for compositing frames
+    // Create canvas for compositing frames with explicit alpha support
     const canvas = document.createElement('canvas');
     canvas.width = 512; // Use original frame size
     canvas.height = 512;
-    const ctx = canvas.getContext('2d', { alpha: true })!;
     
-    // Create a MediaRecorder stream for the animation
+    // CRITICAL: Set up canvas with alpha support
+    const ctx = canvas.getContext('2d', { 
+      alpha: true,
+      premultipliedAlpha: false,
+      preserveDrawingBuffer: true,
+      willReadFrequently: false
+    }) as CanvasRenderingContext2D;
+    
+    // Ensure canvas supports transparency
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    
+    // Create a video stream from the canvas with alpha support
     const stream = canvas.captureStream(settings.fps);
     
-    // Try to create WebM with VP9 for transparency, then convert to GIF-like format
+    // Try VP9 with alpha support first
     let recorder: MediaRecorder;
     let mimeType = 'video/webm;codecs=vp9';
     
     try {
       recorder = new MediaRecorder(stream, {
         mimeType: 'video/webm;codecs=vp9',
-        videoBitsPerSecond: 2000000
+        videoBitsPerSecond: 3000000 // Higher bitrate for better quality and transparency
       });
+      console.log('🎥 Using VP9 codec with alpha support');
     } catch (vp9Error) {
       console.log('⚠️ VP9 not supported, trying VP8...');
       try {
         recorder = new MediaRecorder(stream, {
           mimeType: 'video/webm;codecs=vp8',
-          videoBitsPerSecond: 2000000
+          videoBitsPerSecond: 3000000
         });
         mimeType = 'video/webm;codecs=vp8';
+        console.log('🎥 Using VP8 codec');
       } catch (vp8Error) {
         console.log('⚠️ VP8 not supported, using default...');
         recorder = new MediaRecorder(stream, {
-          videoBitsPerSecond: 2000000
+          videoBitsPerSecond: 3000000
         });
         mimeType = 'video/webm';
+        console.log('🎥 Using default codec');
       }
     }
     
@@ -344,19 +358,31 @@ export class CoinExporter {
     // Start recording
     recorder.start(100); // Request data every 100ms for smoother recording
     
-    // Animate through frames with proper timing
+    // Animate through frames with proper timing and transparency handling
     const frameDuration = (settings.duration * 1000) / frames.length; // ms per frame
     let currentFrame = 0;
     let frameCount = 0;
     const totalFramesToRecord = frames.length * 3; // Record 3 full loops to ensure we get good animation
     
     const animateFrame = () => {
-      // Clear canvas with transparent background
+      // CRITICAL: Properly clear the canvas with full transparency
+      ctx.save();
+      
+      // Clear the entire canvas area
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
-      // Draw current frame
+      // Set composition mode for transparency preservation
       ctx.globalCompositeOperation = 'source-over';
-      ctx.drawImage(images[currentFrame], 0, 0);
+      ctx.globalAlpha = 1.0;
+      
+      // Draw current frame maintaining its alpha channel
+      try {
+        ctx.drawImage(images[currentFrame], 0, 0, canvas.width, canvas.height);
+      } catch (drawError) {
+        console.warn(`Failed to draw frame ${currentFrame}:`, drawError);
+      }
+      
+      ctx.restore();
       
       currentFrame = (currentFrame + 1) % images.length;
       frameCount++;
@@ -365,7 +391,7 @@ export class CoinExporter {
     // Start animation loop
     const frameInterval = setInterval(animateFrame, frameDuration);
     
-    // Initial frame
+    // Draw initial frame
     animateFrame();
     
     // Record for enough time to capture the animation
@@ -387,7 +413,7 @@ export class CoinExporter {
           return;
         }
         
-        // Create animated blob (WebM format that will play as animation)
+        // Create animated blob (WebM format that should preserve transparency)
         const animatedBlob = new Blob(chunks, { type: 'video/webm' });
         
         if (animatedBlob.size === 0) {
@@ -402,7 +428,7 @@ export class CoinExporter {
           framesProcessed: frameCount,
           chunksCount: chunks.length,
           duration: recordingDuration,
-          note: 'WebM animation with transparency (animated WebP alternative)'
+          note: 'WebM animation with improved transparency handling'
         });
         
         resolve(animatedBlob);

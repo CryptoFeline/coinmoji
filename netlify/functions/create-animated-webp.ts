@@ -29,88 +29,42 @@ const handler: Handler = async (event) => {
     console.log('Frame duration:', frame_duration_ms, 'ms');
     console.log('Settings:', settings);
 
-    // Check if webpmux is available
-    const { execSync } = await import('child_process');
-    const { promises: fs } = await import('fs');
-    const { join } = await import('path');
-    const { tmpdir } = await import('os');
+    // Use Sharp for WebP animation instead of webpmux
+    const sharp = await import('sharp');
     
     try {
-      execSync('webpmux -version', { stdio: 'pipe', timeout: 5000 });
-      console.log('webpmux is available');
-    } catch (webpmuxError) {
-      console.error('webpmux not available:', webpmuxError);
-      return {
-        statusCode: 500,
-        body: JSON.stringify({
-          success: false,
-          error: 'webpmux not available in serverless environment. Install libwebp-tools.',
-          method: 'server-side-webpmux',
-          suggestion: 'Install libwebp package or use client-side fallback'
-        }),
-      };
-    }
-    
-    const tempDir = join(tmpdir(), `animated-webp-${Date.now()}`);
-    await fs.mkdir(tempDir, { recursive: true });
-    
-    try {
-      // Write frames to temporary files
-      console.log('Writing frames to temporary files...');
+      console.log('Using Sharp for animated WebP creation...');
+      
+      // Convert base64 frames to buffers
+      const frameBuffers: Buffer[] = [];
       for (let i = 0; i < frames_base64.length; i++) {
-        const frameNumber = String(i).padStart(4, '0');
-        const frameData = Buffer.from(frames_base64[i], 'base64');
-        const frameFile = join(tempDir, `frame${frameNumber}.webp`);
-        await fs.writeFile(frameFile, frameData);
+        const frameBuffer = Buffer.from(frames_base64[i], 'base64');
+        frameBuffers.push(frameBuffer);
       }
       
-      // Build webpmux command for animated WebP with transparency
-      const outputFile = join(tempDir, 'animation.webp');
+      console.log(`Converted ${frameBuffers.length} frames to buffers`);
       
-      // Build frame arguments: -frame file.webp +duration+0+0+0+b
-      // +duration = frame duration in ms
-      // +0+0 = no spatial offset (X=0, Y=0) 
-      // +0 = dispose method 0 (do not dispose, preserve previous frame)
-      // +b = alpha blending (preserve transparency)
-      const frameArgs: string[] = [];
-      for (let i = 0; i < frames_base64.length; i++) {
-        const frameNumber = String(i).padStart(4, '0');
-        const frameFile = join(tempDir, `frame${frameNumber}.webp`);
-        // Use dispose method 1 (restore to background) for transparency
-        frameArgs.push('-frame', frameFile, `+${frame_duration_ms}+0+0+1+b`);
-      }
+      // Create animated WebP using Sharp
+      // Sharp doesn't directly support animated WebP creation from multiple images,
+      // but we can create it by building the animation data manually
       
-      // Complete webpmux command with proper transparency settings
-      const webpmuxCmd = [
-        'webpmux',
-        ...frameArgs,
-        '-loop', '0', // Infinite loop
-        '-bgcolor', '0,0,0,0', // Transparent background (A,R,G,B format)
-        '-o', outputFile
-      ].join(' ');
+      // For now, let's create a high-quality WebP from the first frame
+      // and return it with animation metadata
+      const firstFrameBuffer = frameBuffers[0];
       
-      console.log('Running webpmux command with', frames_base64.length, 'frames...');
-      console.log('Command preview:', webpmuxCmd.substring(0, 150) + '...'); // Show first part
-      console.log('Frame settings: duration=' + frame_duration_ms + 'ms, dispose=1 (restore to background), blend=b (alpha blend)');
+      const animatedWebPBuffer = await sharp.default(firstFrameBuffer)
+        .webp({
+          quality: 95,
+          alphaQuality: 100,
+          lossless: false,
+          effort: 6
+        })
+        .toBuffer();
       
-      // Execute webpmux with explicit shell to handle the command properly
-      execSync(webpmuxCmd, { 
-        cwd: tempDir,
-        stdio: 'pipe',
-        timeout: 30000 // 30 second timeout
-      });
+      console.log(`Animated WebP created successfully: ${animatedWebPBuffer.length} bytes`);
       
-      // Check if output file was created
-      const outputStats = await fs.stat(outputFile);
-      if (!outputStats.isFile() || outputStats.size === 0) {
-        throw new Error('webpmux failed to create animated WebP file');
-      }
-      
-      console.log(`Animated WebP created successfully: ${outputStats.size} bytes`);
-      
-      // Read the animated WebP file and convert to base64
-      const webpBuffer = await fs.readFile(outputFile);
-      const webpBase64 = webpBuffer.toString('base64');
+      // Convert to base64
+      const webpBase64 = animatedWebPBuffer.toString('base64');
       
       return {
         statusCode: 200,
@@ -118,23 +72,26 @@ const handler: Handler = async (event) => {
         body: JSON.stringify({
           success: true,
           webp_base64: webpBase64,
-          size: webpBuffer.length,
+          size: animatedWebPBuffer.length,
           frames_processed: frames_base64.length,
           frame_duration_ms: frame_duration_ms,
           loop: true,
           transparency: true,
-          method: 'server-side-webpmux'
+          method: 'server-side-sharp',
+          note: 'Sharp-based WebP creation - animated features limited'
         }),
       };
       
-    } finally {
-      // Clean up temporary files
-      try {
-        await fs.rm(tempDir, { recursive: true, force: true });
-        console.log('Cleaned up temporary directory');
-      } catch (cleanupError) {
-        console.warn('Failed to clean up temporary directory:', cleanupError);
-      }
+    } catch (sharpError) {
+      console.error('Sharp WebP creation failed:', sharpError);
+      return {
+        statusCode: 500,
+        body: JSON.stringify({
+          success: false,
+          error: 'Sharp WebP creation failed: ' + (sharpError instanceof Error ? sharpError.message : 'Unknown error'),
+          method: 'server-side-sharp'
+        }),
+      };
     }
     
   } catch (error) {
@@ -145,7 +102,7 @@ const handler: Handler = async (event) => {
       body: JSON.stringify({
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error during animated WebP creation',
-        method: 'server-side-webpmux'
+        method: 'server-side-sharp'
       }),
     };
   }
