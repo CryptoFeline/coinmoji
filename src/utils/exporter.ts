@@ -264,15 +264,33 @@ export class CoinExporter {
       
       // Step 4: Create 100×100 WebM directly from individual frames (skip animated WebP)
       console.log('🎬 Creating 100×100 WebM directly from downscaled frames...');
-      const webmBlob = await this.createWebMFromFrames(frames100, settings);
       
-      console.log('✅ WebM created:', { size: webmBlob.size });
+      // Step 4: Create 100×100 WebM directly from individual frames (skip animated WebP)
+      console.log('🎬 Creating 100×100 WebM directly from downscaled frames...');
       
-      // Download final WebM for emoji
-      this.downloadBlob(webmBlob, 'coinmoji-final-100px.webm');
-      console.log('📦 Downloaded final WebM: coinmoji-final-100px.webm');
+      // Force garbage collection between operations to free memory
+      if (typeof global !== 'undefined' && global.gc) {
+        global.gc();
+      }
       
-      return webmBlob;
+      try {
+        const webmBlob = await this.createWebMFromFrames(frames100, settings);
+        
+        console.log('✅ WebM created:', { size: webmBlob.size });
+        
+        // Download final WebM for emoji
+        this.downloadBlob(webmBlob, 'coinmoji-final-100px.webm');
+        console.log('📦 Downloaded final WebM: coinmoji-final-100px.webm');
+        
+        return webmBlob;
+      } catch (webmError) {
+        console.error('❌ Direct WebM creation failed:', webmError);
+        console.log('🔄 Memory error - falling back to 512×512 animated WebP as final output');
+        console.log('💡 Use the 512×512 animated WebP file for emoji creation externally');
+        
+        // Return the 512×512 animated WebP as fallback
+        return animatedWebP512;
+      }
       
     } catch (error) {
       console.error('❌ Animated WebP creation failed:', error);
@@ -647,7 +665,7 @@ export class CoinExporter {
     const { FFmpeg } = await import('@ffmpeg/ffmpeg');
     const { fetchFile } = await import('@ffmpeg/util');
     
-    console.log('📦 Initializing FFmpeg.wasm for direct WebM creation...');
+    console.log('📦 Initializing fresh FFmpeg.wasm instance for direct WebM creation...');
     const ffmpeg = new FFmpeg();
     
     // Add logging to see FFmpeg output for debugging
@@ -658,7 +676,7 @@ export class CoinExporter {
     });
     
     await ffmpeg.load();
-    console.log('✅ FFmpeg.wasm loaded for direct WebM creation');
+    console.log('✅ Fresh FFmpeg.wasm loaded for direct WebM creation');
     
     try {
       // Write individual frames to FFmpeg filesystem
@@ -696,20 +714,23 @@ export class CoinExporter {
       const outputFilename = 'thumb_100.webm';
       console.log(`📝 Output filename: ${outputFilename}`);
       
-      // Create WebM directly from individual frames with VP9 and alpha support
+      // Create WebM directly from individual frames with optimized VP9 settings for memory efficiency
       await ffmpeg.exec([
         '-framerate', framerate.toString(),
         '-i', 'thumb%04d.webp',
         '-pix_fmt', 'yuva420p',      // VP9 with alpha channel
         '-c:v', 'libvpx-vp9',        // VP9 codec supports alpha
         '-b:v', '0',                 // CRF mode (constant rate factor)
-        '-crf', '30',                // Quality 0-63 (lower = better quality)
+        '-crf', '35',                // Slightly lower quality for memory efficiency (was 30)
         '-auto-alt-ref', '0',        // Keep alpha plane intact
-        '-row-mt', '1',              // Multi-thread rows (safe in wasm)
-        '-threads', '1',             // Predictable memory usage
-        '-deadline', 'good',         // Good quality/speed trade-off
-        '-cpu-used', '1',            // Faster encoding
-        '-lag-in-frames', '0',       // Reduce latency
+        '-row-mt', '0',              // Disable multi-thread rows to save memory
+        '-threads', '1',             // Single thread for predictable memory usage
+        '-deadline', 'realtime',     // Faster encoding with less memory (was 'good')
+        '-cpu-used', '8',            // Fastest encoding to reduce memory pressure (was 1)
+        '-lag-in-frames', '0',       // Reduce latency and memory usage
+        '-tile-columns', '0',        // Disable tiling to save memory
+        '-frame-parallel', '0',      // Disable frame parallelism
+        '-g', '30',                  // Set GOP size to frame count for predictable memory
         outputFilename
       ]);
       
@@ -750,6 +771,13 @@ export class CoinExporter {
       
     } catch (error) {
       console.error('FFmpeg.wasm WebM creation error:', error);
+      
+      // If memory error, suggest fallback
+      if (error instanceof Error && error.message.includes('memory access out of bounds')) {
+        console.log('💡 Memory error detected - WebM creation requires more memory than available');
+        console.log('💡 Consider using the 512×512 animated WebP file and converting externally');
+      }
+      
       throw new Error(`Direct WebM creation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
