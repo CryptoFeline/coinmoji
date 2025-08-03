@@ -105,13 +105,6 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     fast: 0.035,
   };
 
-  // GIF animation speed multipliers
-  const gifSpeedMap = {
-    slow: 1.0,    // Original speed
-    medium: 2.5,  // 2.5x faster
-    fast: 5.0,    // 5x faster
-  };
-
   const hasWebCodecs = typeof window !== 'undefined' && 'VideoEncoder' in window && 'VideoFrame' in window;
 
   useEffect(() => {
@@ -364,7 +357,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
   };
 
   // ---- Simple GIF loading (static image only - animation removed) ----
-  const gifUrlToVideoTexture = async (url: string, speedMultiplier: number = 1.5): Promise<THREE.Texture> => {
+  const gifUrlToVideoTexture = async (url: string): Promise<THREE.Texture> => {
     // Simplified: Load GIF as static image texture
     console.warn('GIF animation support removed. Loading as static image.');
     return new Promise((resolve, reject) => {
@@ -392,8 +385,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
         (async () => {
           if (hasWebCodecs) {
             try {
-              const gifSpeed = gifSpeedMap[currentSettings.gifAnimationSpeed];
-              const tex = await gifUrlToVideoTexture(url, gifSpeed);
+              const tex = await gifUrlToVideoTexture(url);
               resolve(tex);
               return;
             } catch (e) {

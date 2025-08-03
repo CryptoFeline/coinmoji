@@ -4,17 +4,61 @@ import { writeFile, readFile, rm, mkdtemp, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-// For Netlify functions, the binary should be in the same directory as this handler
-// Use a simple approach that works in the serverless environment
-const ffmpegPath = join(__dirname, 'ffmpeg');
+// For Netlify functions, try multiple possible paths for the bundled FFmpeg binary
+const possibleFFmpegPaths = [
+  // Path relative to the function handler
+  join(__dirname, 'ffmpeg'),
+  // Path relative to the function directory
+  join(__dirname, '..', 'make-webm', 'ffmpeg'),
+  // Absolute path based on Netlify's structure
+  '/var/task/netlify/functions/make-webm/ffmpeg',
+  // Alternative path structure
+  join(process.cwd(), 'netlify', 'functions', 'make-webm', 'ffmpeg')
+];
 
-// Verify that the bundled FFmpeg binary exists
+let ffmpegPath: string = '';
+
+// Verify that the bundled FFmpeg binary exists and find the correct path
 async function ensureFFmpeg(): Promise<void> {
+  console.log('🔍 Searching for bundled FFmpeg binary...');
+  console.log('📁 Current working directory:', process.cwd());
+  console.log('📁 Function __dirname:', __dirname);
+  
+  // Try each possible path
+  for (const path of possibleFFmpegPaths) {
+    try {
+      await access(path);
+      ffmpegPath = path;
+      console.log('✅ Bundled FFmpeg binary found at:', ffmpegPath);
+      return;
+    } catch {
+      console.log('❌ FFmpeg not found at:', path);
+    }
+  }
+  
+  // If not found, fall back to downloading to /tmp
+  console.log('📥 Bundled binary not found, downloading to /tmp...');
+  ffmpegPath = '/tmp/ffmpeg';
+  
   try {
     await access(ffmpegPath);
-    console.log('✅ Bundled FFmpeg binary found at:', ffmpegPath);
+    console.log('✅ FFmpeg already exists in /tmp');
+    return;
   } catch {
-    throw new Error(`Bundled FFmpeg binary not found at ${ffmpegPath}. Please run: ./scripts/bundle-ffmpeg.sh`);
+    console.log('📦 Downloading FFmpeg binary...');
+    const ffmpegUrl = 'https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-linux-x64';
+    
+    const response = await fetch(ffmpegUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to download FFmpeg: ${response.status} ${response.statusText}`);
+    }
+    
+    const binaryData = await response.arrayBuffer();
+    const { chmod } = await import('node:fs/promises');
+    await writeFile(ffmpegPath, new Uint8Array(binaryData));
+    await chmod(ffmpegPath, 0o755);
+    
+    console.log('✅ FFmpeg binary downloaded and made executable at:', ffmpegPath);
   }
 }
 
@@ -35,6 +79,11 @@ export const handler: Handler = async (event) => {
   try {
     // Ensure FFmpeg binary is available
     await ensureFFmpeg();
+    
+    // Validate that FFmpeg path was found/set
+    if (!ffmpegPath) {
+      throw new Error('FFmpeg binary not available after setup attempt');
+    }
     
     const request: MakeWebMRequest = JSON.parse(event.body || '{}');
     

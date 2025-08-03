@@ -10,17 +10,15 @@ export interface ExportSettings {
 
 export class CoinExporter {
   private scene: THREE.Scene;
-  private renderer: THREE.WebGLRenderer;
   private turntable: THREE.Group;
 
   constructor(
     scene: THREE.Scene,
     _camera: THREE.PerspectiveCamera, // Keep for API compatibility but don't use
-    renderer: THREE.WebGLRenderer,
+    _renderer: THREE.WebGLRenderer, // Keep for API compatibility but don't use
     turntable: THREE.Group
   ) {
     this.scene = scene;
-    this.renderer = renderer;
     this.turntable = turntable;
   }
 
