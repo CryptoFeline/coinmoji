@@ -459,17 +459,17 @@ export class CoinExporter {
       
       // Create animated WebP with transparency - simplified command for compatibility
       await ffmpeg.exec([
-        '-i', 'animated.webp',                     // original animation
-        '-vf', 'scale=100:100:flags=lanczos',      // high-quality down-scaler
-        '-pix_fmt', 'yuva420p',                    // keep transparency
-        '-c:v', 'libwebp_anim',                    // animated WebP path
-        '-lossless', '0',                          // lossy = smaller
-        '-quality',  '90',                         // 0-100; higher->better
-        '-compression_level', '1',                 // 0-6 size vs. speed
-        '-loop', '0',                              // infinite loop
-        'animated_100.webp'
+        '-framerate', framerate.toString(),
+        '-i', 'frame%04d.webp',
+        '-pix_fmt', 'yuva420p',     // make sure alpha is kept
+        '-c:v', 'libwebp_anim',     // dedicated animated WebP encoder
+        '-lossless',  '0',          // 0 = lossy, 1 = lossless
+        '-quality',   '100',        // 0-100
+        '-compression_level', '0',  // 0-6, trade-off size vs. speed
+        '-loop',      '0',          // 0 = infinite loop
+        '-cr_threshold', '0',       // always refresh blocks (prevents stacking)
+        'animated.webp'
       ]);
-
       
       console.log('📖 Reading animated WebP from FFmpeg filesystem...');
       const animatedWebPData = await ffmpeg.readFile('animated.webp');
