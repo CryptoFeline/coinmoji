@@ -486,14 +486,14 @@ export class CoinExporter {
       ]);
       
       console.log('📖 Reading animated WebP from FFmpeg filesystem...');
-      const animatedWebPData = await ffmpeg.readFile('animated.webp');
+      const animatedWebPData = await ffmpeg.readFile('animated_512.webp');
       
       // Clean up FFmpeg filesystem (optional, but good practice)
       try {
         for (let i = 0; i < frames.length; i++) {
           await ffmpeg.deleteFile(`frame${String(i).padStart(4, '0')}.webp`);
         }
-        await ffmpeg.deleteFile('animated.webp');
+        await ffmpeg.deleteFile('animated_512.webp');
       } catch (cleanupError) {
         console.warn('Failed to clean up FFmpeg filesystem:', cleanupError);
       }
