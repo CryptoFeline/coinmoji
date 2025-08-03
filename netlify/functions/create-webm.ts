@@ -43,85 +43,87 @@ export const handler: Handler = async (event) => {
       format: request.frame_format || 'webp'
     });
 
-    // Import FFmpeg for server-side processing
-    const ffmpeg = require('fluent-ffmpeg');
-    const fs = require('fs').promises;
-    const path = require('path');
-    const { v4: uuidv4 } = require('uuid');
+    // Use FFmpeg.wasm on server side - should have more memory than browser
+    const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+    const { fetchFile } = await import('@ffmpeg/util');
 
-    // Create temporary directory for processing
-    const tempDir = `/tmp/webm-${uuidv4()}`;
-    await fs.mkdir(tempDir, { recursive: true });
+    console.log('📦 Initializing FFmpeg.wasm on server...');
+    const ffmpeg = new FFmpeg();
+    
+    // Add comprehensive logging for debugging
+    ffmpeg.on('log', ({ message }) => {
+      console.log('🔧 FFmpeg server log:', message);
+    });
+
+    ffmpeg.on('progress', ({ progress, time }) => {
+      console.log(`� FFmpeg progress: ${Math.round(progress * 100)}% (${time}s)`);
+    });
+
+    await ffmpeg.load();
+    console.log('✅ FFmpeg.wasm loaded on server with more memory allocation');
 
     try {
-      // Write frames to temporary files
-      console.log('📝 Writing frames to temporary directory...');
+      // Write frames to FFmpeg.wasm filesystem
+      console.log('📝 Writing frames to FFmpeg.wasm filesystem...');
       for (let i = 0; i < request.frames_base64.length; i++) {
         const frameBuffer = Buffer.from(request.frames_base64[i], 'base64');
         const extension = request.frame_format || 'webp';
-        const framePath = path.join(tempDir, `frame${String(i).padStart(4, '0')}.${extension}`);
-        await fs.writeFile(framePath, frameBuffer);
+        const filename = `frame${String(i).padStart(4, '0')}.${extension}`;
+        
+        // Convert Buffer to Uint8Array for FFmpeg.wasm
+        const frameData = new Uint8Array(frameBuffer);
+        await ffmpeg.writeFile(filename, frameData);
       }
-
-      // Output file path
-      const outputPath = path.join(tempDir, 'output.webm');
 
       console.log('🔧 Converting frames to WebM with VP9...');
 
-      // Create WebM using FFmpeg with VP9 and alpha support
-      await new Promise((resolve, reject) => {
-        ffmpeg()
-          .input(path.join(tempDir, `frame%04d.${request.frame_format || 'webp'}`))
-          .inputFPS(request.fps)
-          .videoCodec('libvpx-vp9')
-          .outputOptions([
-            '-pix_fmt yuva420p',      // VP9 with alpha channel
-            '-crf 30',                // Good quality
-            '-b:v 0',                 // CRF mode
-            '-auto-alt-ref 0',        // Preserve alpha
-            '-lag-in-frames 0',       // Reduce latency
-            '-deadline good',         // Good quality/speed balance
-            '-cpu-used 1',            // Good quality encoding
-            '-row-mt 1',              // Multi-threading (server has more resources)
-            '-tile-columns 0',        // No tiling for small frames
-            '-frame-parallel 0',      // Disable frame parallelism for alpha
-            `-t ${request.duration}`, // Set duration
-            '-y'                      // Overwrite output file
-          ])
-          .output(outputPath)
-          .on('start', (commandLine) => {
-            console.log('🚀 FFmpeg command:', commandLine);
-          })
-          .on('progress', (progress) => {
-            if (progress.percent) {
-              console.log(`📊 Progress: ${Math.round(progress.percent)}%`);
-            }
-          })
-          .on('end', () => {
-            console.log('✅ WebM conversion completed');
-            resolve(true);
-          })
-          .on('error', (err) => {
-            console.error('❌ FFmpeg error:', err);
-            reject(err);
-          })
-          .run();
-      });
+      // Create WebM using FFmpeg.wasm with VP9 and alpha support 
+      // Server-optimized settings: balance quality vs memory usage
+      await ffmpeg.exec([
+        '-framerate', request.fps.toString(),
+        '-i', `frame%04d.${request.frame_format || 'webp'}`,
+        '-pix_fmt', 'yuva420p',      // VP9 with alpha channel
+        '-c:v', 'libvpx-vp9',        // VP9 codec supports alpha
+        '-b:v', '0',                 // CRF mode
+        '-crf', '30',                // Good quality balance
+        '-auto-alt-ref', '0',        // Preserve alpha channel
+        '-lag-in-frames', '0',       // Reduce memory usage
+        '-deadline', 'good',         // Good quality/speed balance
+        '-cpu-used', '2',            // Balanced encoding speed
+        '-row-mt', '1',              // Enable multi-threading
+        '-tile-columns', '0',        // Disable tiling to save memory
+        '-frame-parallel', '0',      // Disable frame parallelism for alpha
+        '-threads', '2',             // Conservative thread count
+        '-g', request.frames_base64.length.toString(), // GOP size = frame count
+        '-t', request.duration.toString(), // Set duration
+        '-y',                        // Overwrite output file
+        'output.webm'
+      ]);
 
-      // Read the generated WebM file
+      // Read the generated WebM file from FFmpeg.wasm filesystem
       console.log('📖 Reading generated WebM file...');
-      const webmBuffer = await fs.readFile(outputPath);
+      const webmData = await ffmpeg.readFile('output.webm');
       
-      if (webmBuffer.length === 0) {
+      if (!webmData || webmData.length === 0) {
         throw new Error('Generated WebM file is empty');
       }
 
-      console.log(`✅ WebM created successfully: ${webmBuffer.length} bytes`);
+      console.log(`✅ WebM created successfully: ${webmData.length} bytes`);
 
-      // Clean up temporary files
-      await fs.rmdir(tempDir, { recursive: true });
+      // Clean up FFmpeg.wasm filesystem
+      try {
+        for (let i = 0; i < request.frames_base64.length; i++) {
+          const extension = request.frame_format || 'webp';
+          const filename = `frame${String(i).padStart(4, '0')}.${extension}`;
+          await ffmpeg.deleteFile(filename);
+        }
+        await ffmpeg.deleteFile('output.webm');
+      } catch (cleanupError) {
+        console.warn('Failed to clean up FFmpeg.wasm filesystem:', cleanupError);
+      }
 
-      // Return the WebM as base64
+      // Convert Uint8Array to base64
+      const webmBuffer = Buffer.from(webmData);
       const webmBase64 = webmBuffer.toString('base64');
 
       return {
@@ -129,7 +131,7 @@ export const handler: Handler = async (event) => {
         body: JSON.stringify({
           success: true,
           webm_base64: webmBase64,
-          size_bytes: webmBuffer.length,
+          size_bytes: webmData.length,
           frames_processed: request.frames_base64.length,
           fps: request.fps,
           duration: request.duration
@@ -137,12 +139,7 @@ export const handler: Handler = async (event) => {
       };
 
     } catch (processingError) {
-      // Clean up on error
-      try {
-        await fs.rmdir(tempDir, { recursive: true });
-      } catch (cleanupError) {
-        console.warn('Failed to clean up temp directory:', cleanupError);
-      }
+      console.error('❌ FFmpeg.wasm processing error:', processingError);
       throw processingError;
     }
 
