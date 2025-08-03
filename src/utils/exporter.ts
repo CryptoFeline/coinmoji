@@ -262,17 +262,9 @@ export class CoinExporter {
       this.downloadBlob(animatedWebP512, 'coinmoji-animated-512px.webp');
       console.log('📦 Downloaded 512×512 animated WebP: coinmoji-animated-512px.webp');
       
-      // Step 4: Create 100×100 animated WebP for emoji format
-      const animatedWebP100 = await this.createAnimatedWebP(frames100, settings);
-      
-      console.log('✅ 100×100 Animated WebP created:', { size: animatedWebP100.size });
-      
-      // Download 100×100 animated WebP for quality check
-      this.downloadBlob(animatedWebP100, 'coinmoji-animated-100px.webp');
-      console.log('📦 Downloaded 100×100 animated WebP: coinmoji-animated-100px.webp');
-      
-      // Step 5: Convert 100×100 WebP to WebM for emoji format
-      const webmBlob = await this.convertWebPToWebM(animatedWebP100);
+      // Step 4: Create 100×100 WebM directly from individual frames (skip animated WebP)
+      console.log('🎬 Creating 100×100 WebM directly from downscaled frames...');
+      const webmBlob = await this.createWebMFromFrames(frames100, settings);
       
       console.log('✅ WebM created:', { size: webmBlob.size });
       
@@ -644,6 +636,121 @@ export class CoinExporter {
     } catch (error) {
       console.error('FFmpeg.wasm processing error:', error);
       throw new Error(`FFmpeg.wasm failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  private async createWebMFromFrames(frames: Blob[], settings: ExportSettings): Promise<Blob> {
+    console.log('🎬 Creating WebM directly from individual frames...');
+    console.log(`📊 Input: ${frames.length} frames for WebM animation`);
+    
+    // Dynamic import for code splitting and lazy loading
+    const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+    const { fetchFile } = await import('@ffmpeg/util');
+    
+    console.log('📦 Initializing FFmpeg.wasm for direct WebM creation...');
+    const ffmpeg = new FFmpeg();
+    
+    // Add logging to see FFmpeg output for debugging
+    ffmpeg.on('log', ({ message }) => {
+      if (message.includes('error') || message.includes('failed') || message.includes('invalid')) {
+        console.log('🔧 FFmpeg WebM ERROR:', message);
+      }
+    });
+    
+    await ffmpeg.load();
+    console.log('✅ FFmpeg.wasm loaded for direct WebM creation');
+    
+    try {
+      // Write individual frames to FFmpeg filesystem
+      console.log(`📝 Writing ${frames.length} WebP frames to FFmpeg filesystem...`);
+      for (let i = 0; i < frames.length; i++) {
+        // Validate frame before processing
+        if (!frames[i] || frames[i].size === 0) {
+          throw new Error(`Frame ${i} is empty or null (size: ${frames[i]?.size || 0})`);
+        }
+        
+        const frameData = await fetchFile(frames[i]);
+        
+        if (frameData.length === 0) {
+          throw new Error(`Frame ${i} fetchFile returned 0 bytes`);
+        }
+        
+        const filename = `thumb${String(i).padStart(4, '0')}.webp`;
+        await ffmpeg.writeFile(filename, frameData);
+        
+        // Verify frame was written correctly
+        const written = await ffmpeg.readFile(filename);
+        if (written.length === 0) {
+          throw new Error(`Frame ${i} was written as 0 bytes to FFmpeg filesystem`);
+        }
+        
+        if (i === 0 || i === frames.length - 1) {
+          console.log(`📋 Frame ${i}: ${filename}, original: ${frames[i].size} bytes, written: ${frameData.length} bytes, verified: ${written.length} bytes`);
+        }
+      }
+      
+      // Calculate framerate from settings
+      const framerate = Math.round(frames.length / settings.duration);
+      console.log(`🎯 Creating WebM: ${frames.length} frames, ${framerate} fps, ${settings.duration}s duration`);
+      
+      const outputFilename = 'thumb_100.webm';
+      console.log(`📝 Output filename: ${outputFilename}`);
+      
+      // Create WebM directly from individual frames with VP9 and alpha support
+      await ffmpeg.exec([
+        '-framerate', framerate.toString(),
+        '-i', 'thumb%04d.webp',
+        '-pix_fmt', 'yuva420p',      // VP9 with alpha channel
+        '-c:v', 'libvpx-vp9',        // VP9 codec supports alpha
+        '-b:v', '0',                 // CRF mode (constant rate factor)
+        '-crf', '30',                // Quality 0-63 (lower = better quality)
+        '-auto-alt-ref', '0',        // Keep alpha plane intact
+        '-row-mt', '1',              // Multi-thread rows (safe in wasm)
+        '-threads', '1',             // Predictable memory usage
+        '-deadline', 'good',         // Good quality/speed trade-off
+        '-cpu-used', '1',            // Faster encoding
+        '-lag-in-frames', '0',       // Reduce latency
+        outputFilename
+      ]);
+      
+      console.log(`📖 Reading WebM from FFmpeg filesystem: ${outputFilename}`);
+      const webmData = await ffmpeg.readFile(outputFilename);
+      
+      if (!webmData || webmData.length === 0) {
+        console.error('❌ WebM file is empty!');
+        
+        // Debug: List all files in FFmpeg filesystem
+        try {
+          const files = await ffmpeg.listDir('/');
+          console.log('📁 FFmpeg filesystem contents:', files);
+        } catch (listError) {
+          console.warn('Could not list FFmpeg filesystem:', listError);
+        }
+        
+        throw new Error('WebM creation failed - output file is empty');
+      }
+      
+      // Clean up FFmpeg filesystem
+      try {
+        for (let i = 0; i < frames.length; i++) {
+          await ffmpeg.deleteFile(`thumb${String(i).padStart(4, '0')}.webp`);
+        }
+        await ffmpeg.deleteFile(outputFilename);
+      } catch (cleanupError) {
+        console.warn('Failed to clean up FFmpeg filesystem:', cleanupError);
+      }
+      
+      // Convert Uint8Array to Blob
+      const webmBlob = new Blob([webmData], { type: 'video/webm' });
+      
+      console.log(`✅ WebM created directly from frames: ${webmBlob.size} bytes`);
+      console.log('🎯 VP9 WebM with alpha channel ready for emoji!');
+      
+      return webmBlob;
+      
+    } catch (error) {
+      console.error('FFmpeg.wasm WebM creation error:', error);
+      throw new Error(`Direct WebM creation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
