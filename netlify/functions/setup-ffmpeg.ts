@@ -1,7 +1,6 @@
 import { Handler } from '@netlify/functions';
-import { writeFile, access, chmod, readFile, rm } from 'node:fs/promises';
+import { writeFile, access, chmod } from 'node:fs/promises';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
 
 const handler: Handler = async (event) => {
@@ -49,80 +48,26 @@ const handler: Handler = async (event) => {
       console.log('📥 FFmpeg binary not found, downloading...');
     }
     
-    // Download FFmpeg static build from BtbN releases
-    const ffmpegUrl = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-lgpl.tar.xz';
+    // Download FFmpeg static binary directly (no extraction needed)
+    console.log('📦 Downloading FFmpeg static binary...');
     
-    console.log('📦 Downloading FFmpeg from:', ffmpegUrl);
+    // Try the primary source first (eugeneware ffmpeg-static)
+    const fallbackUrl = 'https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/linux-x64';
     
-    const response = await fetch(ffmpegUrl);
+    console.log('� Downloading from:', fallbackUrl);
+    const response = await fetch(fallbackUrl);
+    
     if (!response.ok) {
       throw new Error(`Failed to download FFmpeg: ${response.status} ${response.statusText}`);
     }
     
-    console.log('💾 FFmpeg download completed, size:', response.headers.get('content-length') || 'unknown');
+    console.log('💾 FFmpeg download completed');
     
-    // Save the tar.xz file to temp directory
-    const tmpDir = tmpdir();
-    const tarPath = join(tmpDir, 'ffmpeg.tar.xz');
-    
-    const buffer = await response.arrayBuffer();
-    await writeFile(tarPath, new Uint8Array(buffer));
-    
-    console.log('📦 Extracting FFmpeg from tar.xz...');
-    
-    // Extract the tar.xz file using tar command
-    await new Promise<void>((resolve, reject) => {
-      const tarProcess = spawn('tar', ['-xf', tarPath, '-C', tmpDir], {
-        stdio: 'pipe'
-      });
-      
-      let stderr = '';
-      
-      tarProcess.stderr?.on('data', (data) => {
-        stderr += data.toString();
-      });
-      
-      tarProcess.on('close', (code) => {
-        if (code === 0) {
-          resolve();
-        } else {
-          reject(new Error(`tar extraction failed with code ${code}: ${stderr}`));
-        }
-      });
-      
-      tarProcess.on('error', (error) => {
-        reject(error);
-      });
-    });
-    
-    // Find the extracted ffmpeg binary
-    const extractedDir = join(tmpDir, 'ffmpeg-master-latest-linux64-lgpl');
-    const extractedBinary = join(extractedDir, 'bin', 'ffmpeg');
-    
-    console.log('📋 Looking for extracted binary at:', extractedBinary);
-    
-    try {
-      await access(extractedBinary);
-      console.log('✅ Found extracted FFmpeg binary');
-    } catch {
-      throw new Error('Extracted FFmpeg binary not found at expected location');
-    }
-    
-    // Copy the binary to the function directory
-    const binaryData = await readFile(extractedBinary);
-    await writeFile(ffmpegPath, binaryData);
+    const binaryData = await response.arrayBuffer();
+    await writeFile(ffmpegPath, new Uint8Array(binaryData));
     await chmod(ffmpegPath, 0o755);
     
-    console.log('✅ FFmpeg binary copied and made executable');
-    
-    // Clean up temp files
-    try {
-      await rm(tarPath);
-      await rm(extractedDir, { recursive: true, force: true });
-      console.log('🧹 Cleaned up temporary files');
-    } catch (cleanupError) {
-      console.warn('⚠️ Failed to clean up temp files:', cleanupError);
-    }
+    console.log('✅ FFmpeg binary downloaded and made executable');
     
     // Test the installed binary
     const testResult = await testFFmpeg(ffmpegPath);
@@ -135,7 +80,7 @@ const handler: Handler = async (event) => {
           message: 'FFmpeg binary downloaded and verified successfully',
           ffmpeg_path: ffmpegPath,
           version: testResult.version,
-          size_bytes: binaryData.length
+          size_bytes: binaryData.byteLength
         }),
       };
     } else {
