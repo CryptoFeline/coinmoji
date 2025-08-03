@@ -485,7 +485,26 @@ export class CoinExporter {
     });
     
     if (!response.ok) {
-      throw new Error(`Server animated WebP creation failed: ${response.status} ${response.statusText}`);
+      let errorMessage = `Server animated WebP creation failed: ${response.status} ${response.statusText}`;
+      
+      // Try to get more detailed error information
+      try {
+        const errorData = await response.json();
+        if (errorData.reason || errorData.workaround) {
+          console.log('💡 Server provided workaround information:', errorData);
+          
+          if (errorData.workaround && errorData.workaround.steps) {
+            console.log('🔧 Workaround steps:', errorData.workaround.steps);
+            errorMessage = `${errorData.error}. Workaround: ${errorData.workaround.message}`;
+          } else {
+            errorMessage = errorData.error || errorMessage;
+          }
+        }
+      } catch (parseError) {
+        // If JSON parsing fails, use the original error message
+      }
+      
+      throw new Error(errorMessage);
     }
     
     const result = await response.json();
