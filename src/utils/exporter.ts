@@ -522,6 +522,11 @@ export class CoinExporter {
     console.log('📦 Initializing FFmpeg.wasm for downscaling...');
     const ffmpeg = new FFmpeg();
     
+    // Add logging to see FFmpeg output
+    ffmpeg.on('log', ({ message }) => {
+      console.log('🔧 FFmpeg log:', message);
+    });
+    
     await ffmpeg.load();
     console.log('✅ FFmpeg.wasm loaded for downscaling');
     
@@ -530,20 +535,40 @@ export class CoinExporter {
       const webpData = await fetchFile(webpBlob);
       await ffmpeg.writeFile('input.webp', webpData);
       
-      // Downscale using high-quality Lanczos filter with alpha preservation
+      // Downscale using simplified command for better compatibility
       console.log(`🔧 Downscaling command: scale to ${targetSize}×${targetSize}`);
-      await ffmpeg.exec([
-        '-i', 'input.webp',
-        '-vf', `scale=${targetSize}:${targetSize}:flags=lanczos:force_original_aspect_ratio=decrease`,
-        '-c:v', 'libwebp_anim',
-        '-pix_fmt', 'yuva420p',
-        '-lossless', '0',
-        '-quality', '95',
-        '-compression_level', '4', // Reduce compression level for compatibility
-        '-loop', '0',
-        '-cr_threshold', '0',
-        'output.webp'
-      ]);
+      
+      try {
+        // First try: Standard video filter approach
+        await ffmpeg.exec([
+          '-i', 'input.webp',
+          '-vf', `scale=${targetSize}:${targetSize}`,  // Simplified scale filter
+          '-c:v', 'libwebp_anim',
+          '-pix_fmt', 'yuva420p',
+          '-lossless', '0',
+          '-quality', '95',
+          '-compression_level', '4',
+          '-loop', '0',
+          '-cr_threshold', '0',
+          'output.webp'
+        ]);
+      } catch (firstError) {
+        console.log('⚠️ Standard approach failed, trying alternative scaling...');
+        
+        // Second try: Use image2 format approach
+        await ffmpeg.exec([
+          '-i', 'input.webp',
+          '-s', `${targetSize}x${targetSize}`,  // Use -s flag instead of -vf
+          '-c:v', 'libwebp_anim',
+          '-pix_fmt', 'yuva420p',
+          '-lossless', '0',
+          '-quality', '95',
+          '-compression_level', '4',
+          '-loop', '0',
+          '-cr_threshold', '0',
+          'output.webp'
+        ]);
+      }
       
       console.log('📖 Reading downscaled WebP...');
       
