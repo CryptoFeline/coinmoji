@@ -234,7 +234,7 @@ export class CoinExporter {
   }
 
   async exportAsWebM(settings: ExportSettings): Promise<Blob> {
-    console.log('🎬 Creating 100×100 WebM directly from frames (memory-optimized)...');
+    console.log('🎬 Creating 100×100 WebM via serverless function (memory-optimized)...');
     
     try {
       // Step 1: Get the transparent WebP frames (512x512)
@@ -260,197 +260,28 @@ export class CoinExporter {
         global.gc();
       }
       
-      // Step 3: Create 100×100 WebM directly from downscaled frames
-      console.log('🎬 Creating 100×100 WebM directly from frames...');
+      // Step 3: Create 100×100 WebM via serverless function (no memory limits!)
+      console.log('� Creating 100×100 WebM via serverless function...');
       
       try {
-        const webmBlob = await this.createWebMFromFrames(frames100, settings);
+        const webmBlob = await this.createWebMViaServerless(frames100, settings);
         
-        console.log('✅ WebM created:', { size: webmBlob.size });
+        console.log('✅ WebM created via serverless function:', { size: webmBlob.size });
         
         // Download final WebM for emoji
         this.downloadBlob(webmBlob, 'coinmoji-final-100px.webm');
         console.log('📦 Downloaded final WebM: coinmoji-final-100px.webm');
         
         return webmBlob;
-      } catch (webmError) {
-        console.error('❌ Direct WebM creation failed:', webmError);
-        console.log('🔄 WebM creation failed - creating fallback 512×512 animated WebP...');
-        
-        // Fallback: re-capture frames and create 512px animated WebP
-        const fallbackFrames = await this.exportFrames(settings);
-        const animatedWebP512 = await this.createAnimatedWebP(fallbackFrames, settings);
-        this.downloadBlob(animatedWebP512, 'coinmoji-animated-512px.webp');
-        console.log('💡 Use the 512×512 animated WebP file for emoji creation externally');
-        
-        // Return the 512×512 animated WebP as fallback
-        return animatedWebP512;
+      } catch (serverError) {
+        console.error('❌ Serverless WebM creation failed:', serverError);
+        throw new Error(`Serverless WebM creation failed: ${serverError instanceof Error ? serverError.message : 'Unknown error'}`);
       }
       
     } catch (error) {
-      console.error('❌ Animated WebP creation failed:', error);
+      console.error('❌ WebM export failed:', error);
       throw error;
     }
-  }
-
-  private async createAnimatedWebP(frames: Blob[], settings: ExportSettings): Promise<Blob> {
-    console.log('🔧 Creating animated WebP by stacking transparent frames...');
-    
-    try {
-      // First try FFmpeg.wasm for client-side animated WebP with transparency
-      return await this.createAnimatedWebPViaFFmpeg(frames, settings);
-    } catch (ffmpegError) {
-      console.error('❌ FFmpeg.wasm animated WebP creation failed:', ffmpegError);
-      console.log('🔄 Falling back to server guidance...');
-      
-      try {
-        return await this.createAnimatedWebPViaServer(frames, settings);
-      } catch (serverError) {
-        console.error('❌ Server-side animated WebP creation failed:', serverError);
-        console.log('� For transparent animated WebP: Download ZIP and use EZGIF.com or ImageMagick');
-        console.log('�📦 Falling back to client-side WebM (transparency will be lost)');
-        // Since browsers can't create animated WebP, create WebM as last resort (but loses transparency)
-        return await this.createAnimatedPngViaCanvas(frames, settings);
-      }
-    }
-  }
-
-  private async createAnimatedPngViaCanvas(frames: Blob[], settings: ExportSettings): Promise<Blob> {
-    console.log('🎨 Creating animated PNG with transparency (client-side fallback)...');
-    console.log('📝 Note: Creating series of PNG frames in a WebM container with transparency');
-    
-    // Load all frames as images
-    const images: HTMLImageElement[] = [];
-    for (let i = 0; i < frames.length; i++) {
-      const img = await this.blobToImage(frames[i]);
-      images.push(img);
-    }
-    
-    console.log(`📸 Loaded ${images.length} images for PNG animation`);
-    
-    // Create canvas with maximum transparency support
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 512;
-    const ctx = canvas.getContext('2d', { 
-      alpha: true,
-      colorSpace: 'srgb',
-      desynchronized: false,
-      willReadFrequently: false
-    })!;
-    
-    // ALTERNATIVE APPROACH: Instead of trying to preserve alpha in WebM (which doesn't work),
-    // let's create a data structure that can be used to recreate the animation elsewhere
-    console.log('🔄 Creating frame-by-frame PNG sequence...');
-    
-    const animatedFrames: Blob[] = [];
-    
-    // Convert each frame to PNG with transparency preserved
-    for (let i = 0; i < images.length; i++) {
-      // Clear canvas completely
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      
-      // Draw the frame
-      ctx.drawImage(images[i], 0, 0);
-      
-      // Convert to PNG blob (preserves transparency)
-      const pngBlob = await new Promise<Blob>((resolve) => {
-        canvas.toBlob((blob) => {
-          resolve(blob || new Blob());
-        }, 'image/png', 1.0); // PNG at full quality
-      });
-      
-      animatedFrames.push(pngBlob);
-      
-      if (i === 0 || i === images.length - 1) {
-        console.log(`🖼️ Frame ${i} converted to PNG: ${pngBlob.size} bytes`);
-      }
-    }
-    
-    console.log('✅ All frames converted to PNG with transparency');
-    
-    // Since we can't create a true animated format that browsers support with transparency,
-    // let's create a WebM but with a clear note that it won't have transparency
-    // The user can use the individual PNG frames from the ZIP to create proper animated WebP elsewhere
-    
-    const stream = canvas.captureStream(settings.fps);
-    
-    let recorder: MediaRecorder;
-    let mimeType = 'video/webm;codecs=vp9';
-    
-    try {
-      recorder = new MediaRecorder(stream, {
-        mimeType: 'video/webm;codecs=vp9',
-        videoBitsPerSecond: 1500000
-      });
-    } catch (vp9Error) {
-      try {
-        recorder = new MediaRecorder(stream, {
-          mimeType: 'video/webm;codecs=vp8',
-          videoBitsPerSecond: 1500000
-        });
-        mimeType = 'video/webm;codecs=vp8';
-      } catch (vp8Error) {
-        recorder = new MediaRecorder(stream, {
-          videoBitsPerSecond: 1500000
-        });
-        mimeType = 'video/webm';
-      }
-    }
-    
-    console.log(`🎥 Creating WebM animation (transparency not preserved): ${mimeType}`);
-    console.log('💡 For transparency, use the individual frames from the ZIP file');
-    
-    const chunks: Blob[] = [];
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        chunks.push(event.data);
-      }
-    };
-    
-    recorder.start(100);
-    
-    // Animate through the frames
-    const frameDuration = (settings.duration * 1000) / frames.length;
-    let currentFrame = 0;
-    let frameCount = 0;
-    
-    const animateFrame = () => {
-      // Clear and draw frame
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(images[currentFrame], 0, 0);
-      
-      currentFrame = (currentFrame + 1) % images.length;
-      frameCount++;
-    };
-    
-    const frameInterval = setInterval(animateFrame, frameDuration);
-    animateFrame();
-    
-    const recordingDuration = settings.duration * 1000 * 2; // 2 loops
-    
-    return new Promise<Blob>((resolve, reject) => {
-      setTimeout(() => {
-        clearInterval(frameInterval);
-        
-        recorder.onstop = () => {
-          const webmBlob = new Blob(chunks, { type: 'video/webm' });
-          
-          console.log('✅ WebM animation created (without transparency):', { 
-            size: webmBlob.size,
-            codec: mimeType,
-            framesProcessed: frameCount,
-            note: 'Use ZIP frames for transparency - WebM cannot preserve alpha in browsers'
-          });
-          
-          resolve(webmBlob);
-        };
-        
-        recorder.onerror = reject;
-        recorder.stop();
-        stream.getTracks().forEach(track => track.stop());
-      }, recordingDuration);
-    });
   }
 
   private async downscaleFramesMemoryOptimized(frames: Blob[], targetSize: number): Promise<Blob[]> {
@@ -534,352 +365,89 @@ export class CoinExporter {
     }
   }
 
-  private async createAnimatedWebPViaFFmpeg(frames: Blob[], settings: ExportSettings): Promise<Blob> {
-    console.log('🎬 Creating animated WebP using FFmpeg.wasm...');
-    console.log(`📊 Input: ${frames.length} frames for animation`);
-    
-    // Dynamic import for code splitting and lazy loading
-    const { FFmpeg } = await import('@ffmpeg/ffmpeg');
-    const { fetchFile } = await import('@ffmpeg/util');
-    
-    console.log('📦 Initializing FFmpeg.wasm...');
-    const ffmpeg = new FFmpeg();
-    
-    // Add logging to see FFmpeg output for debugging
-    ffmpeg.on('log', ({ message }) => {
-      if (message.includes('error') || message.includes('failed') || message.includes('invalid')) {
-        console.log('🔧 FFmpeg ERROR:', message);
-      }
-    });
-    
-    await ffmpeg.load();
-    console.log('✅ FFmpeg.wasm loaded successfully');
-    
-    try {
-      // Convert blobs to Uint8Array and write to FFmpeg filesystem
-      console.log(`📝 Writing ${frames.length} WebP frames to FFmpeg filesystem...`);
-      for (let i = 0; i < frames.length; i++) {
-        // Validate frame before processing
-        if (!frames[i] || frames[i].size === 0) {
-          throw new Error(`Frame ${i} is empty or null (size: ${frames[i]?.size || 0})`);
-        }
-        
-        const frameData = await fetchFile(frames[i]);
-        
-        if (frameData.length === 0) {
-          throw new Error(`Frame ${i} fetchFile returned 0 bytes`);
-        }
-        
-        const filename = `frame${String(i).padStart(4, '0')}.webp`;
-        await ffmpeg.writeFile(filename, frameData);
-        
-        // Verify frame was written correctly
-        const written = await ffmpeg.readFile(filename);
-        if (written.length === 0) {
-          throw new Error(`Frame ${i} was written as 0 bytes to FFmpeg filesystem`);
-        }
-        
-        if (i === 0 || i === frames.length - 1) {
-          console.log(`📋 Frame ${i}: ${filename}, original: ${frames[i].size} bytes, written: ${frameData.length} bytes, verified: ${written.length} bytes`);
-        }
-      }
-      
-      // Calculate framerate from settings
-      const framerate = Math.round(frames.length / settings.duration);
-      console.log(`🎯 Creating animated WebP: ${frames.length} frames, ${framerate} fps, ${settings.duration}s duration`);
-      
-      // Determine output filename based on frame size (detect if we're working with 100px frames)
-      const frameSize = frames.length > 0 ? (frames[0].size < 5000 ? '100' : '512') : '512';
-      const outputFilename = `animated_${frameSize}.webp`;
-      
-      console.log(`📝 Output filename: ${outputFilename}`);
-      
-      // Create animated WebP with transparency - simplified command for compatibility
-      await ffmpeg.exec([
-        '-framerate', framerate.toString(),
-        '-i', 'frame%04d.webp',
-        '-pix_fmt', 'yuva420p',     // make sure alpha is kept
-        '-c:v', 'libwebp_anim',     // dedicated animated WebP encoder
-        '-lossless',  '0',          // 0 = lossy, 1 = lossless
-        '-quality',   '100',        // 0-100
-        '-compression_level', '0',  // 0-6, trade-off size vs. speed
-        '-loop',      '0',          // 0 = infinite loop
-        '-cr_threshold', '0',       // always refresh blocks (prevents stacking)
-        outputFilename
-      ]);
-      
-      console.log(`📖 Reading animated WebP from FFmpeg filesystem: ${outputFilename}`);
-      const animatedWebPData = await ffmpeg.readFile(outputFilename);
-      
-      if (!animatedWebPData || animatedWebPData.length === 0) {
-        console.error('❌ Animated WebP file is empty!');
-        
-        // Debug: List all files in FFmpeg filesystem
-        try {
-          const files = await ffmpeg.listDir('/');
-          console.log('📁 FFmpeg filesystem contents:', files);
-        } catch (listError) {
-          console.warn('Could not list FFmpeg filesystem:', listError);
-        }
-        
-        throw new Error('Animated WebP creation failed - output file is empty');
-      }
-      
-      // Clean up FFmpeg filesystem (optional, but good practice)
-      try {
-        for (let i = 0; i < frames.length; i++) {
-          await ffmpeg.deleteFile(`frame${String(i).padStart(4, '0')}.webp`);
-        }
-        await ffmpeg.deleteFile(outputFilename);
-      } catch (cleanupError) {
-        console.warn('Failed to clean up FFmpeg filesystem:', cleanupError);
-      }
-      
-      // Convert Uint8Array to Blob
-      const webpBlob = new Blob([animatedWebPData], { type: 'image/webp' });
-      
-      console.log(`✅ Animated WebP created with FFmpeg.wasm: ${webpBlob.size} bytes`);
-      console.log('🎯 Transparency preserved in animated WebP!');
-      
-      return webpBlob;
-      
-    } catch (error) {
-      console.error('FFmpeg.wasm processing error:', error);
-      throw new Error(`FFmpeg.wasm failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-
-  private async createWebMFromFrames(frames: Blob[], settings: ExportSettings): Promise<Blob> {
-    console.log('🎬 Creating WebM directly from individual frames...');
+  private async createWebMViaServerless(frames: Blob[], settings: ExportSettings): Promise<Blob> {
+    console.log('� Creating WebM via serverless function...');
     console.log(`📊 Input: ${frames.length} frames for WebM animation`);
     
-    // Dynamic import for code splitting and lazy loading
-    const { FFmpeg } = await import('@ffmpeg/ffmpeg');
-    const { fetchFile } = await import('@ffmpeg/util');
-    
-    console.log('📦 Initializing fresh FFmpeg.wasm instance for direct WebM creation...');
-    const ffmpeg = new FFmpeg();
-    
-    // Add logging to see FFmpeg output for debugging
-    ffmpeg.on('log', ({ message }) => {
-      if (message.includes('error') || message.includes('failed') || message.includes('invalid')) {
-        console.log('🔧 FFmpeg WebM ERROR:', message);
-      }
-    });
-    
-    await ffmpeg.load();
-    console.log('✅ Fresh FFmpeg.wasm loaded for direct WebM creation');
-    
     try {
-      // Write individual frames to FFmpeg filesystem
-      console.log(`📝 Writing ${frames.length} WebP frames to FFmpeg filesystem...`);
+      // Convert frames to base64 for server transmission
+      console.log('� Converting frames to base64 for server...');
+      const framesBase64: string[] = [];
+      
       for (let i = 0; i < frames.length; i++) {
-        // Validate frame before processing
-        if (!frames[i] || frames[i].size === 0) {
-          throw new Error(`Frame ${i} is empty or null (size: ${frames[i]?.size || 0})`);
-        }
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            const base64Data = result.split(',')[1];
+            resolve(base64Data);
+          };
+          reader.onerror = () => reject(new Error(`Failed to convert frame ${i} to base64`));
+          reader.readAsDataURL(frames[i]);
+        });
+        framesBase64.push(base64);
         
-        const frameData = await fetchFile(frames[i]);
-        
-        if (frameData.length === 0) {
-          throw new Error(`Frame ${i} fetchFile returned 0 bytes`);
-        }
-        
-        const filename = `thumb${String(i).padStart(4, '0')}.webp`;
-        await ffmpeg.writeFile(filename, frameData);
-        
-        // Verify frame was written correctly
-        const written = await ffmpeg.readFile(filename);
-        if (written.length === 0) {
-          throw new Error(`Frame ${i} was written as 0 bytes to FFmpeg filesystem`);
-        }
-        
-        if (i === 0 || i === frames.length - 1) {
-          console.log(`📋 Frame ${i}: ${filename}, original: ${frames[i].size} bytes, written: ${frameData.length} bytes, verified: ${written.length} bytes`);
+        if (i === 0 || i === frames.length - 1 || i % 10 === 0) {
+          console.log(`📋 Converted frame ${i + 1}/${frames.length} to base64`);
         }
       }
       
-      // Calculate framerate from settings
-      const framerate = Math.round(frames.length / settings.duration);
-      console.log(`🎯 Creating WebM: ${frames.length} frames, ${framerate} fps, ${settings.duration}s duration`);
+      const payload = {
+        frames_base64: framesBase64,
+        frame_format: 'webp',
+        fps: Math.round(frames.length / settings.duration),
+        duration: settings.duration,
+        size: 100
+      };
       
-      const outputFilename = 'thumb_100.webm';
-      console.log(`📝 Output filename: ${outputFilename}`);
+      console.log('� Sending WebM creation request to serverless function...');
+      console.log(`📊 Payload: ${framesBase64.length} frames, ${payload.fps} fps, ${payload.duration}s duration`);
       
-      // Create WebM directly from individual frames with optimized VP9 settings for memory efficiency
-      await ffmpeg.exec([
-        '-framerate', framerate.toString(),
-        '-i', 'thumb%04d.webp',
-        '-pix_fmt', 'yuva420p',      // VP9 with alpha channel
-        '-c:v', 'libvpx-vp9',        // VP9 codec supports alpha
-        '-b:v', '0',                 // CRF mode (constant rate factor)
-        '-crf', '35',                // Slightly lower quality for memory efficiency (was 30)
-        '-auto-alt-ref', '0',        // Keep alpha plane intact
-        '-row-mt', '0',              // Disable multi-thread rows to save memory
-        '-threads', '1',             // Single thread for predictable memory usage
-        '-deadline', 'realtime',     // Faster encoding with less memory (was 'good')
-        '-cpu-used', '8',            // Fastest encoding to reduce memory pressure (was 1)
-        '-lag-in-frames', '0',       // Reduce latency and memory usage
-        '-tile-columns', '0',        // Disable tiling to save memory
-        '-frame-parallel', '0',      // Disable frame parallelism
-        '-g', '30',                  // Set GOP size to frame count for predictable memory
-        outputFilename
-      ]);
+      const response = await fetch('/.netlify/functions/create-webm', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
       
-      console.log(`📖 Reading WebM from FFmpeg filesystem: ${outputFilename}`);
-      const webmData = await ffmpeg.readFile(outputFilename);
+      console.log('📡 Serverless function response:', { 
+        status: response.status, 
+        statusText: response.statusText 
+      });
       
-      if (!webmData || webmData.length === 0) {
-        console.error('❌ WebM file is empty!');
-        
-        // Debug: List all files in FFmpeg filesystem
-        try {
-          const files = await ffmpeg.listDir('/');
-          console.log('📁 FFmpeg filesystem contents:', files);
-        } catch (listError) {
-          console.warn('Could not list FFmpeg filesystem:', listError);
-        }
-        
-        throw new Error('WebM creation failed - output file is empty');
+      if (!response.ok) {
+        const errorResult = await response.json();
+        console.error('❌ Serverless WebM creation failed:', errorResult);
+        throw new Error(`Serverless function failed: ${errorResult.error || response.statusText}`);
       }
       
-      // Clean up FFmpeg filesystem
-      try {
-        for (let i = 0; i < frames.length; i++) {
-          await ffmpeg.deleteFile(`thumb${String(i).padStart(4, '0')}.webp`);
-        }
-        await ffmpeg.deleteFile(outputFilename);
-      } catch (cleanupError) {
-        console.warn('Failed to clean up FFmpeg filesystem:', cleanupError);
+      const result = await response.json();
+      
+      if (!result.success || !result.webm_base64) {
+        throw new Error(result.error || 'Server response missing WebM data');
       }
       
-      // Convert Uint8Array to Blob
-      const webmBlob = new Blob([webmData], { type: 'video/webm' });
+      console.log('✅ Serverless WebM creation successful:', {
+        size_bytes: result.size_bytes,
+        frames_processed: result.frames_processed,
+        fps: result.fps,
+        duration: result.duration
+      });
       
-      console.log(`✅ WebM created directly from frames: ${webmBlob.size} bytes`);
-      console.log('🎯 VP9 WebM with alpha channel ready for emoji!');
+      // Convert base64 back to blob
+      const webmBuffer = Uint8Array.from(atob(result.webm_base64), c => c.charCodeAt(0));
+      const webmBlob = new Blob([webmBuffer], { type: 'video/webm' });
+      
+      console.log(`✅ WebM blob created: ${webmBlob.size} bytes`);
+      console.log('🎯 VP9 WebM with alpha channel created on server!');
       
       return webmBlob;
       
     } catch (error) {
-      console.error('FFmpeg.wasm WebM creation error:', error);
-      
-      // If memory error, suggest fallback
-      if (error instanceof Error && error.message.includes('memory access out of bounds')) {
-        console.log('💡 Memory error detected - WebM creation requires more memory than available');
-        console.log('💡 Consider using the 512×512 animated WebP file and converting externally');
-      }
-      
-      throw new Error(`Direct WebM creation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error('Serverless WebM creation error:', error);
+      throw new Error(`Serverless WebM creation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }
-
-  private async blobToImage(blob: Blob): Promise<HTMLImageElement> {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const url = URL.createObjectURL(blob);
-      
-      img.onload = () => {
-        URL.revokeObjectURL(url);
-        resolve(img);
-      };
-      
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        reject(new Error('Failed to load image from blob'));
-      };
-      
-      img.src = url;
-    });
-  }
-
-  private async createAnimatedWebPViaServer(frames: Blob[], settings: ExportSettings): Promise<Blob> {
-    console.log('📤 Sending WebP frames to server for webpmux animation...');
-    
-    // Convert frames to base64 for server transmission
-    const framesBase64: string[] = [];
-    for (let i = 0; i < frames.length; i++) {
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result as string;
-          const base64Data = result.split(',')[1];
-          resolve(base64Data);
-        };
-        reader.onerror = () => reject(new Error(`Failed to convert frame ${i} to base64`));
-        reader.readAsDataURL(frames[i]);
-      });
-      framesBase64.push(base64);
-    }
-    
-    // Calculate frame duration in milliseconds
-    // Total duration / number of frames = duration per frame
-    const frameDurationMs = Math.round((settings.duration * 1000) / frames.length);
-    
-    const payload = {
-      frames_base64: framesBase64,
-      frame_format: 'webp',
-      frame_duration_ms: frameDurationMs,
-      settings: {
-        fps: settings.fps,
-        duration: settings.duration,
-        loop: true, // Infinite loop
-        transparent_bg: true // Ensure transparency
-      }
-    };
-    
-    console.log(`📊 Animated WebP settings: ${frames.length} frames, ${frameDurationMs}ms per frame`);
-    
-    const response = await fetch('/.netlify/functions/create-animated-webp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    
-    const result = await response.json();
-    
-    // Handle the new server response format
-    if (response.ok && result.serverless_limitation) {
-      console.log('📋 Server provided detailed animation guidance:', result);
-      console.log('🎯 Animation specs:', result.animation_specs);
-      console.log('🛠️ Recommended tools:', result.recommended_workflow.tools);
-      
-      // Create a helpful error message with the guidance
-      const toolInfo = result.recommended_workflow.tools[0]; // EZGIF as primary recommendation
-      throw new Error(`Server-side animation requires external processing. Use ${toolInfo.name} (${toolInfo.description}) - ${toolInfo.url || 'verified working'}`);
-    }
-    
-    if (!response.ok) {
-      let errorMessage = `Server animated WebP creation failed: ${response.status} ${response.statusText}`;
-      
-      // Try to get more detailed error information
-      try {
-        if (result.reason || result.workaround) {
-          console.log('💡 Server provided workaround information:', result);
-          
-          if (result.workaround && result.workaround.steps) {
-            console.log('🔧 Workaround steps:', result.workaround.steps);
-            errorMessage = `${result.error}. Workaround: ${result.workaround.message}`;
-          } else {
-            errorMessage = result.error || errorMessage;
-          }
-        }
-      } catch (parseError) {
-        // If JSON parsing fails, use the original error message
-      }
-      
-      throw new Error(errorMessage);
-    }
-    
-    if (!result.success || !result.webp_base64) {
-      throw new Error(result.error || 'Server response missing animated WebP data');
-    }
-    
-    console.log('✅ Server webpmux animation successful');
-    
-    // Convert base64 back to blob
-    const webpBuffer = Uint8Array.from(atob(result.webp_base64), c => c.charCodeAt(0));
-    return new Blob([webpBuffer], { type: 'image/webp' });
   }
 
   downloadBlob(blob: Blob, filename: string) {
