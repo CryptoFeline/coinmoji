@@ -278,8 +278,9 @@ export class CoinExporter {
     try {
       return await this.createAnimatedWebPViaServer(frames, settings);
     } catch (serverError) {
-      console.log('⚠️ Server-side webpmux failed, trying animated PNG approach:', serverError);
-      // Since browsers can't create animated WebP, create an animated PNG which DOES support transparency
+      console.error('❌ Server-side animated WebP creation failed:', serverError);
+      console.log('📦 Falling back to client-side WebM (transparency will be lost)');
+      // Since browsers can't create animated WebP, create WebM as last resort (but loses transparency)
       return await this.createAnimatedPngViaCanvas(frames, settings);
     }
   }
