@@ -261,16 +261,7 @@ export class CoinExporter {
       frames512.length = 0;
       console.log('🗑️ Cleared 512px frames from memory');
       
-      // Step 3: Create 512×512 animated WebP for reference (use frames512 copy)
-      const frames512Copy = await this.exportFrames(settings);
-      const animatedWebP512 = await this.createAnimatedWebP(frames512Copy, settings);
-      this.downloadBlob(animatedWebP512, 'coinmoji-animated-512px.webp');
-      console.log('📦 Downloaded 512×512 animated WebP: coinmoji-animated-512px.webp');
-      
-      // Clear the copy as well
-      frames512Copy.length = 0;
-      
-      // Step 4: Create 100×100 WebM directly from individual frames (skip animated WebP)
+      // Step 3: Create 100×100 WebM directly from downscaled frames
       console.log('🎬 Creating 100×100 WebM directly from downscaled frames...');
       
       try {
@@ -278,7 +269,7 @@ export class CoinExporter {
         
         console.log('✅ WebM created:', { size: webmBlob.size });
         
-                // Download final WebM for emoji
+        // Download final WebM for emoji
         this.downloadBlob(webmBlob, 'coinmoji-final-100px.webm');
         console.log('📦 Downloaded final WebM: coinmoji-final-100px.webm');
         
@@ -288,14 +279,14 @@ export class CoinExporter {
         return webmBlob;
       } catch (webmError) {
         console.error('❌ Direct WebM creation failed:', webmError);
-        console.log('🔄 Memory error - falling back to 512×512 animated WebP as final output');
-        console.log('💡 Use the 512×512 animated WebP file for emoji creation externally');
+        console.log('🔄 WebM creation failed - this is the final attempt');
+        console.log('💡 Try reducing frame count or use external tools for WebM creation');
         
-        // Clear memory after fallback
+        // Clear memory after error
         frames100.length = 0;
         
-        // Return the 512×512 animated WebP as fallback
-        return animatedWebP512;
+        // Re-throw the error since we don't have a fallback anymore
+        throw new Error(`WebM creation failed: ${webmError instanceof Error ? webmError.message : 'Unknown error'}`);
       }
       
     } catch (error) {
