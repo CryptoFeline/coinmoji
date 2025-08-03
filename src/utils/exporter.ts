@@ -52,7 +52,7 @@ export class CoinExporter {
       this.scene.background = null;
       
       // Create OFFSCREEN renderer for export (doesn't affect live view!)
-      const captureSize = 1024; // High resolution for better quality
+      const captureSize = 512; // High resolution for better quality
       console.log('🎨 Creating offscreen renderer...');
       
       const offscreenRenderer = new THREE.WebGLRenderer({
@@ -237,7 +237,7 @@ export class CoinExporter {
     console.log('🎬 Creating animated WebP from transparent frames...');
     
     try {
-      // Step 1: Get the transparent WebP frames (1024x1024)
+      // Step 1: Get the transparent WebP frames (512x512)
       const frames = await this.exportFrames(settings);
       
       if (frames.length === 0) {
@@ -309,8 +309,8 @@ export class CoinExporter {
     
     // Create canvas with maximum transparency support
     const canvas = document.createElement('canvas');
-    canvas.width = 1024;
-    canvas.height = 1024;
+    canvas.width = 512;
+    canvas.height = 512;
     const ctx = canvas.getContext('2d', { 
       alpha: true,
       colorSpace: 'srgb',
@@ -459,17 +459,17 @@ export class CoinExporter {
       
       // Create animated WebP with transparency - simplified command for compatibility
       await ffmpeg.exec([
-        '-framerate', framerate.toString(),
-        '-i', 'frame%04d.webp',
-        '-pix_fmt', 'yuva420p',     // make sure alpha is kept
-        '-c:v', 'libwebp_anim',     // dedicated animated WebP encoder
-        '-lossless',  '0',          // 0 = lossy, 1 = lossless
-        '-quality',   '100',         // 0-100
-        '-compression_level', '0',  // 0-6, trade-off size vs. speed
-        '-loop',      '0',          // 0 = infinite loop
-        '-cr_threshold', '0',       // always refresh blocks (prevents stacking)
+        '-i', 'animated.webp',                     // original animation
+        '-vf', 'scale=100:100:flags=lanczos',      // high-quality down-scaler
+        '-pix_fmt', 'yuva420p',                    // keep transparency
+        '-c:v', 'libwebp_anim',                    // animated WebP path
+        '-lossless', '0',                          // lossy = smaller
+        '-quality',  '90',                         // 0-100; higher->better
+        '-compression_level', '1',                 // 0-6 size vs. speed
+        '-loop', '0',                              // infinite loop
         'animated.webp'
       ]);
+
       
       console.log('📖 Reading animated WebP from FFmpeg filesystem...');
       const animatedWebPData = await ffmpeg.readFile('animated.webp');
