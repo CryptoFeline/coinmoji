@@ -531,35 +531,59 @@ export class CoinExporter {
       await ffmpeg.writeFile('input.webp', webpData);
       
       // Downscale using high-quality Lanczos filter with alpha preservation
+      console.log(`🔧 Downscaling command: scale to ${targetSize}×${targetSize}`);
       await ffmpeg.exec([
         '-i', 'input.webp',
-        '-vf', `scale=${targetSize}:${targetSize}:flags=lanczos`,
-        '-pix_fmt', 'yuva420p', // Preserve alpha channel
+        '-vf', `scale=${targetSize}:${targetSize}:flags=lanczos:force_original_aspect_ratio=decrease`,
         '-c:v', 'libwebp_anim',
+        '-pix_fmt', 'yuva420p',
         '-lossless', '0',
-        '-quality', '95', // High quality for small emoji
-        '-compression_level', '6', // Maximum compression
+        '-quality', '95',
+        '-compression_level', '4', // Reduce compression level for compatibility
         '-loop', '0',
-        '-cr_threshold', '0', // Prevent stacking
+        '-cr_threshold', '0',
         'output.webp'
       ]);
       
       console.log('📖 Reading downscaled WebP...');
-      const scaledData = await ffmpeg.readFile('output.webp');
       
-      // Clean up
+      // Check if the output file exists and has content
       try {
-        await ffmpeg.deleteFile('input.webp');
-        await ffmpeg.deleteFile('output.webp');
-      } catch (cleanupError) {
-        console.warn('Failed to clean up downscaling files:', cleanupError);
+        const scaledData = await ffmpeg.readFile('output.webp');
+        
+        if (!scaledData || scaledData.length === 0) {
+          throw new Error('Downscaled WebP file is empty - FFmpeg command may have failed');
+        }
+        
+        console.log(`📊 Downscaled file size: ${scaledData.length} bytes`);
+        
+        // Clean up
+        try {
+          await ffmpeg.deleteFile('input.webp');
+          await ffmpeg.deleteFile('output.webp');
+        } catch (cleanupError) {
+          console.warn('Failed to clean up downscaling files:', cleanupError);
+        }
+        
+        const scaledBlob = new Blob([scaledData], { type: 'image/webp' });
+        
+        console.log(`✅ Downscaled to ${targetSize}×${targetSize}: ${scaledBlob.size} bytes`);
+        
+        return scaledBlob;
+        
+      } catch (readError) {
+        console.error('❌ Failed to read downscaled file:', readError);
+        
+        // Try to list files in FFmpeg filesystem for debugging
+        try {
+          const files = await ffmpeg.listDir('/');
+          console.log('📁 FFmpeg filesystem contents:', files);
+        } catch (listError) {
+          console.warn('Could not list FFmpeg filesystem:', listError);
+        }
+        
+        throw new Error(`Failed to read downscaled WebP: ${readError instanceof Error ? readError.message : 'Unknown error'}`);
       }
-      
-      const scaledBlob = new Blob([scaledData], { type: 'image/webp' });
-      
-      console.log(`✅ Downscaled to ${targetSize}×${targetSize}: ${scaledBlob.size} bytes`);
-      
-      return scaledBlob;
       
     } catch (error) {
       console.error('Downscaling error:', error);
@@ -569,6 +593,13 @@ export class CoinExporter {
 
   private async convertWebPToWebM(webpBlob: Blob): Promise<Blob> {
     console.log('🎬 Converting animated WebP to WebM for emoji format...');
+    
+    // Validate input WebP blob
+    if (!webpBlob || webpBlob.size === 0) {
+      throw new Error('Invalid WebP input: blob is empty or null');
+    }
+    
+    console.log(`📊 Input WebP size: ${webpBlob.size} bytes`);
     
     // Dynamic import for code splitting and lazy loading
     const { FFmpeg } = await import('@ffmpeg/ffmpeg');
