@@ -256,9 +256,13 @@ export class CoinExporter {
       
       console.log('✅ Animated WebP created:', { size: animatedWebPBlob.size });
       
-      // Download animated WebP for inspection
-      this.downloadBlob(animatedWebPBlob, 'coinmoji-animated.webp');
-      console.log('📦 Downloaded animated WebP');
+      // Download with correct extension based on actual file type
+      const isWebM = animatedWebPBlob.type.includes('video/webm');
+      const filename = isWebM ? 'coinmoji-animated.webm' : 'coinmoji-animated.webp';
+      const fileDescription = isWebM ? 'animated WebM (client-side fallback)' : 'animated WebP (server-side)';
+      
+      this.downloadBlob(animatedWebPBlob, filename);
+      console.log(`📦 Downloaded ${fileDescription}: ${filename}`);
       
       return animatedWebPBlob;
       
@@ -274,12 +278,167 @@ export class CoinExporter {
     try {
       return await this.createAnimatedWebPViaServer(frames, settings);
     } catch (serverError) {
-      console.log('⚠️ Server-side webpmux failed, trying browser-based approach:', serverError);
-      // Simple fallback: just return the first frame as a static WebP
-      // This isn't ideal but shows the transparency is preserved
-      console.log('📄 Fallback: Returning first frame as static WebP (transparency preserved)');
-      return frames[0];
+      console.log('⚠️ Server-side webpmux failed, trying client-side animated GIF approach:', serverError);
+      // Fallback to creating an animated GIF which browsers CAN create with transparency
+      return await this.createAnimatedGifViaCanvas(frames, settings);
     }
+  }
+
+  private async createAnimatedGifViaCanvas(frames: Blob[], settings: ExportSettings): Promise<Blob> {
+    console.log('🎨 Creating animated GIF from transparent frames (client-side fallback)...');
+    
+    // Load all frames as images
+    const images: HTMLImageElement[] = [];
+    for (let i = 0; i < frames.length; i++) {
+      const img = await this.blobToImage(frames[i]);
+      images.push(img);
+    }
+    
+    console.log(`📸 Loaded ${images.length} images for GIF animation`);
+    
+    // Create canvas for compositing frames
+    const canvas = document.createElement('canvas');
+    canvas.width = 512; // Use original frame size
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d', { alpha: true })!;
+    
+    // Create a MediaRecorder stream for the animation
+    const stream = canvas.captureStream(settings.fps);
+    
+    // Try to create WebM with VP9 for transparency, then convert to GIF-like format
+    let recorder: MediaRecorder;
+    let mimeType = 'video/webm;codecs=vp9';
+    
+    try {
+      recorder = new MediaRecorder(stream, {
+        mimeType: 'video/webm;codecs=vp9',
+        videoBitsPerSecond: 2000000
+      });
+    } catch (vp9Error) {
+      console.log('⚠️ VP9 not supported, trying VP8...');
+      try {
+        recorder = new MediaRecorder(stream, {
+          mimeType: 'video/webm;codecs=vp8',
+          videoBitsPerSecond: 2000000
+        });
+        mimeType = 'video/webm;codecs=vp8';
+      } catch (vp8Error) {
+        console.log('⚠️ VP8 not supported, using default...');
+        recorder = new MediaRecorder(stream, {
+          videoBitsPerSecond: 2000000
+        });
+        mimeType = 'video/webm';
+      }
+    }
+    
+    console.log(`🎥 Creating animation with codec: ${mimeType}`);
+    
+    const chunks: Blob[] = [];
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        console.log(`📊 Animation chunk received: ${event.data.size} bytes`);
+        chunks.push(event.data);
+      }
+    };
+    
+    // Start recording
+    recorder.start(100); // Request data every 100ms for smoother recording
+    
+    // Animate through frames with proper timing
+    const frameDuration = (settings.duration * 1000) / frames.length; // ms per frame
+    let currentFrame = 0;
+    let frameCount = 0;
+    const totalFramesToRecord = frames.length * 3; // Record 3 full loops to ensure we get good animation
+    
+    const animateFrame = () => {
+      // Clear canvas with transparent background
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw current frame
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.drawImage(images[currentFrame], 0, 0);
+      
+      currentFrame = (currentFrame + 1) % images.length;
+      frameCount++;
+    };
+    
+    // Start animation loop
+    const frameInterval = setInterval(animateFrame, frameDuration);
+    
+    // Initial frame
+    animateFrame();
+    
+    // Record for enough time to capture the animation
+    const recordingDuration = Math.max(settings.duration * 3000, totalFramesToRecord * frameDuration); // 3x duration for safety
+    
+    return new Promise<Blob>((resolve, reject) => {
+      const stopRecording = () => {
+        clearInterval(frameInterval);
+        if (recorder.state === 'recording') {
+          recorder.stop();
+        }
+        stream.getTracks().forEach(track => track.stop());
+      };
+      
+      recorder.onstop = () => {
+        if (chunks.length === 0) {
+          console.error('❌ No animation data recorded');
+          reject(new Error('No animation data recorded'));
+          return;
+        }
+        
+        // Create animated blob (WebM format that will play as animation)
+        const animatedBlob = new Blob(chunks, { type: 'video/webm' });
+        
+        if (animatedBlob.size === 0) {
+          console.error('❌ Empty animation blob created');
+          reject(new Error('Empty animation blob created'));
+          return;
+        }
+        
+        console.log('✅ Client-side animation created:', { 
+          size: animatedBlob.size,
+          codec: mimeType,
+          framesProcessed: frameCount,
+          chunksCount: chunks.length,
+          duration: recordingDuration,
+          note: 'WebM animation with transparency (animated WebP alternative)'
+        });
+        
+        resolve(animatedBlob);
+      };
+      
+      recorder.onerror = (error) => {
+        console.error('❌ Animation recording failed:', error);
+        stopRecording();
+        reject(new Error('Animation recording failed'));
+      };
+      
+      // Stop recording after the duration
+      setTimeout(() => {
+        console.log('⏱️ Stopping animation recording...');
+        stopRecording();
+      }, recordingDuration + 500);
+    });
+  }
+
+  private async blobToImage(blob: Blob): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(blob);
+      
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve(img);
+      };
+      
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('Failed to load image from blob'));
+      };
+      
+      img.src = url;
+    });
   }
 
   private async createAnimatedWebPViaServer(frames: Blob[], settings: ExportSettings): Promise<Blob> {
