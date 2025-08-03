@@ -1,6 +1,12 @@
 [build]
   publish = "dist"
-  command = "npm ci && npm run build"
+  command = """
+    # Install WebP tools for animated WebP creation
+    apt-get update && 
+    apt-get install -y libwebp-dev webp imagemagick ffmpeg &&
+    npm ci && 
+    npm run build
+  """
   functions = "netlify/functions"
 
 [functions]

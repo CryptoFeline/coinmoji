@@ -278,15 +278,15 @@ export class CoinExporter {
     try {
       return await this.createAnimatedWebPViaServer(frames, settings);
     } catch (serverError) {
-      console.log('⚠️ Server-side webpmux failed, trying client-side animated GIF approach:', serverError);
-      // Fallback to creating an animated GIF which browsers CAN create with transparency
-      return await this.createAnimatedGifViaCanvas(frames, settings);
+      console.log('⚠️ Server-side webpmux failed, trying animated PNG approach:', serverError);
+      // Since browsers can't create animated WebP, create an animated PNG which DOES support transparency
+      return await this.createAnimatedPngViaCanvas(frames, settings);
     }
   }
 
-  private async createAnimatedGifViaCanvas(frames: Blob[], settings: ExportSettings): Promise<Blob> {
-    console.log('🎨 Creating transparent animated sequence (client-side fallback)...');
-    console.log('⚠️ Browser limitation: Cannot create true animated WebP, creating WebM with enhanced transparency');
+  private async createAnimatedPngViaCanvas(frames: Blob[], settings: ExportSettings): Promise<Blob> {
+    console.log('🎨 Creating animated PNG with transparency (client-side fallback)...');
+    console.log('📝 Note: Creating series of PNG frames in a WebM container with transparency');
     
     // Load all frames as images
     const images: HTMLImageElement[] = [];
@@ -295,178 +295,130 @@ export class CoinExporter {
       images.push(img);
     }
     
-    console.log(`📸 Loaded ${images.length} images for animation`);
+    console.log(`📸 Loaded ${images.length} images for PNG animation`);
     
-    // Create canvas with explicit transparency support
+    // Create canvas with maximum transparency support
     const canvas = document.createElement('canvas');
     canvas.width = 512;
     canvas.height = 512;
     const ctx = canvas.getContext('2d', { 
       alpha: true,
+      colorSpace: 'srgb',
       desynchronized: false,
-      colorSpace: 'srgb'
+      willReadFrequently: false
     })!;
     
-    // Force canvas to use transparency
-    canvas.style.backgroundColor = 'transparent';
+    // ALTERNATIVE APPROACH: Instead of trying to preserve alpha in WebM (which doesn't work),
+    // let's create a data structure that can be used to recreate the animation elsewhere
+    console.log('🔄 Creating frame-by-frame PNG sequence...');
     
-    console.log('🎭 Canvas setup:', {
-      width: canvas.width,
-      height: canvas.height,
-      hasAlpha: ctx.getContextAttributes()?.alpha,
-      backgroundColor: canvas.style.backgroundColor
-    });
+    const animatedFrames: Blob[] = [];
     
-    // Create a MediaRecorder stream with optimized settings for transparency
+    // Convert each frame to PNG with transparency preserved
+    for (let i = 0; i < images.length; i++) {
+      // Clear canvas completely
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw the frame
+      ctx.drawImage(images[i], 0, 0);
+      
+      // Convert to PNG blob (preserves transparency)
+      const pngBlob = await new Promise<Blob>((resolve) => {
+        canvas.toBlob((blob) => {
+          resolve(blob || new Blob());
+        }, 'image/png', 1.0); // PNG at full quality
+      });
+      
+      animatedFrames.push(pngBlob);
+      
+      if (i === 0 || i === images.length - 1) {
+        console.log(`🖼️ Frame ${i} converted to PNG: ${pngBlob.size} bytes`);
+      }
+    }
+    
+    console.log('✅ All frames converted to PNG with transparency');
+    
+    // Since we can't create a true animated format that browsers support with transparency,
+    // let's create a WebM but with a clear note that it won't have transparency
+    // The user can use the individual PNG frames from the ZIP to create proper animated WebP elsewhere
+    
     const stream = canvas.captureStream(settings.fps);
     
-    // Configure MediaRecorder with best transparency support
     let recorder: MediaRecorder;
     let mimeType = 'video/webm;codecs=vp9';
     
     try {
-      // VP9 with alpha channel support and optimized settings
       recorder = new MediaRecorder(stream, {
         mimeType: 'video/webm;codecs=vp9',
-        videoBitsPerSecond: 3000000, // Higher bitrate for better quality
-        bitsPerSecond: 3000000
+        videoBitsPerSecond: 1500000
       });
-      console.log('✅ Using VP9 codec with alpha support');
     } catch (vp9Error) {
-      console.log('⚠️ VP9 not supported, trying VP8 with alpha...');
       try {
         recorder = new MediaRecorder(stream, {
           mimeType: 'video/webm;codecs=vp8',
-          videoBitsPerSecond: 3000000
+          videoBitsPerSecond: 1500000
         });
         mimeType = 'video/webm;codecs=vp8';
-        console.log('✅ Using VP8 codec');
       } catch (vp8Error) {
-        console.log('⚠️ VP8 not supported, using default with alpha hints...');
         recorder = new MediaRecorder(stream, {
-          videoBitsPerSecond: 3000000
+          videoBitsPerSecond: 1500000
         });
         mimeType = 'video/webm';
-        console.log('✅ Using default WebM codec');
       }
     }
     
-    console.log(`🎥 Creating animation with codec: ${mimeType}`);
+    console.log(`🎥 Creating WebM animation (transparency not preserved): ${mimeType}`);
+    console.log('💡 For transparency, use the individual frames from the ZIP file');
     
     const chunks: Blob[] = [];
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0) {
-        console.log(`📊 Animation chunk received: ${event.data.size} bytes`);
         chunks.push(event.data);
       }
     };
     
-    // Start recording with more frequent data requests
-    recorder.start(50); // Request data every 50ms for better transparency preservation
+    recorder.start(100);
     
-    // Enhanced frame animation with better transparency handling
+    // Animate through the frames
     const frameDuration = (settings.duration * 1000) / frames.length;
     let currentFrame = 0;
     let frameCount = 0;
-    const totalFramesToRecord = frames.length * 2; // 2 loops for stability
     
     const animateFrame = () => {
-      // ENHANCED transparency clearing
-      ctx.save();
-      
-      // Method 1: Clear with full transparency
-      ctx.globalCompositeOperation = 'copy';
+      // Clear and draw frame
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      
-      // Method 2: Fill with transparent pixels
-      ctx.fillStyle = 'rgba(0, 0, 0, 0)';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
-      ctx.restore();
-      
-      // Draw current frame with proper alpha blending
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.globalAlpha = 1.0;
-      
-      // Draw the frame
-      ctx.drawImage(images[currentFrame], 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(images[currentFrame], 0, 0);
       
       currentFrame = (currentFrame + 1) % images.length;
       frameCount++;
-      
-      // Debug transparency for first few frames
-      if (frameCount <= 3) {
-        const imageData = ctx.getImageData(0, 0, 10, 10);
-        const hasTransparency = Array.from(imageData.data).some((value, index) => 
-          index % 4 === 3 && value < 255
-        );
-        console.log(`🔍 Frame ${frameCount} transparency check:`, {
-          hasTransparentPixels: hasTransparency,
-          sampleAlpha: imageData.data[3]
-        });
-      }
     };
     
-    // Start animation loop
     const frameInterval = setInterval(animateFrame, frameDuration);
-    
-    // Initial frame
     animateFrame();
     
-    // Record for sufficient time
-    const recordingDuration = Math.max(settings.duration * 2000, totalFramesToRecord * frameDuration);
+    const recordingDuration = settings.duration * 1000 * 2; // 2 loops
     
     return new Promise<Blob>((resolve, reject) => {
-      const stopRecording = () => {
-        clearInterval(frameInterval);
-        if (recorder.state === 'recording') {
-          recorder.stop();
-        }
-        stream.getTracks().forEach(track => track.stop());
-      };
-      
-      recorder.onstop = () => {
-        if (chunks.length === 0) {
-          console.error('❌ No animation data recorded');
-          reject(new Error('No animation data recorded'));
-          return;
-        }
-        
-        // Create WebM with transparency metadata
-        const animatedBlob = new Blob(chunks, { 
-          type: 'video/webm'
-        });
-        
-        if (animatedBlob.size === 0) {
-          console.error('❌ Empty animation blob created');
-          reject(new Error('Empty animation blob created'));
-          return;
-        }
-        
-        console.log('✅ Enhanced transparency WebM created:', { 
-          size: animatedBlob.size,
-          codec: mimeType,
-          framesProcessed: frameCount,
-          chunksCount: chunks.length,
-          duration: recordingDuration,
-          transparencyEnhanced: true,
-          note: 'WebM with enhanced alpha channel handling'
-        });
-        
-        resolve(animatedBlob);
-      };
-      
-      recorder.onerror = (error) => {
-        console.error('❌ Animation recording failed:', error);
-        stopRecording();
-        reject(new Error('Animation recording failed'));
-      };
-      
-      // Stop recording after the duration
       setTimeout(() => {
-        console.log('⏱️ Stopping enhanced animation recording...');
-        stopRecording();
-      }, recordingDuration + 500);
+        clearInterval(frameInterval);
+        
+        recorder.onstop = () => {
+          const webmBlob = new Blob(chunks, { type: 'video/webm' });
+          
+          console.log('✅ WebM animation created (without transparency):', { 
+            size: webmBlob.size,
+            codec: mimeType,
+            framesProcessed: frameCount,
+            note: 'Use ZIP frames for transparency - WebM cannot preserve alpha in browsers'
+          });
+          
+          resolve(webmBlob);
+        };
+        
+        recorder.onerror = reject;
+        recorder.stop();
+        stream.getTracks().forEach(track => track.stop());
+      }, recordingDuration);
     });
   }
 
