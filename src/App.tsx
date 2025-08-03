@@ -3,7 +3,7 @@ import { TelegramProvider, useTelegram } from './providers/TelegramProvider';
 import NotInTelegram from './components/NotInTelegram';
 import CoinEditor, { CoinEditorRef } from './components/CoinEditor';
 import SettingsPanel, { CoinSettings } from './components/SettingsPanel';
-import { CoinExporter, createCustomEmoji, sendToTelegram, sendInstallationMessage } from './utils/exporter';
+import { CoinExporter, createCustomEmoji } from './utils/exporter';
 
 const AppContent: React.FC = () => {
   const { isInTelegram, initData, isLoading } = useTelegram();
@@ -82,7 +82,7 @@ const AppContent: React.FC = () => {
         fps: 30
       });
       
-      // Export as WebM for emoji use (100x100, 30fps, 3 seconds with proper rotation)
+      // Export as WebM for emoji use (using existing WebP frames)
       const webmBlob = await exporter.exportAsWebM({
         fps: 30,
         duration: targetDuration, // Always 3 seconds
@@ -90,14 +90,9 @@ const AppContent: React.FC = () => {
         rotationSpeed: rotationSpeed // Pass the actual rotation speed to match live animation
       });
       
-      // Send file to Telegram via bot
-      const result = await sendToTelegram(webmBlob, initData);
-      
-      if (result.success) {
-        alert('File sent successfully! Check your Telegram chat.');
-      } else {
-        throw new Error('Failed to send file to Telegram');
-      }
+      // Download WebM for testing
+      exporter.downloadBlob(webmBlob, 'coinmoji-test.webm');
+      alert('WebM created and downloaded! Check if it has proper transparency and animation.');
       
     } catch (error) {
       console.error('Export failed:', error);
@@ -143,7 +138,7 @@ const AppContent: React.FC = () => {
         fps: 30
       });
       
-      // Export as WebM for Telegram emoji (100x100, 30fps, perfect rotation)
+      // Export as WebM for Telegram emoji (using existing WebP frames)
       const webmBlob = await exporter.exportAsWebM({
         fps: 30,
         duration: Math.max(1, Math.min(3, timeForFullRotation)), // Clamp between 1-3 seconds
@@ -160,28 +155,16 @@ const AppContent: React.FC = () => {
       );
       
       if (result.success) {
-        // Send the emoji installation link via Telegram bot instead of popup
-        if (result.set_url) {
-          try {
-            await sendInstallationMessage(result.set_url, initData);
-            alert('✅ Emoji created successfully! Check your Telegram chat for the installation link.');
-          } catch (messageError) {
-            // Fallback to alert if message sending fails
-            console.warn('Failed to send installation message, showing alert instead:', messageError);
-            alert(`✅ Emoji created successfully!\n\nTo install: ${result.set_url}`);
-          }
-        } else {
-          alert('✅ Emoji created successfully! Check your custom emojis in Telegram.');
-        }
+        alert('✅ Emoji created successfully! Check your custom emojis in Telegram.');
       } else {
         throw new Error(result.error || 'Failed to create emoji');
       }
       
     } catch (error) {
-      console.error('Emoji creation failed:', error);
+      console.error('Frame export failed:', error);
       // Don't override the detailed error message from exporter
-      const errorMessage = error instanceof Error ? error.message : 'Failed to create emoji. Please try again.';
-      alert(`Emoji creation failed: ${errorMessage}`);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to export frames. Please try again.';
+      alert(`Frame export failed: ${errorMessage}`);
     } finally {
       setIsExporting(false);
     }

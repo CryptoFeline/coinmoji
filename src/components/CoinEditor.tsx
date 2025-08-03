@@ -1,7 +1,5 @@
 import { useRef, useEffect, useState, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
-import { parseGIF, decompressFrames } from 'gifuct-js';
-import { Muxer, ArrayBufferTarget } from 'webm-muxer';
 import { CoinExporter } from '../utils/exporter';
 
 interface CoinEditorProps {
@@ -365,97 +363,22 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     geometry.setAttribute('uv', new THREE.BufferAttribute(uvArray, 2));
   };
 
-  // ---- GIF → WebM (VP9, alpha) with WebCodecs + webm-muxer ----
-  const gifUrlToVideoTexture = async (url: string, speedMultiplier: number = 1.5): Promise<THREE.VideoTexture> => {
-    // 1) Fetch GIF bytes
-    const res = await fetch(url, { mode: 'cors' });
-    if (!res.ok) throw new Error(`GIF fetch failed: ${res.status}`);
-    const buf = await res.arrayBuffer();
-
-    // 2) Decode frames (RGBA patches + timings)
-    const gif = parseGIF(buf);
-    const frames = decompressFrames(gif, true); // true → build RGBA patch
-    const w = gif.lsd.width, h = gif.lsd.height;
-
-    // Compose full frames honoring disposal
-    const comp = document.createElement('canvas');
-    comp.width = w; comp.height = h;
-    const cctx = comp.getContext('2d', { willReadFrequently: true })!;
-    let prevSnapshot: ImageData | null = null;
-    const fullFrames: ImageData[] = [];
-    const delays: number[] = [];
-    for (let i = 0; i < frames.length; i++) {
-      const f = frames[i];
-      if (f.disposalType === 3) prevSnapshot = cctx.getImageData(0, 0, w, h);
-      const patch = new ImageData(new Uint8ClampedArray(f.patch), f.dims.width, f.dims.height);
-      cctx.putImageData(patch, f.dims.left, f.dims.top);
-      fullFrames.push(cctx.getImageData(0, 0, w, h));
-      const d = (typeof f.delay === 'number' ? f.delay : 10);
-      delays.push(Math.max(2, d) * 10 / speedMultiplier); // Apply speed multiplier → ms
-      if (f.disposalType === 2) {
-        cctx.clearRect(f.dims.left, f.dims.top, f.dims.width, f.dims.height);
-      } else if (f.disposalType === 3 && prevSnapshot) {
-        cctx.putImageData(prevSnapshot, 0, 0);
-      }
-    }
-
-    // 3) Setup muxer and encoder (VP9 + alpha)
-    const target = new ArrayBufferTarget();
-    const muxer = new Muxer({
-      target,
-      video: { codec: 'V_VP9', width: w, height: h, frameRate: 30 }
+  // ---- Simple GIF loading (static image only - animation removed) ----
+  const gifUrlToVideoTexture = async (url: string, speedMultiplier: number = 1.5): Promise<THREE.Texture> => {
+    // Simplified: Load GIF as static image texture
+    console.warn('GIF animation support removed. Loading as static image.');
+    return new Promise((resolve, reject) => {
+      const loader = new THREE.TextureLoader();
+      loader.load(
+        url,
+        (texture) => {
+          texture.colorSpace = THREE.SRGBColorSpace;
+          resolve(texture);
+        },
+        undefined,
+        (error) => reject(error)
+      );
     });
-    const encoder = new (window as any).VideoEncoder({
-      output: (chunk: any, meta: any) => muxer.addVideoChunk(chunk, meta),
-      error: (e: any) => console.error('VideoEncoder error:', e)
-    });
-    encoder.configure({
-      codec: 'vp09.00.10.08',        // VP9 profile 0, 8-bit
-      width: w, height: h,
-      // alpha: 'keep',               // Remove alpha - not supported
-      bitrate: 400_000,               // good default; small files
-      framerate: 60,
-      latencyMode: 'realtime'
-    });
-
-    // 4) Feed frames with real per-frame timestamps
-    let ts = 0; // microseconds
-    for (let i = 0; i < fullFrames.length; i++) {
-      const id = fullFrames[i];
-      // Create canvas from ImageData to construct VideoFrame properly
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = w;
-      tempCanvas.height = h;
-      const tempCtx = tempCanvas.getContext('2d')!;
-      tempCtx.putImageData(id, 0, 0);
-      
-      // VideoFrame from canvas with proper timestamp in microseconds
-      const frame = new (window as any).VideoFrame(tempCanvas, { timestamp: ts * 1000 }); // Convert ms to microseconds
-      encoder.encode(frame, { keyFrame: i === 0 });
-      frame.close();
-      ts += delays[i]; // ms
-    }
-    await encoder.flush();
-    muxer.finalize();
-    const webmBlob = new Blob([target.buffer], { type: 'video/webm' });
-
-    // 5) Return a VideoTexture backed by a Blob URL
-    const urlObj = URL.createObjectURL(webmBlob);
-    const video = document.createElement('video');
-    video.src = urlObj;
-    video.loop = true;
-    video.muted = true;
-    video.playsInline = true;
-    await video.play().catch(() => {/* ignore autoplay errors; user gesture will start */});
-    const tex = new THREE.VideoTexture(video);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.minFilter = THREE.LinearFilter;
-    tex.magFilter = THREE.LinearFilter;
-    tex.format = THREE.RGBAFormat;
-    tex.flipY = true;
-    // Cleanup: revoke Blob URL
-    tex.userData.dispose = () => { try { URL.revokeObjectURL(urlObj); } catch(e) {} video.pause(); };
-    return tex;
   };
 
   // Helper to create texture from URL with proper GIF animation support

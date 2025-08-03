@@ -1,5 +1,5 @@
-import { zip } from 'fflate';
 import * as THREE from 'three';
+import { zip } from 'fflate';
 
 export interface ExportSettings {
   fps: number;
@@ -8,39 +8,17 @@ export interface ExportSettings {
   rotationSpeed?: number; // radians per frame at 60fps (optional, defaults to medium speed)
 }
 
-// Debug logging helper for Telegram environment
-const debugLog = async (message: string, data?: any) => {
-  try {
-    console.log(message, data); // Still log to console for non-Telegram environments
-    
-    // Also send to Netlify function for Telegram debugging
-    await fetch('/.netlify/functions/debug-log', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message,
-        data,
-        timestamp: Date.now()
-      })
-    }).catch(() => {}); // Silent fail if function not available
-  } catch (error) {
-    console.log(message, data); // Fallback to console only
-  }
-};
-
 export class CoinExporter {
   private scene: THREE.Scene;
-  private renderer: THREE.WebGLRenderer;
   private turntable: THREE.Group;
 
   constructor(
     scene: THREE.Scene,
     _camera: THREE.PerspectiveCamera, // Keep for API compatibility but don't use
-    renderer: THREE.WebGLRenderer,
+    _renderer: THREE.WebGLRenderer, // Keep for API compatibility but don't use
     turntable: THREE.Group
   ) {
     this.scene = scene;
-    this.renderer = renderer;
     this.turntable = turntable;
   }
 
@@ -53,32 +31,24 @@ export class CoinExporter {
     const maxFrames = 30;
     const actualFrames = Math.min(totalFrames, maxFrames);
     
-    // CRITICAL: Keep original duration even with fewer frames
-    // This will slow down the animation to match the 3-second window
-    const actualDuration = duration; // Always use full duration
-    const effectiveFPS = actualFrames / actualDuration; // Slower effective FPS
-    
     const frames: Blob[] = [];
 
-    console.log('📹 Starting frame export (matching live THREE.js animation speed):', { 
+    console.log('📹 Starting frame export:', { 
       fps, 
       duration, 
       size, 
       requestedFrames: totalFrames, 
       actualFrames,
-      maxAllowed: maxFrames,
-      effectiveFPS: effectiveFPS.toFixed(2),
-      actualDuration
+      maxAllowed: maxFrames
     });
 
-    // Store original rotation (we don't touch the live renderer anymore)
+    // Store original rotation
     const originalRotation = this.turntable.rotation.y;
-
     console.log('💾 Stored original rotation:', originalRotation);
 
     const prevBackground = this.scene.background;
     try {
-      // CRITICAL: Set scene background to null for transparency
+      // Set scene background to null for transparency
       this.scene.background = null;
       
       // Create OFFSCREEN renderer for export (doesn't affect live view!)
@@ -95,14 +65,13 @@ export class CoinExporter {
       offscreenRenderer.setClearColor(0x000000, 0); // Completely transparent background
       offscreenRenderer.outputColorSpace = THREE.SRGBColorSpace;
       
-      // CRITICAL: Ensure renderer actually uses alpha
+      // Ensure renderer actually uses alpha
       offscreenRenderer.shadowMap.enabled = false; // Disable shadows that can interfere
       offscreenRenderer.autoClear = true;
 
       // Create dedicated camera for export with perfect coin framing
       const exportCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
-      // Position camera much closer to make coin fill more of the frame
-      exportCamera.position.set(0, 0, 2.8); // Even closer for bigger coin in frame
+      exportCamera.position.set(0, 0, 2.8); // Position for proper coin framing
       exportCamera.lookAt(0, 0, 0);
 
       console.log('🎯 Created offscreen renderer:', { 
@@ -113,13 +82,8 @@ export class CoinExporter {
 
       for (let i = 0; i < actualFrames; i++) {
         try {
-          // CRITICAL: Calculate rotation for COMPLETE 360° rotation over duration
-          // Ensure we always do exactly one full rotation regardless of speed settings
-          
-          // Progress through the frames (0 to 1) - use frames, not time
+          // Calculate rotation for COMPLETE 360° rotation over duration
           const frameProgress = i / (actualFrames - 1); // 0 to 1 across all frames
-          
-          // FORCE a complete 360° rotation (2π radians) over the entire duration
           const totalRotation = frameProgress * Math.PI * 2; // Full circle: 0 to 2π
           
           // Debug: Log rotation for first few frames to verify
@@ -127,19 +91,18 @@ export class CoinExporter {
             console.log(`📐 Frame ${i}: progress=${frameProgress.toFixed(3)}, rotation=${totalRotation.toFixed(3)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°)`);
           }
           
-          // Set rotation for this frame to match the live animation timing
+          // Set rotation for this frame
           this.turntable.rotation.y = totalRotation;
 
           // Render to offscreen canvas with export camera
           offscreenRenderer.render(this.scene, exportCamera);
 
-          // Capture frame with enhanced transparency preservation
+          // Capture frame with transparency preservation
           const blob = await this.captureFrameFromRenderer(offscreenRenderer);
           
           if (!blob || blob.size === 0) {
             const error = `Frame ${i} capture failed - empty blob`;
             console.error('❌', error);
-            alert(error);
             throw new Error(error);
           }
           
@@ -151,7 +114,6 @@ export class CoinExporter {
         } catch (frameError) {
           const error = `Failed to capture frame ${i}: ${frameError instanceof Error ? frameError.message : 'Unknown frame error'}`;
           console.error('❌', error, frameError);
-          alert(error);
           throw new Error(error);
         }
       }
@@ -168,13 +130,11 @@ export class CoinExporter {
     } catch (error) {
       const errorMsg = `Frame export failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
       console.error('❌', errorMsg);
-      alert(errorMsg);
       throw error;
     } finally {
       this.scene.background = prevBackground;
-      // Restore original rotation only
+      // Restore original rotation
       this.turntable.rotation.y = originalRotation;
-      
       console.log('🔄 Restored original rotation');
     }
   }
@@ -182,7 +142,6 @@ export class CoinExporter {
   private captureFrameFromRenderer(renderer: THREE.WebGLRenderer): Promise<Blob> {
     return new Promise((resolve) => {
       try {
-        // CRITICAL: Use preserveDrawingBuffer to ensure proper alpha capture
         const canvas = renderer.domElement;
         
         // Create a temporary canvas with explicit alpha support
@@ -275,749 +234,381 @@ export class CoinExporter {
   }
 
   async exportAsWebM(settings: ExportSettings): Promise<Blob> {
-    await debugLog('🎬 Starting WebM export:', settings);
+    console.log('🎬 Creating WebM from WebP frames...');
     
     try {
-      // Check if we have valid scene objects
-      if (!this.scene) {
-        const error = 'Scene is null or undefined';
-        console.error('❌ Scene check:', error);
-        alert(`Export failed: ${error}`);
-        throw new Error(error);
-      }
-      
-      if (!this.turntable) {
-        const error = 'Turntable is null or undefined';
-        console.error('❌ Turntable check:', error);
-        alert(`Export failed: ${error}`);
-        throw new Error(error);
-      }
-      
-      await debugLog('✅ Scene objects validated');
-
-      // CAPABILITY DETECTION: Determine best encoding approach
-      const capabilities = await this.detectTransparencyCapabilities();
-      await debugLog('🔍 Transparency capabilities detected:', capabilities);
-
-      // Choose encoding strategy based on capabilities
-      if (capabilities.shouldUseServerSide) {
-        await debugLog('� Using server-side FFmpeg approach for transparency...');
-        try {
-          const webmBlob = await this.createWebMViaServer(settings);
-          await debugLog('✅ Server-side WebM creation completed:', { size: webmBlob.size });
-          return webmBlob;
-        } catch (serverError) {
-          await debugLog('⚠️ Server-side failed, creating client-side WebM for download testing:', { 
-            error: serverError instanceof Error ? serverError.message : 'Unknown error' 
-          });
-          
-          // In development mode, create a client-side WebM for testing
-          // but enable transparency for proper testing
-          const testWebm = await this.createWebMViaWebMuxer(settings, true); // Enable alpha for testing
-          
-          // Auto-download for testing in development
-          await debugLog('💾 Auto-downloading test WebM for verification...');
-          this.downloadBlob(testWebm, 'coinmoji-test.webm');
-          
-          return testWebm;
-        }
-      }
-
-      // Try CCapture.js first for best transparency support in client-side capture
-      try {
-        await debugLog('🎬 Attempting CCapture.js for transparent WebM...');
-        const webmBlob = await this.createWebMViaCCapture(settings);
-        await debugLog('✅ CCapture WebM creation completed:', { size: webmBlob.size });
-        return webmBlob;
-      } catch (ccaptureError) {
-        await debugLog('⚠️ CCapture failed, trying other methods:', { 
-          error: ccaptureError instanceof Error ? ccaptureError.message : 'Unknown error' 
-        });
-      }
-
-      // Try native MediaRecorder first for environments that support it well
-      if (capabilities.hasNativeRecorder && !capabilities.isLimitedWebView) {
-        try {
-          await debugLog('🎥 Attempting native MediaRecorder...');
-          const webmBlob = await this.recordCanvasToWebM(settings);
-          await debugLog('✅ Native WebM recording completed:', { size: webmBlob.size });
-          return webmBlob;
-        } catch (mediaRecorderError) {
-          await debugLog('⚠️ MediaRecorder failed, trying client-side webm-muxer:', { 
-            error: mediaRecorderError instanceof Error ? mediaRecorderError.message : 'Unknown error' 
-          });
-        }
-      }
-      
-      // Fallback to client-side WebM creation with webm-muxer
-      try {
-        const webmBlob = await this.createWebMViaWebMuxer(settings);
-        await debugLog('✅ Client-side webm-muxer completed:', { size: webmBlob.size });
-        return webmBlob;
-      } catch (webMuxerError) {
-        await debugLog('❌ Client-side webm-muxer also failed:', { 
-          error: webMuxerError instanceof Error ? webMuxerError.message : 'Unknown error' 
-        });
-        throw webMuxerError;
-      }
-    } catch (error) {
-      await debugLog('❌ WebM export failed at top level:', { error: error instanceof Error ? error.message : 'Unknown error' });
-      alert(`WebM export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      throw error;
-    }
-  }
-
-  // NEW: Intelligent capability detection for transparency support
-  private async detectTransparencyCapabilities(): Promise<{
-    hasWebCodecs: boolean;
-    hasNativeRecorder: boolean;
-    hasAlphaCapableCodecs: boolean;
-    isLimitedWebView: boolean;
-    shouldUseServerSide: boolean;
-    detectedCodecs: string[];
-    reason: string;
-  }> {
-    const capabilities = {
-      hasWebCodecs: false,
-      hasNativeRecorder: false,
-      hasAlphaCapableCodecs: false,
-      isLimitedWebView: false,
-      shouldUseServerSide: false,
-      detectedCodecs: [] as string[],
-      reason: ''
-    };
-
-    // Check WebCodecs availability
-    capabilities.hasWebCodecs = 'VideoEncoder' in window && 'VideoFrame' in window;
-    
-    // Check MediaRecorder availability
-    capabilities.hasNativeRecorder = 'MediaRecorder' in window;
-
-    // Detect if we're in a limited WebView (like Telegram)
-    const userAgent = navigator.userAgent.toLowerCase();
-    const isWebView = userAgent.includes('webview') || 
-                     userAgent.includes('telegram') ||
-                     window.location.href.includes('telegram') ||
-                     // Check for Telegram WebApp context
-                     (window as any).Telegram?.WebApp;
-    
-    capabilities.isLimitedWebView = isWebView;
-
-    if (capabilities.hasWebCodecs) {
-      // Test VP9 codec variants for alpha support
-      const codecsToTest = [
-        'vp9',
-        'vp09.02.10.08', // VP9 Profile 2 with alpha
-        'vp09.02.10.10',
-        'vp09.01.10.08', // VP9 Profile 1
-        'vp09.00.10.08', // VP9 Profile 0 (no alpha)
-        'vp8'
-      ];
-
-      for (const codec of codecsToTest) {
-        try {
-          const config = {
-            codec,
-            width: 100,
-            height: 100,
-            bitrate: 200000,
-            framerate: 10
-          };
-
-          if ((window as any).VideoEncoder?.isConfigSupported) {
-            const support = await (window as any).VideoEncoder.isConfigSupported(config);
-            if (support.supported) {
-              capabilities.detectedCodecs.push(codec);
-              
-              // CRITICAL: Only VP9 Profile 2 actually supports alpha transparency
-              // VP9 Profile 0 (vp09.00.10.08) does NOT support alpha despite the name
-              const isProfile2VP9 = codec.includes('vp09.02'); // Only Profile 2 has alpha
-              const isGenericVP9 = codec === 'vp9';
-              
-              if (isProfile2VP9 || isGenericVP9) {
-                try {
-                  const alphaConfig = { ...config, alpha: 'keep' };
-                  const alphaSupport = await (window as any).VideoEncoder.isConfigSupported(alphaConfig);
-                  if (alphaSupport.supported) {
-                    capabilities.hasAlphaCapableCodecs = true;
-                  }
-                } catch {
-                  // Alpha test failed for this codec
-                }
-              }
-            }
-          }
-        } catch {
-          // Codec test failed
-        }
-      }
-    }
-
-    // Decision logic for encoding approach
-    // CRITICAL: FORCE server-side FFmpeg for ALL exports to ensure proper frame rate and transparency
-    // The server-side FFmpeg has been fixed to use the correct FPS (30fps) instead of calculated effectiveFPS (10fps)
-    capabilities.shouldUseServerSide = true;
-    
-    if (capabilities.isLimitedWebView && !capabilities.hasAlphaCapableCodecs) {
-      capabilities.reason = 'LIMITED WEBVIEW: Telegram environment detected - server-side FFmpeg required for VP9 Profile 2 with alpha transparency AND correct frame rate';
-    } else if (!capabilities.hasWebCodecs || !capabilities.hasAlphaCapableCodecs) {
-      capabilities.reason = 'No alpha-capable codecs available locally - server-side FFmpeg preferred for transparency AND correct frame rate';
-    } else {
-      capabilities.reason = 'FORCED: Using server-side FFmpeg for correct 30fps frame rate (client-side was using 10fps effectiveFPS)';
-    }
-
-    return capabilities;
-  }
-
-  private async recordCanvasToWebM(settings: ExportSettings): Promise<Blob> {
-    const { fps, duration, size } = settings;
-    
-    await debugLog('🎥 Setting up canvas recording...', { fps, duration, size });
-    
-    // Create offscreen renderer for recording
-    const captureSize = size; // Use target size directly
-    const offscreenRenderer = new THREE.WebGLRenderer({
-      antialias: true,
-      alpha: true,
-      preserveDrawingBuffer: true,
-      premultipliedAlpha: false
-    });
-    offscreenRenderer.setSize(captureSize, captureSize);
-    offscreenRenderer.setClearColor(0x000000, 0); // Transparent background
-    offscreenRenderer.outputColorSpace = THREE.SRGBColorSpace;
-    offscreenRenderer.shadowMap.enabled = false;
-    offscreenRenderer.autoClear = true;
-
-    // Create dedicated camera for recording
-    const exportCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
-    exportCamera.position.set(0, 0, 2.8);
-    exportCamera.lookAt(0, 0, 0);
-
-    const canvas = offscreenRenderer.domElement;
-    
-    // Store original rotation and scene background
-    const originalRotation = this.turntable.rotation.y;
-    const prevBackground = this.scene.background;
-    this.scene.background = null; // Ensure transparency
-
-    try {
-      // Check MediaRecorder support
-      if (!('MediaRecorder' in window)) {
-        throw new Error('MediaRecorder not supported in this browser');
-      }
-
-      // Setup MediaRecorder with WebM VP9 codec
-      const stream = canvas.captureStream(fps);
-      const mimeType = 'video/webm;codecs=vp9';
-      
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        await debugLog('⚠️ VP9 not supported, trying VP8...');
-        const fallbackMimeType = 'video/webm;codecs=vp8';
-        if (!MediaRecorder.isTypeSupported(fallbackMimeType)) {
-          throw new Error('WebM not supported in this browser');
-        }
-      }
-
-      const recorder = new MediaRecorder(stream, {
-        mimeType: MediaRecorder.isTypeSupported(mimeType) ? mimeType : 'video/webm;codecs=vp8',
-        videoBitsPerSecond: 1000000 // 1Mbps for good quality
-      });
-
-      const chunks: Blob[] = [];
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          chunks.push(event.data);
-        }
-      };
-
-      // Start recording
-      recorder.start();
-      await debugLog('🎬 Recording started...');
-
-      // Animate the coin for the specified duration matching the live THREE.js speed
-      const totalFrames = 30; // Always use 30 frames for smooth animation
-      const frameDelay = (duration * 1000) / totalFrames; // Delay between frames in ms
-
-      for (let i = 0; i < totalFrames; i++) {
-        // FORCE complete 360° rotation over all frames
-        const frameProgress = i / (totalFrames - 1); // 0 to 1 across all frames
-        const totalRotation = frameProgress * Math.PI * 2; // Full circle: 0 to 2π
-        
-        this.turntable.rotation.y = totalRotation;
-        
-        // Render frame
-        offscreenRenderer.render(this.scene, exportCamera);
-        
-        // Wait for next frame
-        if (i < totalFrames - 1) {
-          await new Promise(resolve => setTimeout(resolve, frameDelay));
-        }
-        
-        if (i % 10 === 0) {
-          await debugLog(`📹 Recording frame ${i + 1}/${totalFrames}, rotation: ${totalRotation.toFixed(2)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°)`);
-        }
-      }
-
-      // Stop recording and wait for result
-      return new Promise<Blob>((resolve, reject) => {
-        recorder.onstop = () => {
-          const webmBlob = new Blob(chunks, { type: 'video/webm' });
-          debugLog('✅ Native recording completed:', { 
-            size: webmBlob.size,
-            chunks: chunks.length 
-          });
-          resolve(webmBlob);
-        };
-
-        recorder.onerror = (event) => {
-          debugLog('❌ Recording error:', event);
-          reject(new Error('Recording failed'));
-        };
-
-        // Stop after a small delay to ensure last frame is captured
-        setTimeout(() => {
-          recorder.stop();
-          stream.getTracks().forEach(track => track.stop());
-        }, 100);
-      });
-
-    } finally {
-      // Cleanup
-      this.scene.background = prevBackground;
-      this.turntable.rotation.y = originalRotation;
-      offscreenRenderer.dispose();
-      await debugLog('🔄 Cleaned up recording resources');
-    }
-  }
-
-  private async createWebMViaServer(settings: ExportSettings): Promise<Blob> {
-    await debugLog('🌐 Creating WebM via server-side FFmpeg function...');
-    
-    try {
-      // First export frames as high-quality PNGs with verified transparency
-      await debugLog('📸 Capturing PNG frames for server-side FFmpeg processing...');
-      const frames = await this.exportFrames(settings);
-      
-      if (frames.length === 0) {
-        throw new Error('No frames captured for server-side WebM creation');
-      }
-      
-      await debugLog(`✅ Captured ${frames.length} WebP frames for server-side processing`);
-      
-      // Convert frames to base64 for server transmission
-      const framesBase64: string[] = [];
-      for (let i = 0; i < frames.length; i++) {
-        const base64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const result = reader.result as string;
-            // Remove the data URL prefix to get just the base64
-            const base64Data = result.split(',')[1];
-            resolve(base64Data);
-          };
-          reader.onerror = () => reject(new Error(`Failed to convert frame ${i} to base64`));
-          reader.readAsDataURL(frames[i]);
-        });
-        framesBase64.push(base64);
-        
-        if (i === 0 || i === frames.length - 1 || i % 10 === 0) {
-          await debugLog(`🔄 Converted WebP frame ${i + 1}/${frames.length} to base64`);
-        }
-      }
-      
-      await debugLog(`📤 Sending ${framesBase64.length} WebP frames to server for FFmpeg WebM creation...`);
-      
-      // Send frames to server-side function with timeout protection
-      const payload = {
-        frames_base64: framesBase64,
-        frame_format: 'webp', // Indicate we're sending WebP frames
-        settings: {
-          fps: settings.fps,
-          size: settings.size,
-          duration: settings.duration
-        }
-      };
-      
-      // Add timeout for server request (server-side FFmpeg can take time)
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        controller.abort();
-      }, 60000); // 60 second timeout for server-side processing
-      
-      try {
-        const response = await fetch('/.netlify/functions/create-webm-server', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          await debugLog('❌ Server FFmpeg creation failed:', { 
-            status: response.status, 
-            statusText: response.statusText, 
-            errorText 
-          });
-          throw new Error(`Server FFmpeg creation failed: ${response.status} ${response.statusText}`);
-        }
-        
-        const result = await response.json();
-        
-        if (!result.success || !result.webm_base64) {
-          await debugLog('❌ Server response missing WebM data or failed:', result);
-          throw new Error(result.error || 'Server response missing WebM data');
-        }
-        
-        await debugLog('✅ Server FFmpeg creation successful:', {
-          size: result.size,
-          codec: result.codec,
-          transparency: result.transparency,
-          method: result.method,
-          pixelFormat: result.pixel_format,
-          framesProcessed: result.frames_processed || frames.length,
-          alphaDetected: result.alpha_detected || false,
-          encodingParams: result.encoding_params
-        });
-        
-        // Convert base64 back to blob
-        const webmBuffer = Uint8Array.from(atob(result.webm_base64), c => c.charCodeAt(0));
-        const webmBlob = new Blob([webmBuffer], { type: 'video/webm' });
-        
-        // Verify if the server-side WebM actually has transparency
-        const hasAlpha = await verifyWebMHasAlpha(webmBlob);
-        
-        await debugLog('🎬 Server FFmpeg WebM blob created:', { 
-          size: webmBlob.size,
-          hasTransparency: hasAlpha,
-          serverMethod: result.method,
-          note: hasAlpha ? 'Server transparency preserved with FFmpeg ✅' : 'Warning: Server WebM without transparency'
-        });
-        
-        return webmBlob;
-        
-      } finally {
-        clearTimeout(timeoutId);
-      }
-      
-    } catch (error) {
-      await debugLog('❌ Server-side FFmpeg WebM creation failed:', { 
-        error: error instanceof Error ? error.message : 'Unknown error' 
-      });
-      throw error;
-    }
-  }
-
-  private async createWebMViaCCapture(settings: ExportSettings): Promise<Blob> {
-    await debugLog('🎬 CCapture.js approach - using enhanced manual capture...');
-    
-    try {
-      // Instead of complex CCapture.js setup, use our enhanced manual approach
-      // This gives us better control over transparency preservation
-      await debugLog('🎯 Using enhanced manual transparent capture approach...');
-      
-      // Use our existing webm-muxer with enhanced transparency settings
-      return await this.createWebMViaWebMuxer(settings);
-      
-    } catch (error) {
-      await debugLog('❌ Enhanced manual capture failed:', { 
-        error: error instanceof Error ? error.message : 'Unknown error' 
-      });
-      throw error;
-    }
-  }
-
-  private async createWebMViaWebMuxer(settings: ExportSettings, enableAlpha: boolean = false): Promise<Blob> {
-    await debugLog('🔧 Creating WebM via client-side webm-muxer...');
-    
-    // FIXED: Use the requested FPS directly instead of calculating effectiveFPS
-    // This matches the server-side FFmpeg fix for consistent frame rates
-    const { fps, duration } = settings;
-    const totalFrames = Math.floor(fps * duration);
-    const maxFrames = 30;
-    const actualFrames = Math.min(totalFrames, maxFrames);
-    const requestedFPS = fps; // Use the REQUESTED fps, not calculated effectiveFPS
-    
-    await debugLog('🎯 WebM timing calculation (FIXED):', {
-      requestedFPS: fps,
-      requestedDuration: duration,
-      requestedFrames: totalFrames,
-      actualFrames,
-      usingFPS: requestedFPS,
-      note: 'FIXED: Using requested FPS instead of effectiveFPS for consistent frame rate with server'
-    });
-    
-    // Check if WebCodecs is available
-    if (!('VideoEncoder' in window) || !('VideoFrame' in window)) {
-      throw new Error('WebCodecs not supported in this browser');
-    }
-    
-    // Check supported codecs - choose based on enableAlpha parameter
-    const supportedCodecs = [];
-    const codecsToTest = enableAlpha ? [
-      // PRIORITY: VP9 Profile 2 WITH alpha for transparency
-      { codec: 'vp09.02.10.08', supportsAlpha: true },   // VP9 Profile 2 (alpha transparency)
-      { codec: 'vp09.02.10.10', supportsAlpha: true },   // VP9 Profile 2 variant (alpha)
-      { codec: 'vp9', supportsAlpha: true },             // Simple VP9 (try with alpha first)
-    ] : [
-      // COMPATIBILITY: VP9 Profile 0 (no alpha) for Telegram compatibility
-      { codec: 'vp09.00.10.08', supportsAlpha: false },  // VP9 Profile 0 (no alpha, most compatible)
-      { codec: 'vp09.00.51.08', supportsAlpha: false },  // VP9 Profile 0 variant
-      { codec: 'vp9', supportsAlpha: false },            // Simple VP9 (disable alpha for compatibility)
-      { codec: 'vp8', supportsAlpha: false },            // VP8 fallback (no alpha)
-      { codec: 'vp09.02.10.08', supportsAlpha: false },  // VP9 Profile 2 (disable alpha for now)
-      { codec: 'vp09.02.10.10', supportsAlpha: false }   // VP9 Profile 2 (disable alpha for now)
-    ];
-    
-    for (const { codec, supportsAlpha } of codecsToTest) {
-      try {
-        const config: any = {
-          codec,
-          width: settings.size,
-          height: settings.size,
-          bitrate: 200000,
-          framerate: settings.fps
-        };
-        
-        // Test alpha encoding if requested and codec supports it
-        if (enableAlpha && supportsAlpha) {
-          config.alpha = 'keep'; // Enable alpha encoding for transparency
-        }
-        
-        if ((window as any).VideoEncoder && (window as any).VideoEncoder.isConfigSupported) {
-          const support = await (window as any).VideoEncoder.isConfigSupported(config);
-          if (support.supported) {
-            supportedCodecs.push({ codec, supportsAlpha: enableAlpha && supportsAlpha });
-            const alphaStatus = enableAlpha && supportsAlpha ? 'with alpha transparency' : 'no alpha (solid background)';
-            await debugLog(`✅ Codec ${codec} supported (${alphaStatus})`);
-          }
-        } else {
-          // Fallback: assume basic VP8 is supported if no isConfigSupported
-          supportedCodecs.push({ codec: 'vp8', supportsAlpha: false });
-          break;
-        }
-      } catch (testError) {
-        await debugLog(`⚠️ Codec ${codec} test failed:`, testError);
-      }
-    }
-    
-    // Check if we have any supported codecs
-    const hasAnyCodec = supportedCodecs.length > 0;
-    
-    if (!hasAnyCodec) {
-      throw new Error('No supported video codecs found for WebM creation. This browser may not support WebCodecs API.');
-    }
-    
-    await debugLog(`🎯 Client-side WebM creation (${enableAlpha ? 'with alpha transparency for testing' : 'no alpha, solid background for Telegram compatibility'})`);
-    await debugLog('🎯 Supported video codecs:', supportedCodecs);
-    
-    try {
-      // Import webm-muxer dynamically
-      const { Muxer, ArrayBufferTarget } = await import('webm-muxer');
-      
-      // First export frames as high-quality PNGs
-      await debugLog('📸 Capturing PNG frames for webm-muxer...');
+      // First, get the WebP frames (same as ZIP export)
       const frames = await this.exportFrames(settings);
       
       if (frames.length === 0) {
         throw new Error('No frames captured for WebM creation');
       }
       
-      await debugLog(`✅ Captured ${frames.length} PNG frames for webm-muxer`);
+      console.log(`✅ Got ${frames.length} WebP frames for WebM creation`);
       
-      // Create WebM using webm-muxer with WebCodecs
-      const target = new ArrayBufferTarget();
+      // Convert WebP frames to WebM using client-side approach
+      const webmBlob = await this.createWebMFromFrames(frames, settings);
       
-      // Configure muxer - DISABLE alpha to prevent encoding errors
-      const muxerConfig: any = {
-        target,
-        video: {
-          codec: 'V_VP9',
-          width: settings.size,
-          height: settings.size,
-          frameRate: requestedFPS // Use the REQUESTED fps for consistent timing
-        },
-        firstTimestampBehavior: 'offset',
-        // CRITICAL: Add comprehensive timing metadata for WebM header
-        duration: duration * 1000, // Duration in milliseconds for WebM header (3000ms for 3 seconds)
-        // ENHANCED: Add more explicit timing configuration
-        streaming: false, // Ensure complete file with proper headers
-        type: 'webm' // Explicit container type
-      };
-      
-      // DISABLE alpha in muxer to prevent client-side encoding errors
-      await debugLog('⚠️ WebM muxer configured WITHOUT alpha channel (client-side compatibility)');
-      
-      const muxer = new Muxer(muxerConfig);
-
-      // Create VideoEncoder
-      const chunks: { chunk: any; meta: any }[] = [];
-      const videoEncoder = new (window as any).VideoEncoder({
-        output: (chunk: any, meta: any) => {
-          chunks.push({ chunk, meta });
-        },
-        error: (e: any) => {
-          console.error('VideoEncoder error:', e);
-          throw e;
-        }
-      });
-
-      // Configure video encoder using the best available codec (prefer alpha-capable ones)
-      const bestCodec = supportedCodecs[0]; // First one should be the best alpha-capable codec
-      
-      await debugLog(`🎥 Using codec: ${bestCodec.codec} (alpha support: ${bestCodec.supportsAlpha})`);
-      
-      try {
-        const encoderConfig: any = {
-          codec: bestCodec.codec,
-          width: settings.size,
-          height: settings.size,
-          bitrate: 500000, // Increased from 300k to 500k for better transparency preservation
-          framerate: requestedFPS // Use the REQUESTED fps for consistent timing
-        };
-        
-        // Enable alpha encoding if requested and codec supports it
-        if (enableAlpha && bestCodec.supportsAlpha) {
-          encoderConfig.alpha = 'keep'; // Enable alpha for transparency
-          await debugLog('✅ Creating WebM WITH alpha transparency for testing');
-        } else {
-          await debugLog('⚠️ Creating WebM WITHOUT alpha to prevent encoder closure (client-side limitation)');
-        }
-        
-        await videoEncoder.configure(encoderConfig);
-      } catch (configError) {
-        await debugLog('❌ VideoEncoder configuration failed:', configError);
-        throw new Error(`VideoEncoder configuration failed: ${configError instanceof Error ? configError.message : 'Unknown error'}`);
-      }
-
-      await debugLog(`🎥 VideoEncoder configured successfully with ${bestCodec.codec}${bestCodec.supportsAlpha ? ' (with alpha)' : ' (no alpha)'}`);
-
-      // Process each frame
-      for (let i = 0; i < frames.length; i++) {
-        try {
-          // Create ImageBitmap from blob
-          const imageBitmap = await createImageBitmap(frames[i]);
-
-          // Debug: Check if the frame has transparency
-          if (i === 0) {
-            // Create a temporary canvas to check the alpha values
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = imageBitmap.width;
-            tempCanvas.height = imageBitmap.height;
-            const tempCtx = tempCanvas.getContext('2d', { alpha: true })!;
-            tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
-            tempCtx.drawImage(imageBitmap, 0, 0);
-            
-            // Sample corner pixels to check transparency
-            const cornerSamples = [
-              tempCtx.getImageData(0, 0, 1, 1).data, // top-left
-              tempCtx.getImageData(tempCanvas.width - 1, 0, 1, 1).data, // top-right
-              tempCtx.getImageData(0, tempCanvas.height - 1, 1, 1).data, // bottom-left
-              tempCtx.getImageData(tempCanvas.width - 1, tempCanvas.height - 1, 1, 1).data // bottom-right
-            ];
-            
-            await debugLog('🔍 First frame transparency check:', {
-              frameSize: `${imageBitmap.width}x${imageBitmap.height}`,
-              cornerAlphaValues: cornerSamples.map(px => px[3]),
-              hasTransparentCorners: cornerSamples.some(px => px[3] < 255),
-              codecSupportsAlpha: bestCodec.supportsAlpha,
-              willPreserveTransparency: bestCodec.supportsAlpha && cornerSamples.some(px => px[3] < 255)
-            });
-          }
-
-          // FIXED: Create VideoFrame with corrected timing for 30fps over 3 seconds
-          // For 30 frames over 3 seconds: each frame should be 100ms apart (100,000 microseconds)
-          const frameDurationMicroseconds = (duration * 1000000) / frames.length; // 100,000 μs for 3s/30frames
-          const timestamp = i * frameDurationMicroseconds; // Progressive timestamp
-          
-          // Debug timing for first few frames
-          if (i < 3 || i === frames.length - 1) {
-            await debugLog(`⏱️ Frame ${i} timing:`, {
-              timestamp: timestamp,
-              duration: frameDurationMicroseconds,
-              timestampMs: timestamp / 1000,
-              durationMs: frameDurationMicroseconds / 1000,
-              totalDurationMs: duration * 1000,
-              frameCount: frames.length,
-              expectedDurationMs: 100, // Should be 100ms per frame
-              isCorrect: Math.abs((frameDurationMicroseconds / 1000) - 100) < 1
-            });
-          }
-          
-          // ENHANCED: Create VideoFrame with corrected timing metadata for 3-second duration
-          const videoFrame = new (window as any).VideoFrame(imageBitmap, {
-            timestamp: Math.round(timestamp), // Progressive timestamps: 0, 100000, 200000, etc.
-            duration: Math.round(frameDurationMicroseconds), // Each frame lasts 100ms (100,000 μs)
-            // CRITICAL: Add display timestamp for better WebM compatibility
-            displayTimestamp: Math.round(timestamp),
-            // Force visible rect to ensure full frame
-            visibleRect: { x: 0, y: 0, width: imageBitmap.width, height: imageBitmap.height }
-          });
-
-          // Encode frame
-          videoEncoder.encode(videoFrame, { keyFrame: i === 0 });
-          
-          // Clean up
-          videoFrame.close();
-          imageBitmap.close();
-          
-          if (i === 0 || i === frames.length - 1 || i % 10 === 0) {
-            await debugLog(`🎬 Encoded frame ${i + 1}/${frames.length} with webm-muxer`);
-          }
-        } catch (frameError) {
-          await debugLog(`❌ Error processing frame ${i} with webm-muxer:`, frameError);
-          throw new Error(`Failed to process frame ${i}: ${frameError instanceof Error ? frameError.message : 'Unknown error'}`);
-        }
-      }
-
-      // Finish encoding
-      await videoEncoder.flush();
-      videoEncoder.close();
-      
-      // Add all chunks to muxer
-      for (const { chunk, meta } of chunks) {
-        muxer.addVideoChunk(chunk, meta);
-      }
-      
-      // ENHANCED: Finalize with explicit duration to ensure proper WebM headers
-      await debugLog('🔧 Finalizing WebM with duration metadata...', {
-        totalChunks: chunks.length,
-        expectedDuration: duration,
-        requestedFPS
-      });
-      
-      muxer.finalize();
-
-      const webmBuffer = target.buffer;
-      await debugLog(`📊 WebM created with webm-muxer: ${webmBuffer.byteLength} bytes`, {
-        codec: bestCodec.codec,
-        alphaSupport: enableAlpha && bestCodec.supportsAlpha,
-        transparencyPreserved: enableAlpha && bestCodec.supportsAlpha,
-        telegramCompatible: !enableAlpha,
-        testMode: enableAlpha
-      });
-      
-      const webmBlob = new Blob([webmBuffer], { type: 'video/webm' });
-      
-      await debugLog('🎬 WebM blob created from webm-muxer:', { 
-        size: webmBlob.size,
-        hasTransparency: enableAlpha && bestCodec.supportsAlpha,
-        codecSupported: true,
-        note: enableAlpha ? 'Alpha transparency enabled for testing' : 'Solid background for Telegram compatibility (no alpha encoding)'
-      });
-      
+      console.log('✅ WebM created successfully:', { size: webmBlob.size });
       return webmBlob;
       
     } catch (error) {
-      await debugLog('❌ Client-side webm-muxer failed:', { 
-        error: error instanceof Error ? error.message : 'Unknown error' 
-      });
+      console.error('❌ WebM creation failed:', error);
       throw error;
     }
+  }
+
+  private async createWebMFromFrames(frames: Blob[], settings: ExportSettings): Promise<Blob> {
+    console.log('🔧 Converting WebP frames to WebM with transparency preservation...');
+    
+    try {
+      // Method 1: Try server-side conversion with the improved pipeline
+      console.log('🌐 Trying server-side animated WebP → WebM conversion...');
+      return await this.createWebMViaServer(frames, settings);
+    } catch (serverError) {
+      console.log('⚠️ Server-side failed, trying client-side animated WebP → WebM conversion:', serverError);
+      // Method 2: Client-side animated WebP → WebM conversion
+      return await this.createWebMViaAnimatedWebP(frames, settings);
+    }
+  }
+
+  private async createWebMViaServer(frames: Blob[], settings: ExportSettings): Promise<Blob> {
+    console.log('📤 Sending WebP frames to server for FFmpeg conversion...');
+    
+    // Convert frames to base64 for server transmission
+    const framesBase64: string[] = [];
+    for (let i = 0; i < frames.length; i++) {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          const base64Data = result.split(',')[1];
+          resolve(base64Data);
+        };
+        reader.onerror = () => reject(new Error(`Failed to convert frame ${i} to base64`));
+        reader.readAsDataURL(frames[i]);
+      });
+      framesBase64.push(base64);
+    }
+    
+    const payload = {
+      frames_base64: framesBase64,
+      frame_format: 'webp',
+      settings: {
+        fps: settings.fps,
+        size: settings.size,
+        duration: settings.duration
+      }
+    };
+    
+    const response = await fetch('/.netlify/functions/create-webm-from-frames', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Server conversion failed: ${response.status} ${response.statusText}`);
+    }
+    
+    const result = await response.json();
+    
+    if (!result.success || !result.webm_base64) {
+      throw new Error(result.error || 'Server response missing WebM data');
+    }
+    
+    console.log('✅ Server FFmpeg conversion successful');
+    
+    // Convert base64 back to blob
+    const webmBuffer = Uint8Array.from(atob(result.webm_base64), c => c.charCodeAt(0));
+    return new Blob([webmBuffer], { type: 'video/webm' });
+  }
+
+  private async createWebMViaAnimatedWebP(frames: Blob[], settings: ExportSettings): Promise<Blob> {
+    console.log('🎨 Creating WebM via Animated WebP → Resize → WebM pipeline...');
+    
+    try {
+      // Step 1: Create animated WebP from individual WebP frames
+      console.log('📸 Creating animated WebP from individual frames...');
+      const animatedWebP = await this.createAnimatedWebPFromFrames(frames, settings);
+      
+      // Step 2: Resize animated WebP to target size (preserves transparency)
+      console.log(`🔍 Resizing animated WebP to ${settings.size}x${settings.size}...`);
+      const resizedAnimatedWebP = await this.resizeAnimatedWebP(animatedWebP, settings.size);
+      
+      // Step 3: Convert resized animated WebP to WebM
+      console.log('🎬 Converting resized animated WebP to WebM...');
+      const webmBlob = await this.convertAnimatedWebPToWebM(resizedAnimatedWebP, settings);
+      
+      console.log('✅ Animated WebP → WebM conversion completed:', { size: webmBlob.size });
+      return webmBlob;
+      
+    } catch (error) {
+      console.error('❌ Animated WebP conversion failed:', error);
+      throw error;
+    }
+  }
+
+  private async createAnimatedWebPFromFrames(frames: Blob[], settings: ExportSettings): Promise<Blob> {
+    console.log('🔧 Creating animated WebP from individual WebP frames...');
+    
+    // Create a canvas to work with the frames
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { alpha: true })!;
+    
+    // Get dimensions from first frame
+    const firstImg = await this.blobToImage(frames[0]);
+    canvas.width = firstImg.width;
+    canvas.height = firstImg.height;
+    
+    console.log(`📐 Canvas size: ${canvas.width}x${canvas.height}`);
+    
+    // For now, we'll use a simple approach: create frames as data URLs and use them with MediaRecorder
+    // This creates an intermediate video that we can convert to WebM
+    const stream = canvas.captureStream(settings.fps);
+    
+    // Use WebM/VP9 with alpha support
+    const mimeType = 'video/webm;codecs=vp9';
+    if (!MediaRecorder.isTypeSupported(mimeType)) {
+      throw new Error('VP9 WebM not supported for animated WebP conversion');
+    }
+    
+    const recorder = new MediaRecorder(stream, {
+      mimeType,
+      videoBitsPerSecond: 2000000 // Higher bitrate for better quality
+    });
+    
+    const chunks: Blob[] = [];
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        chunks.push(event.data);
+      }
+    };
+    
+    // Start recording
+    recorder.start();
+    console.log('🎬 Started animated WebP recording...');
+    
+    // Calculate frame timing
+    const frameDuration = (settings.duration * 1000) / frames.length; // ms per frame
+    
+    // Render each frame with transparency preservation
+    for (let i = 0; i < frames.length; i++) {
+      // Clear canvas with full transparency
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Load and draw the WebP frame
+      const img = await this.blobToImage(frames[i]);
+      ctx.drawImage(img, 0, 0);
+      
+      // Wait for frame duration
+      await new Promise(resolve => setTimeout(resolve, frameDuration));
+      
+      if (i % 5 === 0) {
+        console.log(`📸 Processed animated frame ${i + 1}/${frames.length}`);
+      }
+    }
+    
+    // Stop recording and return result
+    return new Promise<Blob>((resolve, reject) => {
+      recorder.onstop = () => {
+        const animatedBlob = new Blob(chunks, { type: 'video/webm' });
+        console.log('✅ Animated WebP (as WebM) created:', { size: animatedBlob.size });
+        resolve(animatedBlob);
+      };
+      
+      recorder.onerror = (event) => {
+        console.error('❌ Animated WebP recording error:', event);
+        reject(new Error('Animated WebP recording failed'));
+      };
+      
+      setTimeout(() => {
+        recorder.stop();
+        stream.getTracks().forEach(track => track.stop());
+      }, 100);
+    });
+  }
+
+  private async resizeAnimatedWebP(animatedWebP: Blob, targetSize: number): Promise<Blob> {
+    console.log(`🔍 Resizing animated WebP to ${targetSize}x${targetSize}...`);
+    
+    // Create video element to load the animated WebP (stored as WebM)
+    const video = document.createElement('video');
+    video.src = URL.createObjectURL(animatedWebP);
+    video.muted = true;
+    video.loop = true;
+    video.playsInline = true;
+    
+    // Wait for video to be ready
+    await new Promise((resolve, reject) => {
+      video.onloadedmetadata = resolve;
+      video.onerror = reject;
+      video.load();
+    });
+    
+    // Create canvas for resizing
+    const canvas = document.createElement('canvas');
+    canvas.width = targetSize;
+    canvas.height = targetSize;
+    const ctx = canvas.getContext('2d', { alpha: true })!;
+    
+    // Set up recording for resized version
+    const stream = canvas.captureStream(30); // Use 30fps for smooth resize
+    const recorder = new MediaRecorder(stream, {
+      mimeType: 'video/webm;codecs=vp9',
+      videoBitsPerSecond: 1500000
+    });
+    
+    const chunks: Blob[] = [];
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        chunks.push(event.data);
+      }
+    };
+    
+    // Start recording resized version
+    recorder.start();
+    await video.play();
+    
+    console.log('🎬 Recording resized animated WebP...');
+    
+    // Continuously draw video to canvas at target size to create resized version
+    const drawFrame = () => {
+      ctx.clearRect(0, 0, targetSize, targetSize);
+      ctx.drawImage(video, 0, 0, targetSize, targetSize);
+    };
+    
+    // Draw frames for the duration of the animation
+    const interval = setInterval(drawFrame, 1000/30); // 30fps
+    
+    // Record for the duration of the animation  
+    await new Promise(resolve => setTimeout(resolve, video.duration * 1000));
+    
+    clearInterval(interval);
+    
+    // Stop recording
+    return new Promise<Blob>((resolve, reject) => {
+      recorder.onstop = () => {
+        const resizedBlob = new Blob(chunks, { type: 'video/webm' });
+        console.log('✅ Resized animated WebP created:', { size: resizedBlob.size });
+        URL.revokeObjectURL(video.src);
+        resolve(resizedBlob);
+      };
+      
+      recorder.onerror = (event) => {
+        console.error('❌ Resize recording error:', event);
+        URL.revokeObjectURL(video.src);
+        reject(new Error('Resize recording failed'));
+      };
+      
+      recorder.stop();
+      stream.getTracks().forEach(track => track.stop());
+      video.pause();
+    });
+  }
+
+  private async convertAnimatedWebPToWebM(animatedWebP: Blob, settings: ExportSettings): Promise<Blob> {
+    console.log('🎬 Converting animated WebP to final WebM...');
+    
+    // The resized animated WebP is already in WebM format from our pipeline
+    // But we want to ensure it meets Telegram emoji requirements
+    
+    // Create video element
+    const video = document.createElement('video');
+    video.src = URL.createObjectURL(animatedWebP);
+    video.muted = true;
+    video.loop = false; // Don't loop for final version
+    video.playsInline = true;
+    
+    await new Promise((resolve, reject) => {
+      video.onloadedmetadata = resolve;
+      video.onerror = reject;
+      video.load();
+    });
+    
+    // Create final canvas at exact target size
+    const canvas = document.createElement('canvas');
+    canvas.width = settings.size;
+    canvas.height = settings.size;
+    const ctx = canvas.getContext('2d', { alpha: true })!;
+    
+    // Set up final recording with Telegram-compatible settings
+    const stream = canvas.captureStream(settings.fps);
+    const recorder = new MediaRecorder(stream, {
+      mimeType: 'video/webm;codecs=vp9',
+      videoBitsPerSecond: 800000 // Telegram emoji size limit friendly
+    });
+    
+    const chunks: Blob[] = [];
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        chunks.push(event.data);
+      }
+    };
+    
+    // Start final recording
+    recorder.start();
+    await video.play();
+    
+    console.log('🎬 Recording final WebM for Telegram...');
+    
+    // Draw video frames to canvas for exact duration
+    const drawFrame = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    };
+    
+    // Draw frames for the specified duration
+    const frameInterval = 1000 / settings.fps;
+    const totalFrames = Math.floor(settings.duration * settings.fps);
+    
+    for (let i = 0; i < totalFrames; i++) {
+      drawFrame();
+      await new Promise(resolve => setTimeout(resolve, frameInterval));
+    }
+    
+    // Stop recording and return final WebM
+    return new Promise<Blob>((resolve, reject) => {
+      recorder.onstop = () => {
+        const finalWebM = new Blob(chunks, { type: 'video/webm' });
+        console.log('✅ Final WebM created for Telegram:', { 
+          size: finalWebM.size,
+          sizeKB: Math.round(finalWebM.size / 1024),
+          underLimit: finalWebM.size < 256 * 1024
+        });
+        URL.revokeObjectURL(video.src);
+        resolve(finalWebM);
+      };
+      
+      recorder.onerror = (event) => {
+        console.error('❌ Final WebM recording error:', event);
+        URL.revokeObjectURL(video.src);
+        reject(new Error('Final WebM recording failed'));
+      };
+      
+      recorder.stop();
+      stream.getTracks().forEach(track => track.stop());
+      video.pause();
+    });
+  }
+
+  private blobToImage(blob: Blob): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(blob);
+      
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve(img);
+      };
+      
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('Failed to load image from blob'));
+      };
+      
+      img.src = url;
+    });
   }
 
   downloadBlob(blob: Blob, filename: string) {
@@ -1125,51 +716,15 @@ export const createCustomEmoji = async (
   blob: Blob, 
   initData: string, 
   emojiList: string[] = ['🪙'],
-  setTitle: string = 'Custom Coinmoji' // TODO: Allow user to set title in webapp or bot UI
+  setTitle: string = 'Custom Coinmoji'
 ) => {
-  await debugLog('🎭 Creating custom emoji:', { 
+  console.log('🎭 Creating custom emoji:', { 
     blobSize: blob.size, 
     blobType: blob.type, 
     emojiList, 
     setTitle,
     initDataLength: initData.length 
   });
-
-  // DEBUGGING: Verify WebM duration before sending to Telegram
-  try {
-    const duration = await verifyWebMDuration(blob);
-    await debugLog('⏱️ WebM duration verification:', {
-      duration: duration ? duration.toFixed(2) + 's' : 'unknown',
-      durationRaw: duration,
-      expectedDuration: '3.0s',
-      isCorrectDuration: duration ? Math.abs(duration - 3.0) < 0.5 : false,
-      blobSize: blob.size,
-      blobType: blob.type
-    });
-    
-    // CRITICAL: Check if WebM meets Telegram emoji requirements
-    if (!duration || duration < 0.1) {
-      await debugLog('⚠️ WebM duration verification failed, but continuing (Telegram may still accept):', { 
-        duration, 
-        fileSize: blob.size,
-        note: 'Some WebM files lack proper duration metadata but still work in Telegram'
-      });
-      // Don't throw error - continue with upload since Telegram often accepts these files
-    }
-    
-    if (blob.size < 1000) {
-      await debugLog('⚠️ WebM suspiciously small:', { size: blob.size });
-      // Don't throw error, but log concern
-    }
-    
-    if (blob.size > 256 * 1024) { // 256KB limit for Telegram emoji
-      await debugLog('❌ WebM too large for Telegram emoji:', { size: blob.size, limit: '256KB' });
-      throw new Error('WebM file too large for Telegram emoji (max 256KB)');
-    }
-    
-  } catch (durationError) {
-    await debugLog('⚠️ Could not verify WebM duration:', durationError);
-  }
 
   // Use FileReader for safe base64 conversion instead of btoa to avoid stack overflow
   const base64 = await new Promise<string>((resolve, reject) => {
@@ -1184,28 +739,28 @@ export const createCustomEmoji = async (
     reader.readAsDataURL(blob);
   });
   
-  await debugLog('🔄 Converted to base64 for emoji:', { 
+  console.log('🔄 Converted to base64 for emoji:', { 
     originalSize: blob.size, 
     base64Length: base64.length,
     base64Sample: base64.substring(0, 50) + '...'
   });
 
   const userId = getTelegramUserId(initData);
-  await debugLog('👤 User ID for emoji:', userId);
+  console.log('👤 User ID for emoji:', userId);
 
-  // CACHE BUSTING: Add timestamp to set title to force Telegram to treat as new emoji
+  // Cache busting: Add timestamp to set title to force Telegram to treat as new emoji
   const timestamp = Date.now();
-  const cacheDebuggingTitle = `@${setTitle} ${timestamp}`; // added @ to make the title clickable @Coinmoji
+  const cacheDebuggingTitle = `${setTitle} ${timestamp}`;
 
   const payload = {
     initData,
     user_id: userId,
-    set_title: cacheDebuggingTitle, // Use timestamped title for cache busting
+    set_title: cacheDebuggingTitle,
     emoji_list: emojiList,
     webm_base64: base64,
   };
 
-  await debugLog('📝 Emoji creation payload prepared:', {
+  console.log('📝 Emoji creation payload prepared:', {
     user_id: payload.user_id,
     set_title: payload.set_title,
     emoji_list: payload.emoji_list,
@@ -1215,7 +770,7 @@ export const createCustomEmoji = async (
   });
 
   try {
-    await debugLog('📡 Sending emoji creation request...');
+    console.log('📡 Sending emoji creation request...');
     const response = await fetch('/.netlify/functions/create-emoji', {
       method: 'POST',
       headers: {
@@ -1224,7 +779,7 @@ export const createCustomEmoji = async (
       body: JSON.stringify(payload),
     });
 
-    await debugLog('📡 Emoji creation response received:', { 
+    console.log('📡 Emoji creation response received:', { 
       status: response.status, 
       statusText: response.statusText,
       headers: Object.fromEntries(response.headers.entries())
@@ -1232,7 +787,7 @@ export const createCustomEmoji = async (
 
     if (!response.ok) {
       const errorText = await response.text();
-      await debugLog('❌ Emoji creation failed:', {
+      console.log('❌ Emoji creation failed:', {
         status: response.status,
         statusText: response.statusText,
         errorText
@@ -1241,10 +796,10 @@ export const createCustomEmoji = async (
     }
 
     const result = await response.json();
-    await debugLog('✅ Emoji creation success:', result);
+    console.log('✅ Emoji creation success:', result);
     return result;
   } catch (error) {
-    await debugLog('❌ Error creating custom emoji:', { error: error instanceof Error ? error.message : 'Unknown error' });
+    console.log('❌ Error creating custom emoji:', { error: error instanceof Error ? error.message : 'Unknown error' });
     throw error;
   }
 };
@@ -1255,211 +810,3 @@ const getTelegramUserId = (initData: string): number => {
   const user = JSON.parse(params.get('user') || '{}');
   return user.id;
 };
-
-// Verify WebM duration for debugging - enhanced version
-export async function verifyWebMDuration(blob: Blob): Promise<number | null> {
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => {
-      console.log('⏱️ Duration verification timed out');
-      resolve(null);
-    }, 8000); // Increased timeout to 8 seconds
-
-    (async () => {
-      try {
-        const url = URL.createObjectURL(blob);
-        try {
-          const v = document.createElement('video');
-          v.src = url;
-          v.muted = true;
-          v.playsInline = true;
-          v.preload = 'metadata';
-          v.crossOrigin = 'anonymous';
-          
-          // Enhanced approach: try multiple loading strategies
-          let durationFound = false;
-          
-          await new Promise((r) => {
-            const metadataTimeout = setTimeout(() => {
-              if (!durationFound) {
-                console.log('⏱️ Metadata loading timed out, trying alternative approach...');
-                // Don't reject, try alternative approach
-                r(undefined);
-              }
-            }, 4000);
-
-            v.onloadedmetadata = () => {
-              if (!durationFound) {
-                durationFound = true;
-                clearTimeout(metadataTimeout);
-                console.log('⏱️ Video metadata loaded via onloadedmetadata:', {
-                  duration: (v.duration !== undefined && isFinite(v.duration)) ? v.duration.toFixed(2) + 's' : 'unknown',
-                  durationRaw: v.duration,
-                  videoWidth: v.videoWidth,
-                  videoHeight: v.videoHeight,
-                  readyState: v.readyState,
-                  networkState: v.networkState
-                });
-                r(undefined);
-              }
-            };
-            
-            v.oncanplay = () => {
-              if (!durationFound) {
-                durationFound = true;
-                clearTimeout(metadataTimeout);
-                console.log('⏱️ Video can play, duration available via oncanplay');
-                r(undefined);
-              }
-            };
-
-            v.oncanplaythrough = () => {
-              if (!durationFound) {
-                durationFound = true;
-                clearTimeout(metadataTimeout);
-                console.log('⏱️ Video can play through, duration available');
-                r(undefined);
-              }
-            };
-
-            v.ondurationchange = () => {
-              if (!durationFound && v.duration && isFinite(v.duration)) {
-                durationFound = true;
-                clearTimeout(metadataTimeout);
-                console.log('⏱️ Duration changed event fired:', v.duration);
-                r(undefined);
-              }
-            };
-            
-            v.onerror = (e) => {
-              clearTimeout(metadataTimeout);
-              console.error('⏱️ Video load error:', e);
-              r(undefined); // Don't reject, return null duration
-            };
-            
-            v.load();
-          });
-          
-          // Alternative approach: try to seek to end to force duration calculation
-          if (!durationFound || !isFinite(v.duration)) {
-            console.log('⏱️ Trying alternative duration detection...');
-            try {
-              v.currentTime = 999999; // Seek to end
-              await new Promise(r => setTimeout(r, 1000)); // Wait for seek
-              if (v.duration && isFinite(v.duration)) {
-                console.log('⏱️ Duration found via seek method:', v.duration);
-                durationFound = true;
-              }
-            } catch (seekError) {
-              console.log('⏱️ Seek method failed:', seekError);
-            }
-          }
-          
-          const duration = v.duration;
-          
-          console.log('⏱️ Final duration check (enhanced):', {
-            durationRaw: duration,
-            isFinite: isFinite(duration),
-            isValidNumber: typeof duration === 'number' && !isNaN(duration),
-            durationFound,
-            finalResult: (duration !== undefined && isFinite(duration)) ? duration : null,
-            videoReadyState: v.readyState,
-            videoNetworkState: v.networkState
-          });
-          
-          clearTimeout(timeout);
-          resolve((duration !== undefined && isFinite(duration)) ? duration : null);
-        } catch (error) {
-          console.error('⏱️ Enhanced duration verification failed:', error);
-          clearTimeout(timeout);
-          resolve(null);
-        } finally {
-          URL.revokeObjectURL(url);
-        }
-      } catch (outerError) {
-        console.error('⏱️ Duration verification outer error:', outerError);
-        clearTimeout(timeout);
-        resolve(null);
-      }
-    })();
-  });
-}
-
-// Verify that the WebM actually contains alpha transparency
-export async function verifyWebMHasAlpha(blob: Blob): Promise<boolean> {
-  // Add timeout to prevent hanging
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => {
-      console.log('🔍 Alpha verification timed out, assuming transparency based on server creation method');
-      resolve(true); // Assume transparency if server-side FFmpeg was used
-    }, 3000); // 3 second timeout
-    
-    (async () => {
-      try {
-        if (!('VideoDecoder' in window)) {
-          console.log('🔍 VideoDecoder not available, assuming transparency based on creation method');
-          resolve(true); // If we can't verify, assume transparency
-          return;
-        }
-
-        const url = URL.createObjectURL(blob);
-        try {
-          console.log('🔍 Verifying WebM alpha channel...');
-          const v = document.createElement('video');
-          v.src = url; 
-          v.muted = true; 
-          v.loop = false; 
-          v.playsInline = true;
-          
-          await v.play().catch(()=>{});
-          await new Promise(r => v.addEventListener('loadeddata', r, { once: true }));
-          
-          // Draw to 2D canvas and read pixels from multiple locations
-          const c = document.createElement('canvas'); 
-          c.width = 20; 
-          c.height = 20;
-          const ctx = c.getContext('2d', { willReadFrequently: true, alpha: true })!;
-          ctx.clearRect(0, 0, c.width, c.height);
-          ctx.drawImage(v, 0, 0, 20, 20);
-          
-          // Sample multiple edge pixels to check transparency (background should be transparent)
-          const edgeSamples = [
-            ctx.getImageData(0, 0, 1, 1).data, // top-left corner
-            ctx.getImageData(19, 0, 1, 1).data, // top-right corner
-            ctx.getImageData(0, 19, 1, 1).data, // bottom-left corner
-            ctx.getImageData(19, 19, 1, 1).data, // bottom-right corner
-            ctx.getImageData(0, 10, 1, 1).data, // left edge middle
-            ctx.getImageData(19, 10, 1, 1).data, // right edge middle
-            ctx.getImageData(10, 0, 1, 1).data, // top edge middle
-            ctx.getImageData(10, 19, 1, 1).data, // bottom edge middle
-          ];
-          
-          // Check if ANY edge pixel has transparency (alpha < 250)
-          const transparentPixels = edgeSamples.filter(px => px[3] < 250);
-          const hasTransparency = transparentPixels.length > 0;
-          
-          console.log('🔍 Alpha verification result:', {
-            videoSize: `${v.videoWidth}x${v.videoHeight}`,
-            canvasSize: `${c.width}x${c.height}`,
-            edgeAlphaValues: edgeSamples.map(px => px[3]),
-            transparentPixelCount: transparentPixels.length,
-            hasTransparency,
-            note: hasTransparency ? 'WebM has transparency ✅' : 'WebM background appears solid ❌'
-          });
-          
-          clearTimeout(timeout);
-          resolve(hasTransparency);
-        } catch (error) {
-          console.error('🔍 Alpha verification failed:', error);
-          clearTimeout(timeout);
-          resolve(true); // Assume transparency if verification fails
-        } finally {
-          URL.revokeObjectURL(url);
-        }
-      } catch (outerError) {
-        console.error('🔍 Alpha verification outer error:', outerError);
-        clearTimeout(timeout);
-        resolve(true); // Assume transparency if verification fails
-      }
-    })();
-  });
-}
