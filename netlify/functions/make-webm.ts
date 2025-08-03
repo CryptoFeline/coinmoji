@@ -1,19 +1,39 @@
 import { Handler } from '@netlify/functions';
 import { spawn } from 'node:child_process';
-import { writeFile, readFile, rm, mkdtemp, access } from 'node:fs/promises';
+import { writeFile, readFile, rm, mkdtemp, access, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 // Use /tmp directory for FFmpeg binary (writable in serverless functions)
 const ffmpegPath = '/tmp/ffmpeg';
 
-// Check if FFmpeg binary exists and is executable
+// Download and setup FFmpeg binary if it doesn't exist
 async function ensureFFmpeg(): Promise<void> {
   try {
     await access(ffmpegPath);
     console.log('✅ FFmpeg binary found at:', ffmpegPath);
+    return;
   } catch {
-    throw new Error(`FFmpeg binary not found at ${ffmpegPath}. Please run the setup-ffmpeg function first by visiting: /.netlify/functions/setup-ffmpeg`);
+    console.log('📥 FFmpeg binary not found, downloading...');
+    
+    // Download FFmpeg static binary directly
+    console.log('📦 Downloading FFmpeg static binary...');
+    const ffmpegUrl = 'https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-linux-x64';
+    
+    console.log('🌐 Downloading from:', ffmpegUrl);
+    const response = await fetch(ffmpegUrl);
+    
+    if (!response.ok) {
+      throw new Error(`Failed to download FFmpeg: ${response.status} ${response.statusText}`);
+    }
+    
+    console.log('💾 FFmpeg download completed');
+    
+    const binaryData = await response.arrayBuffer();
+    await writeFile(ffmpegPath, new Uint8Array(binaryData));
+    await chmod(ffmpegPath, 0o755);
+    
+    console.log('✅ FFmpeg binary downloaded and made executable');
   }
 }
 
