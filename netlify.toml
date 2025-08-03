@@ -1,12 +1,14 @@
 [build]
   publish = "dist"
-  command = "npm ci && npm run build"
+  command = "npm ci && ./scripts/bundle-ffmpeg.sh && npm run build"
   functions = "netlify/functions"
 
 [functions]
   node_bundler = "esbuild"
   # Increase timeout for video processing
   "*" = { timeout = 60 }
+  # Increase size limit for functions with bundled FFmpeg binary
+  "make-webm" = { timeout = 60, size = 100000000 }
 
 [functions.environment]
   # Enable Node.js 18+ features for fetch API
