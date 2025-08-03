@@ -679,7 +679,7 @@ export class CoinExporter {
     console.log('✅ Fresh FFmpeg.wasm loaded for direct WebM creation');
     
     try {
-      // Write individual frames to FFmpeg filesystem
+      // Write individual frames to FFmpeg filesystem with immediate cleanup
       console.log(`📝 Writing ${frames.length} WebP frames to FFmpeg filesystem...`);
       for (let i = 0; i < frames.length; i++) {
         // Validate frame before processing
@@ -705,6 +705,9 @@ export class CoinExporter {
         if (i === 0 || i === frames.length - 1) {
           console.log(`📋 Frame ${i}: ${filename}, original: ${frames[i].size} bytes, written: ${frameData.length} bytes, verified: ${written.length} bytes`);
         }
+        
+        // Clear the frame from memory immediately after writing to reduce memory pressure
+        frames[i] = new Blob(); // Replace with empty blob to free memory
       }
       
       // Calculate framerate from settings
@@ -714,29 +717,44 @@ export class CoinExporter {
       const outputFilename = 'thumb_100.webm';
       console.log(`📝 Output filename: ${outputFilename}`);
       
-      // Create WebM directly from individual frames with ultra-light VP9 settings for memory efficiency
-      await ffmpeg.exec([
-        '-framerate', framerate.toString(),
-        '-i', 'thumb%04d.webp',
-        '-pix_fmt', 'yuva420p',      // VP9 with alpha channel
-        '-c:v', 'libvpx-vp9',        // VP9 codec supports alpha
-        '-b:v', '0',                 // CRF mode (constant rate factor)
-        '-crf', '40',                // Lower quality for maximum memory efficiency (was 35)
-        '-auto-alt-ref', '0',        // Keep alpha plane intact
-        '-row-mt', '0',              // Disable multi-thread rows to save memory
-        '-threads', '1',             // Single thread for predictable memory usage
-        '-deadline', 'realtime',     // Fastest encoding with minimal memory
-        '-cpu-used', '8',            // Fastest encoding to reduce memory pressure
-        '-lag-in-frames', '0',       // Reduce latency and memory usage
-        '-tile-columns', '0',        // Disable tiling to save memory
-        '-frame-parallel', '0',      // Disable frame parallelism
-        '-g', '30',                  // Set GOP size to frame count for predictable memory
-        '-static-thresh', '0',       // Disable static detection to save memory
-        '-max-intra-rate', '300',    // Limit intra frame rate
-        '-undershoot-pct', '100',    // Allow undershoot for memory efficiency
-        '-overshoot-pct', '15',      // Limit overshoot
-        outputFilename
-      ]);
+      try {
+        // First attempt: VP8 with alpha channel (minimal memory)
+        console.log('🔧 Attempt 1: VP8 with alpha channel...');
+        await ffmpeg.exec([
+          '-framerate', framerate.toString(),
+          '-i', 'thumb%04d.webp',
+          '-c:v', 'libvpx',            // VP8 codec (less memory than VP9)
+          '-pix_fmt', 'yuva420p',      // VP8 with alpha channel
+          '-b:v', '200k',              // Fixed bitrate for predictable memory usage
+          '-auto-alt-ref', '0',        // Disable alt-ref frames
+          '-threads', '1',             // Single thread
+          '-deadline', 'realtime',     // Fastest encoding
+          '-cpu-used', '16',           // Maximum speed setting for VP8
+          '-lag-in-frames', '0',       // No lag
+          '-error-resilient', '1',     // Error resilient mode
+          '-kf-max-dist', '30',        // Keyframe every 30 frames
+          outputFilename
+        ]);
+      } catch (alphaError) {
+        console.log('⚠️ VP8 with alpha failed, trying VP8 without alpha...');
+        console.log('📝 Note: Transparency will be lost but emoji should still work');
+        
+        // Fallback: VP8 without alpha (absolute minimal memory)
+        await ffmpeg.exec([
+          '-framerate', framerate.toString(),
+          '-i', 'thumb%04d.webp',
+          '-c:v', 'libvpx',            // VP8 codec
+          '-pix_fmt', 'yuv420p',       // Standard format without alpha
+          '-b:v', '150k',              // Even lower bitrate
+          '-threads', '1',             // Single thread
+          '-deadline', 'realtime',     // Fastest encoding
+          '-cpu-used', '16',           // Maximum speed
+          '-lag-in-frames', '0',       // No lag
+          '-error-resilient', '1',     // Error resilient
+          '-kf-max-dist', '30',        // Keyframes
+          outputFilename
+        ]);
+      }
       
       console.log(`📖 Reading WebM from FFmpeg filesystem: ${outputFilename}`);
       const webmData = await ffmpeg.readFile(outputFilename);
