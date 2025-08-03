@@ -393,17 +393,15 @@ export class CoinExporter {
       }
       
       const payload = {
-        frames_base64: framesBase64,
-        frame_format: 'webp',
-        fps: Math.round(frames.length / settings.duration),
-        duration: settings.duration,
-        size: 100
+        frames: framesBase64,
+        framerate: Math.round(frames.length / settings.duration),
+        duration: settings.duration
       };
       
       console.log('� Sending WebM creation request to serverless function...');
-      console.log(`📊 Payload: ${framesBase64.length} frames, ${payload.fps} fps, ${payload.duration}s duration`);
+      console.log(`📊 Payload: ${framesBase64.length} frames, ${payload.framerate} fps, ${payload.duration}s duration`);
       
-      const response = await fetch('/.netlify/functions/create-webm', {
+      const response = await fetch('/.netlify/functions/make-webm', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -428,10 +426,10 @@ export class CoinExporter {
         throw new Error(result.error || 'Server response missing WebM data');
       }
       
-      console.log('✅ Serverless WebM creation successful:', {
+      console.log('✅ Native FFmpeg WebM creation successful:', {
         size_bytes: result.size_bytes,
         frames_processed: result.frames_processed,
-        fps: result.fps,
+        framerate: result.framerate,
         duration: result.duration
       });
       
