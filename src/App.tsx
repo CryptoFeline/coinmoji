@@ -82,17 +82,17 @@ const AppContent: React.FC = () => {
         fps: 30
       });
       
-      // Export as Animated WebP (simplified approach)
-      const animatedWebPBlob = await exporter.exportAsWebM({
+      // Export as WebM for emoji use (using existing WebP frames)
+      const webmBlob = await exporter.exportAsWebM({
         fps: 30,
         duration: targetDuration, // Always 3 seconds
         size: 100,
         rotationSpeed: rotationSpeed // Pass the actual rotation speed to match live animation
       });
       
-      // Download Animated WebP for testing
-      exporter.downloadBlob(animatedWebPBlob, 'coinmoji-animated.webm');
-      alert('Animated WebP created and downloaded! This should have much better quality and transparency.');
+      // Download WebM for testing
+      exporter.downloadBlob(webmBlob, 'coinmoji-test.webm');
+      alert('WebM created and downloaded! Check if it has proper transparency and animation.');
       
     } catch (error) {
       console.error('Export failed:', error);
@@ -138,8 +138,8 @@ const AppContent: React.FC = () => {
         fps: 30
       });
       
-      // Export as Animated WebP for Telegram emoji (simplified approach)
-      const animatedWebPBlob = await exporter.exportAsWebM({
+      // Export as WebM for Telegram emoji (using existing WebP frames)
+      const webmBlob = await exporter.exportAsWebM({
         fps: 30,
         duration: Math.max(1, Math.min(3, timeForFullRotation)), // Clamp between 1-3 seconds
         size: 100,
@@ -148,7 +148,7 @@ const AppContent: React.FC = () => {
       
       // Create custom emoji in Telegram
       const result = await createCustomEmoji(
-        animatedWebPBlob,
+        webmBlob,
         initData,
         ['🪙'],
         'Coinmoji'
