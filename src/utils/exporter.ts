@@ -262,8 +262,8 @@ export class CoinExporter {
       this.downloadBlob(animatedWebP512, 'coinmoji-animated-512px.webp');
       console.log('📦 Downloaded 512×512 animated WebP: coinmoji-animated-512px.webp');
       
-      // Step 4: Create 100×100 WebM directly from individual frames (skip animated WebP)
-      console.log('🎬 Creating 100×100 WebM directly from downscaled frames...');
+      // Clear 512px frames from memory to free up space before WebM creation
+      frames512.length = 0; // Clear the array to free memory
       
       // Step 4: Create 100×100 WebM directly from individual frames (skip animated WebP)
       console.log('🎬 Creating 100×100 WebM directly from downscaled frames...');
@@ -517,9 +517,12 @@ export class CoinExporter {
         const scaledBlob = new Blob([scaledData], { type: 'image/webp' });
         scaledFrames.push(scaledBlob);
         
-        // Clean up this frame's files
+        // Clean up this frame's files immediately to free memory
         await ffmpeg.deleteFile(inputName);
         await ffmpeg.deleteFile(outputName);
+        
+        // Clear the original frame from memory after processing
+        frames[i] = new Blob(); // Replace with empty blob to free memory
         
         if (i === 0 || i === frames.length - 1 || i % 5 === 0) {
           console.log(`📸 Downscaled frame ${i + 1}/${frames.length}: ${frameData.length} → ${scaledBlob.size} bytes`);
@@ -714,23 +717,27 @@ export class CoinExporter {
       const outputFilename = 'thumb_100.webm';
       console.log(`📝 Output filename: ${outputFilename}`);
       
-      // Create WebM directly from individual frames with optimized VP9 settings for memory efficiency
+      // Create WebM directly from individual frames with ultra-light VP9 settings for memory efficiency
       await ffmpeg.exec([
         '-framerate', framerate.toString(),
         '-i', 'thumb%04d.webp',
         '-pix_fmt', 'yuva420p',      // VP9 with alpha channel
         '-c:v', 'libvpx-vp9',        // VP9 codec supports alpha
         '-b:v', '0',                 // CRF mode (constant rate factor)
-        '-crf', '35',                // Slightly lower quality for memory efficiency (was 30)
+        '-crf', '40',                // Lower quality for maximum memory efficiency (was 35)
         '-auto-alt-ref', '0',        // Keep alpha plane intact
         '-row-mt', '0',              // Disable multi-thread rows to save memory
         '-threads', '1',             // Single thread for predictable memory usage
-        '-deadline', 'realtime',     // Faster encoding with less memory (was 'good')
-        '-cpu-used', '8',            // Fastest encoding to reduce memory pressure (was 1)
+        '-deadline', 'realtime',     // Fastest encoding with minimal memory
+        '-cpu-used', '8',            // Fastest encoding to reduce memory pressure
         '-lag-in-frames', '0',       // Reduce latency and memory usage
         '-tile-columns', '0',        // Disable tiling to save memory
         '-frame-parallel', '0',      // Disable frame parallelism
         '-g', '30',                  // Set GOP size to frame count for predictable memory
+        '-static-thresh', '0',       // Disable static detection to save memory
+        '-max-intra-rate', '300',    // Limit intra frame rate
+        '-undershoot-pct', '100',    // Allow undershoot for memory efficiency
+        '-overshoot-pct', '15',      // Limit overshoot
         outputFilename
       ]);
       
