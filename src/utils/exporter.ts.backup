@@ -5,8 +5,73 @@ export interface ExportSettings {
   fps: number;
   duration: number; // in seconds
   size: number; // output size (100 for emoji)
-  rotationSpeed?: number; // radians per frame at 60fps (optional, defaults to medium speed)
-}
+  rotationSpeed?: number; // radians per frame at 60fps (optional, defaults to me  private async cr  private async createAnima  private async createAnimatedWebP(frames: Blob[], settings: ExportSettings): Promise<Blob> {
+    console.log('🔧 Creating animated WebP by stacking transparent frames...');
+    
+    try {
+      // First try FFmpeg.wasm for client-side animated WebP with transparency
+      return await this.createAnimatedWebPViaFFmpeg(frames, settings);
+    } catch (ffmpegError) {
+      console.error('❌ FFmpeg.wasm animated WebP creation failed:', ffmpegError);
+      console.log('🔄 Falling back to server guidance...');
+      
+      try {
+        return await this.createAnimatedWebPViaServer(frames, settings);
+      } catch (serverError) {
+        console.error('❌ Server-side animated WebP creation failed:', serverError);
+        console.log('💡 For transparent animated WebP: Download ZIP and use EZGIF.com or ImageMagick');
+        console.log('📦 Falling back to client-side WebM (transparency will be lost)');
+        // Since browsers can't create animated WebP, create WebM as last resort (but loses transparency)
+        return await this.createAnimatedPngViaCanvas(frames, settings);
+      }
+    }
+  }s: Blob[], settings: ExportSettings): Promise<Blob> {
+    console.log('🔧 Creating animated WebP by stacking transparent frames...');
+    
+    try {
+      // First try FFmpeg.wasm for client-side animated WebP with transparency
+      return await this.createAnimatedWebPViaFFmpeg(frames, settings);
+    } catch (ffmpegError) {
+      console.error('❌ FFmpeg.wasm animated WebP creation failed:', ffmpegError);
+      console.log('🔄 Falling back to server guidance...');
+      
+      try {
+        return await this.createAnimatedWebPViaServer(frames, settings);
+      } catch (serverError) {
+        console.error('❌ Server-side animated WebP creation failed:', serverError);
+        console.log('💡 For transparent animated WebP: Download ZIP and use EZGIF.com or ImageMagick');
+        console.log('📦 Falling back to client-side WebM (transparency will be lost)');
+        // Since browsers can't create animated WebP, create WebM as last resort (but loses transparency)
+        return await this.createAnimatedPngViaCanvas(frames, settings);
+      }
+    }
+  }
+
+export class CoinExporter {
+    }
+  }
+
+  private async createAnimatedWebP(frames: Blob[], settings: ExportSettings): Promise<Blob> {
+    console.log('🔧 Creating animated WebP by stacking transparent frames...');
+    
+    try {
+      // First try FFmpeg.wasm for client-side animated WebP with transparency
+      return await this.createAnimatedWebPViaFFmpeg(frames, settings);
+    } catch (ffmpegError) {
+      console.error('❌ FFmpeg.wasm animated WebP creation failed:', ffmpegError);
+      console.log('� Falling back to server guidance...');
+      
+      try {
+        return await this.createAnimatedWebPViaServer(frames, settings);
+      } catch (serverError) {
+        console.error('❌ Server-side animated WebP creation failed:', serverError);
+        console.log('💡 For transparent animated WebP: Download ZIP and use EZGIF.com or ImageMagick');
+        console.log('📦 Falling back to client-side WebM (transparency will be lost)');
+        // Since browsers can't create animated WebP, create WebM as last resort (but loses transparency)
+        return await this.createAnimatedPngViaCanvas(frames, settings);
+      }
+    }
+  }
 
 export class CoinExporter {
   private scene: THREE.Scene;
@@ -276,21 +341,13 @@ export class CoinExporter {
     console.log('🔧 Creating animated WebP by stacking transparent frames...');
     
     try {
-      // First try FFmpeg.wasm for client-side animated WebP with transparency
-      return await this.createAnimatedWebPViaFFmpeg(frames, settings);
-    } catch (ffmpegError) {
-      console.error('❌ FFmpeg.wasm animated WebP creation failed:', ffmpegError);
-      console.log('🔄 Falling back to server guidance...');
-      
-      try {
-        return await this.createAnimatedWebPViaServer(frames, settings);
-      } catch (serverError) {
-        console.error('❌ Server-side animated WebP creation failed:', serverError);
-        console.log('� For transparent animated WebP: Download ZIP and use EZGIF.com or ImageMagick');
-        console.log('�📦 Falling back to client-side WebM (transparency will be lost)');
-        // Since browsers can't create animated WebP, create WebM as last resort (but loses transparency)
-        return await this.createAnimatedPngViaCanvas(frames, settings);
-      }
+      return await this.createAnimatedWebPViaServer(frames, settings);
+    } catch (serverError) {
+      console.error('❌ Server-side animated WebP creation failed:', serverError);
+      console.log('� For transparent animated WebP: Download ZIP and use EZGIF.com or ImageMagick');
+      console.log('�📦 Falling back to client-side WebM (transparency will be lost)');
+      // Since browsers can't create animated WebP, create WebM as last resort (but loses transparency)
+      return await this.createAnimatedPngViaCanvas(frames, settings);
     }
   }
 
@@ -465,7 +522,7 @@ export class CoinExporter {
         '-pix_fmt', 'yuva420p', // Enable alpha channel
         '-loop', '0', // Loop forever
         '-q:v', '80', // Quality (0-100, higher = better quality)
-        '-compression_level', '1', // Compression level (0-6, higher = smaller file)
+        '-compression_level', '6', // Compression level (0-6, higher = smaller file)
         'animated.webp'
       ]);
       
@@ -513,6 +570,70 @@ export class CoinExporter {
       
       img.src = url;
     });
+  }
+
+  private async createAnimatedWebPViaFFmpeg(frames: Blob[], settings: ExportSettings): Promise<Blob> {
+    console.log('🎬 Creating animated WebP using FFmpeg.wasm...');
+    
+    // Dynamic import for code splitting and lazy loading
+    const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+    const { fetchFile } = await import('@ffmpeg/util');
+    
+    console.log('📦 Initializing FFmpeg.wasm...');
+    const ffmpeg = new FFmpeg();
+    
+    await ffmpeg.load();
+    console.log('✅ FFmpeg.wasm loaded successfully');
+    
+    try {
+      // Convert blobs to Uint8Array and write to FFmpeg filesystem
+      console.log(`📝 Writing ${frames.length} WebP frames to FFmpeg filesystem...`);
+      for (let i = 0; i < frames.length; i++) {
+        const frameData = await fetchFile(frames[i]);
+        await ffmpeg.writeFile(`frame${String(i).padStart(4, '0')}.webp`, frameData);
+      }
+      
+      // Calculate framerate from settings
+      const framerate = Math.round(frames.length / settings.duration);
+      console.log(`🎯 Creating animated WebP: ${frames.length} frames, ${framerate} fps, ${settings.duration}s duration`);
+      
+      // Create animated WebP with transparency
+      await ffmpeg.exec([
+        '-framerate', framerate.toString(),
+        '-i', 'frame%04d.webp',
+        '-c:v', 'libwebp',
+        '-pix_fmt', 'yuva420p', // Enable alpha channel
+        '-loop', '0', // Loop forever
+        '-q:v', '80', // Quality (0-100, higher = better quality)
+        '-compression_level', '6', // Compression level (0-6, higher = smaller file)
+        'animated.webp'
+      ]);
+      
+      console.log('📖 Reading animated WebP from FFmpeg filesystem...');
+      const animatedWebPData = await ffmpeg.readFile('animated.webp');
+      
+      // Clean up FFmpeg filesystem (optional, but good practice)
+      try {
+        for (let i = 0; i < frames.length; i++) {
+          await ffmpeg.deleteFile(`frame${String(i).padStart(4, '0')}.webp`);
+        }
+        await ffmpeg.deleteFile('animated.webp');
+      } catch (cleanupError) {
+        console.warn('Failed to clean up FFmpeg filesystem:', cleanupError);
+      }
+      
+      // Convert Uint8Array to Blob
+      const webpBlob = new Blob([animatedWebPData], { type: 'image/webp' });
+      
+      console.log(`✅ Animated WebP created with FFmpeg.wasm: ${webpBlob.size} bytes`);
+      console.log('🎯 Transparency preserved in animated WebP!');
+      
+      return webpBlob;
+      
+    } catch (error) {
+      console.error('FFmpeg.wasm processing error:', error);
+      throw new Error(`FFmpeg.wasm failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   private async createAnimatedWebPViaServer(frames: Blob[], settings: ExportSettings): Promise<Blob> {
