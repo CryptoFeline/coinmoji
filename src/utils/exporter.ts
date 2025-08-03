@@ -238,39 +238,41 @@ export class CoinExporter {
     
     try {
       // Step 1: Get the transparent WebP frames (512x512)
-      const frames = await this.exportFrames(settings);
+      const frames512 = await this.exportFrames(settings);
       
-      if (frames.length === 0) {
+      if (frames512.length === 0) {
         throw new Error('No frames captured for animated WebP creation');
       }
       
-      console.log(`✅ Got ${frames.length} transparent WebP frames`);
+      console.log(`✅ Got ${frames512.length} transparent WebP frames (512×512)`);
       
-      // Download ZIP of frames for inspection
-      const zipBlob = await this.exportAsZip(settings);
-      this.downloadBlob(zipBlob, 'coinmoji-frames.zip');
-      console.log('📦 Downloaded ZIP of transparent frames');
+      // Download ZIP of 512px frames for inspection
+      const zipBlob512 = await this.exportAsZip(settings);
+      this.downloadBlob(zipBlob512, 'coinmoji-frames-512px.zip');
+      console.log('📦 Downloaded ZIP of 512×512 transparent frames');
       
-      // Step 2: Create animated WebP (512×512) with transparency
-      const animatedWebPBlob = await this.createAnimatedWebP(frames, settings);
+      // Step 2: Downscale individual frames to 100×100
+      console.log('🔽 Downscaling individual frames to 100×100...');
+      const frames100 = await this.downscaleFrames(frames512, 100);
       
-      console.log('✅ Animated WebP created:', { size: animatedWebPBlob.size });
+      console.log(`✅ Downscaled ${frames100.length} frames to 100×100`);
       
-      // Download 512×512 animated WebP for inspection
-      this.downloadBlob(animatedWebPBlob, 'coinmoji-animated-512px.webp');
+      // Step 3: Create 512×512 animated WebP for reference
+      const animatedWebP512 = await this.createAnimatedWebP(frames512, settings);
+      this.downloadBlob(animatedWebP512, 'coinmoji-animated-512px.webp');
       console.log('📦 Downloaded 512×512 animated WebP: coinmoji-animated-512px.webp');
       
-      // Step 3: Downscale to 100×100 for emoji format
-      const scaledWebPBlob = await this.downscaleAnimatedWebP(animatedWebPBlob, 100);
+      // Step 4: Create 100×100 animated WebP for emoji format
+      const animatedWebP100 = await this.createAnimatedWebP(frames100, settings);
       
-      console.log('✅ Downscaled to 100×100:', { size: scaledWebPBlob.size });
+      console.log('✅ 100×100 Animated WebP created:', { size: animatedWebP100.size });
       
       // Download 100×100 animated WebP for quality check
-      this.downloadBlob(scaledWebPBlob, 'coinmoji-animated-100px.webp');
+      this.downloadBlob(animatedWebP100, 'coinmoji-animated-100px.webp');
       console.log('📦 Downloaded 100×100 animated WebP: coinmoji-animated-100px.webp');
       
-      // Step 4: Convert 100×100 WebP to WebM for emoji format
-      const webmBlob = await this.convertWebPToWebM(scaledWebPBlob);
+      // Step 5: Convert 100×100 WebP to WebM for emoji format
+      const webmBlob = await this.convertWebPToWebM(animatedWebP100);
       
       console.log('✅ WebM created:', { size: webmBlob.size });
       
@@ -446,6 +448,59 @@ export class CoinExporter {
     });
   }
 
+  private async downscaleFrames(frames: Blob[], targetSize: number): Promise<Blob[]> {
+    console.log(`🔽 Downscaling ${frames.length} individual frames to ${targetSize}×${targetSize}...`);
+    
+    // Dynamic import for code splitting and lazy loading
+    const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+    const { fetchFile } = await import('@ffmpeg/util');
+    
+    console.log('📦 Initializing FFmpeg.wasm for frame downscaling...');
+    const ffmpeg = new FFmpeg();
+    
+    await ffmpeg.load();
+    console.log('✅ FFmpeg.wasm loaded for frame downscaling');
+    
+    const scaledFrames: Blob[] = [];
+    
+    try {
+      for (let i = 0; i < frames.length; i++) {
+        const frameData = await fetchFile(frames[i]);
+        const inputName = `input_${i}.webp`;
+        const outputName = `output_${i}.webp`;
+        
+        await ffmpeg.writeFile(inputName, frameData);
+        
+        // Scale individual frame using simple image processing (not video)
+        await ffmpeg.exec([
+          '-i', inputName,
+          '-vf', `scale=${targetSize}:${targetSize}`,
+          '-quality', '95',
+          outputName
+        ]);
+        
+        const scaledData = await ffmpeg.readFile(outputName);
+        const scaledBlob = new Blob([scaledData], { type: 'image/webp' });
+        scaledFrames.push(scaledBlob);
+        
+        // Clean up this frame's files
+        await ffmpeg.deleteFile(inputName);
+        await ffmpeg.deleteFile(outputName);
+        
+        if (i === 0 || i === frames.length - 1 || i % 10 === 0) {
+          console.log(`📸 Downscaled frame ${i + 1}/${frames.length}: ${scaledBlob.size} bytes`);
+        }
+      }
+      
+      console.log(`✅ Successfully downscaled ${scaledFrames.length} frames to ${targetSize}×${targetSize}`);
+      return scaledFrames;
+      
+    } catch (error) {
+      console.error('Frame downscaling error:', error);
+      throw new Error(`Frame downscaling failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
   private async createAnimatedWebPViaFFmpeg(frames: Blob[], settings: ExportSettings): Promise<Blob> {
     console.log('🎬 Creating animated WebP using FFmpeg.wasm...');
     
@@ -509,110 +564,6 @@ export class CoinExporter {
     } catch (error) {
       console.error('FFmpeg.wasm processing error:', error);
       throw new Error(`FFmpeg.wasm failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-
-  private async downscaleAnimatedWebP(webpBlob: Blob, targetSize: number): Promise<Blob> {
-    console.log(`🔽 Downscaling animated WebP to ${targetSize}×${targetSize}...`);
-    
-    // Dynamic import for code splitting and lazy loading
-    const { FFmpeg } = await import('@ffmpeg/ffmpeg');
-    const { fetchFile } = await import('@ffmpeg/util');
-    
-    console.log('📦 Initializing FFmpeg.wasm for downscaling...');
-    const ffmpeg = new FFmpeg();
-    
-    // Add logging to see FFmpeg output
-    ffmpeg.on('log', ({ message }) => {
-      console.log('🔧 FFmpeg log:', message);
-    });
-    
-    await ffmpeg.load();
-    console.log('✅ FFmpeg.wasm loaded for downscaling');
-    
-    try {
-      // Write the animated WebP to filesystem
-      const webpData = await fetchFile(webpBlob);
-      await ffmpeg.writeFile('input.webp', webpData);
-      
-      // Downscale using simplified command for better compatibility
-      console.log(`🔧 Downscaling command: scale to ${targetSize}×${targetSize}`);
-      
-      try {
-        // First try: Standard video filter approach
-        await ffmpeg.exec([
-          '-i', 'input.webp',
-          '-vf', `scale=${targetSize}:${targetSize}`,  // Simplified scale filter
-          '-c:v', 'libwebp_anim',
-          '-pix_fmt', 'yuva420p',
-          '-lossless', '0',
-          '-quality', '95',
-          '-compression_level', '4',
-          '-loop', '0',
-          '-cr_threshold', '0',
-          'output.webp'
-        ]);
-      } catch (firstError) {
-        console.log('⚠️ Standard approach failed, trying alternative scaling...');
-        
-        // Second try: Use image2 format approach
-        await ffmpeg.exec([
-          '-i', 'input.webp',
-          '-s', `${targetSize}x${targetSize}`,  // Use -s flag instead of -vf
-          '-c:v', 'libwebp_anim',
-          '-pix_fmt', 'yuva420p',
-          '-lossless', '0',
-          '-quality', '95',
-          '-compression_level', '4',
-          '-loop', '0',
-          '-cr_threshold', '0',
-          'output.webp'
-        ]);
-      }
-      
-      console.log('📖 Reading downscaled WebP...');
-      
-      // Check if the output file exists and has content
-      try {
-        const scaledData = await ffmpeg.readFile('output.webp');
-        
-        if (!scaledData || scaledData.length === 0) {
-          throw new Error('Downscaled WebP file is empty - FFmpeg command may have failed');
-        }
-        
-        console.log(`📊 Downscaled file size: ${scaledData.length} bytes`);
-        
-        // Clean up
-        try {
-          await ffmpeg.deleteFile('input.webp');
-          await ffmpeg.deleteFile('output.webp');
-        } catch (cleanupError) {
-          console.warn('Failed to clean up downscaling files:', cleanupError);
-        }
-        
-        const scaledBlob = new Blob([scaledData], { type: 'image/webp' });
-        
-        console.log(`✅ Downscaled to ${targetSize}×${targetSize}: ${scaledBlob.size} bytes`);
-        
-        return scaledBlob;
-        
-      } catch (readError) {
-        console.error('❌ Failed to read downscaled file:', readError);
-        
-        // Try to list files in FFmpeg filesystem for debugging
-        try {
-          const files = await ffmpeg.listDir('/');
-          console.log('📁 FFmpeg filesystem contents:', files);
-        } catch (listError) {
-          console.warn('Could not list FFmpeg filesystem:', listError);
-        }
-        
-        throw new Error(`Failed to read downscaled WebP: ${readError instanceof Error ? readError.message : 'Unknown error'}`);
-      }
-      
-    } catch (error) {
-      console.error('Downscaling error:', error);
-      throw new Error(`Downscaling failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
