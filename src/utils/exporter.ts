@@ -461,15 +461,14 @@ export class CoinExporter {
       await ffmpeg.exec([
         '-framerate', framerate.toString(),
         '-i', 'frame%04d.webp',
-        '-vf', 'scale=100:100:flags=lanczos',  // shrink while reading
-        '-pix_fmt', 'yuva420p',
-        '-c:v', 'libwebp_anim',
-        '-lossless',  '0',
-        '-quality',   '90',
-        '-compression_level', '4',
-        '-loop', '0',
-        '-cr_threshold', '0',
-        'animated_100.webp'
+        '-pix_fmt', 'yuva420p',     // make sure alpha is kept
+        '-c:v', 'libwebp_anim',     // dedicated animated WebP encoder
+        '-lossless',  '0',          // 0 = lossy, 1 = lossless
+        '-quality',   '100',        // 0-100
+        '-compression_level', '0',  // 0-6, trade-off size vs. speed
+        '-loop',      '0',          // 0 = infinite loop
+        '-cr_threshold', '0',       // always refresh blocks (prevents stacking)
+        'animated.webp'
       ]);
       
       console.log('📖 Reading animated WebP from FFmpeg filesystem...');
