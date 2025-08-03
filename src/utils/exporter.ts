@@ -503,6 +503,7 @@ export class CoinExporter {
 
   private async createAnimatedWebPViaFFmpeg(frames: Blob[], settings: ExportSettings): Promise<Blob> {
     console.log('🎬 Creating animated WebP using FFmpeg.wasm...');
+    console.log(`📊 Input: ${frames.length} frames for animation`);
     
     // Dynamic import for code splitting and lazy loading
     const { FFmpeg } = await import('@ffmpeg/ffmpeg');
@@ -510,6 +511,13 @@ export class CoinExporter {
     
     console.log('📦 Initializing FFmpeg.wasm...');
     const ffmpeg = new FFmpeg();
+    
+    // Add logging to see FFmpeg output for debugging
+    ffmpeg.on('log', ({ message }) => {
+      if (message.includes('error') || message.includes('failed') || message.includes('invalid')) {
+        console.log('🔧 FFmpeg ERROR:', message);
+      }
+    });
     
     await ffmpeg.load();
     console.log('✅ FFmpeg.wasm loaded successfully');
@@ -519,12 +527,24 @@ export class CoinExporter {
       console.log(`📝 Writing ${frames.length} WebP frames to FFmpeg filesystem...`);
       for (let i = 0; i < frames.length; i++) {
         const frameData = await fetchFile(frames[i]);
-        await ffmpeg.writeFile(`frame${String(i).padStart(4, '0')}.webp`, frameData);
+        const filename = `frame${String(i).padStart(4, '0')}.webp`;
+        await ffmpeg.writeFile(filename, frameData);
+        
+        // Verify frame was written correctly
+        if (i === 0 || i === frames.length - 1) {
+          console.log(`📋 Frame ${i}: ${filename}, size: ${frameData.length} bytes`);
+        }
       }
       
       // Calculate framerate from settings
       const framerate = Math.round(frames.length / settings.duration);
       console.log(`🎯 Creating animated WebP: ${frames.length} frames, ${framerate} fps, ${settings.duration}s duration`);
+      
+      // Determine output filename based on frame size (detect if we're working with 100px frames)
+      const frameSize = frames.length > 0 ? (frames[0].size < 5000 ? '100' : '512') : '512';
+      const outputFilename = `animated_${frameSize}.webp`;
+      
+      console.log(`📝 Output filename: ${outputFilename}`);
       
       // Create animated WebP with transparency - simplified command for compatibility
       await ffmpeg.exec([
@@ -537,18 +557,32 @@ export class CoinExporter {
         '-compression_level', '0',  // 0-6, trade-off size vs. speed
         '-loop',      '0',          // 0 = infinite loop
         '-cr_threshold', '0',       // always refresh blocks (prevents stacking)
-        'animated_512.webp'
+        outputFilename
       ]);
       
-      console.log('📖 Reading animated WebP from FFmpeg filesystem...');
-      const animatedWebPData = await ffmpeg.readFile('animated_512.webp');
+      console.log(`📖 Reading animated WebP from FFmpeg filesystem: ${outputFilename}`);
+      const animatedWebPData = await ffmpeg.readFile(outputFilename);
+      
+      if (!animatedWebPData || animatedWebPData.length === 0) {
+        console.error('❌ Animated WebP file is empty!');
+        
+        // Debug: List all files in FFmpeg filesystem
+        try {
+          const files = await ffmpeg.listDir('/');
+          console.log('📁 FFmpeg filesystem contents:', files);
+        } catch (listError) {
+          console.warn('Could not list FFmpeg filesystem:', listError);
+        }
+        
+        throw new Error('Animated WebP creation failed - output file is empty');
+      }
       
       // Clean up FFmpeg filesystem (optional, but good practice)
       try {
         for (let i = 0; i < frames.length; i++) {
           await ffmpeg.deleteFile(`frame${String(i).padStart(4, '0')}.webp`);
         }
-        await ffmpeg.deleteFile('animated_512.webp');
+        await ffmpeg.deleteFile(outputFilename);
       } catch (cleanupError) {
         console.warn('Failed to clean up FFmpeg filesystem:', cleanupError);
       }
@@ -584,6 +618,13 @@ export class CoinExporter {
     console.log('📦 Initializing FFmpeg.wasm for WebM conversion...');
     const ffmpeg = new FFmpeg();
     
+    // Add logging to see FFmpeg output for debugging
+    ffmpeg.on('log', ({ message }) => {
+      if (message.includes('error') || message.includes('failed') || message.includes('invalid') || message.includes('skipping')) {
+        console.log('🔧 FFmpeg WebM log:', message);
+      }
+    });
+    
     await ffmpeg.load();
     console.log('✅ FFmpeg.wasm loaded for WebM conversion');
     
@@ -592,7 +633,10 @@ export class CoinExporter {
       const webpData = await fetchFile(webpBlob);
       await ffmpeg.writeFile('input.webp', webpData);
       
+      console.log(`📝 Written input.webp: ${webpData.length} bytes`);
+      
       // Convert to WebM with VP9 codec and alpha channel
+      console.log('🔧 Starting WebM conversion with VP9...');
       await ffmpeg.exec([
         '-i', 'input.webp',
         '-c:v', 'libvpx-vp9',
@@ -610,6 +654,20 @@ export class CoinExporter {
       
       console.log('📖 Reading WebM file...');
       const webmData = await ffmpeg.readFile('output.webm');
+      
+      if (!webmData || webmData.length === 0) {
+        console.error('❌ WebM file is empty!');
+        
+        // Debug: List all files in FFmpeg filesystem
+        try {
+          const files = await ffmpeg.listDir('/');
+          console.log('📁 FFmpeg WebM filesystem contents:', files);
+        } catch (listError) {
+          console.warn('Could not list FFmpeg filesystem:', listError);
+        }
+        
+        throw new Error('WebM conversion failed - output file is empty');
+      }
       
       // Clean up
       try {
