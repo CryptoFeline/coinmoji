@@ -262,16 +262,8 @@ export class CoinExporter {
       this.downloadBlob(animatedWebP512, 'coinmoji-animated-512px.webp');
       console.log('📦 Downloaded 512×512 animated WebP: coinmoji-animated-512px.webp');
       
-      // Clear 512px frames from memory to free up space before WebM creation
-      frames512.length = 0; // Clear the array to free memory
-      
       // Step 4: Create 100×100 WebM directly from individual frames (skip animated WebP)
       console.log('🎬 Creating 100×100 WebM directly from downscaled frames...');
-      
-      // Force garbage collection between operations to free memory
-      if (typeof global !== 'undefined' && global.gc) {
-        global.gc();
-      }
       
       try {
         const webmBlob = await this.createWebMFromFrames(frames100, settings);
@@ -282,11 +274,19 @@ export class CoinExporter {
         this.downloadBlob(webmBlob, 'coinmoji-final-100px.webm');
         console.log('📦 Downloaded final WebM: coinmoji-final-100px.webm');
         
+        // Clear frames from memory after successful WebM creation
+        frames512.length = 0;
+        frames100.length = 0;
+        
         return webmBlob;
       } catch (webmError) {
         console.error('❌ Direct WebM creation failed:', webmError);
         console.log('🔄 Memory error - falling back to 512×512 animated WebP as final output');
         console.log('💡 Use the 512×512 animated WebP file for emoji creation externally');
+        
+        // Clear memory after fallback
+        frames512.length = 0;
+        frames100.length = 0;
         
         // Return the 512×512 animated WebP as fallback
         return animatedWebP512;
@@ -520,9 +520,6 @@ export class CoinExporter {
         // Clean up this frame's files immediately to free memory
         await ffmpeg.deleteFile(inputName);
         await ffmpeg.deleteFile(outputName);
-        
-        // Clear the original frame from memory after processing
-        frames[i] = new Blob(); // Replace with empty blob to free memory
         
         if (i === 0 || i === frames.length - 1 || i % 5 === 0) {
           console.log(`📸 Downscaled frame ${i + 1}/${frames.length}: ${frameData.length} → ${scaledBlob.size} bytes`);
