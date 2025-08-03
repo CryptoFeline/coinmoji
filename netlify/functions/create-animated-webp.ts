@@ -64,35 +64,37 @@ const handler: Handler = async (event) => {
         await fs.writeFile(frameFile, frameData);
       }
       
-      // Build webpmux command
+      // Build webpmux command for animated WebP with transparency
       const outputFile = join(tempDir, 'animation.webp');
       
       // Build frame arguments: -frame file.webp +duration+0+0+0+b
       // +duration = frame duration in ms
       // +0+0 = no spatial offset (X=0, Y=0) 
-      // +0 = dispose method 0 (do not dispose)
+      // +0 = dispose method 0 (do not dispose, preserve previous frame)
       // +b = alpha blending (preserve transparency)
       const frameArgs: string[] = [];
       for (let i = 0; i < frames_base64.length; i++) {
         const frameNumber = String(i).padStart(4, '0');
         const frameFile = join(tempDir, `frame${frameNumber}.webp`);
-        frameArgs.push('-frame', frameFile, `+${frame_duration_ms}+0+0+0+b`);
+        // Use dispose method 1 (restore to background) for transparency
+        frameArgs.push('-frame', frameFile, `+${frame_duration_ms}+0+0+1+b`);
       }
       
-      // Complete webpmux command
-      const webpmuxArgs = [
+      // Complete webpmux command with proper transparency settings
+      const webpmuxCmd = [
         'webpmux',
         ...frameArgs,
         '-loop', '0', // Infinite loop
-        '-bgcolor', '0,0,0,0', // Transparent background (A,R,G,B)
+        '-bgcolor', '0,0,0,0', // Transparent background (A,R,G,B format)
         '-o', outputFile
-      ];
+      ].join(' ');
       
       console.log('Running webpmux command with', frames_base64.length, 'frames...');
-      console.log('Command:', webpmuxArgs.slice(0, 10).join(' '), '...'); // Show first part
+      console.log('Command preview:', webpmuxCmd.substring(0, 150) + '...'); // Show first part
+      console.log('Frame settings: duration=' + frame_duration_ms + 'ms, dispose=1 (restore to background), blend=b (alpha blend)');
       
-      // Execute webpmux
-      execSync(webpmuxArgs.join(' '), { 
+      // Execute webpmux with explicit shell to handle the command properly
+      execSync(webpmuxCmd, { 
         cwd: tempDir,
         stdio: 'pipe',
         timeout: 30000 // 30 second timeout
