@@ -6,18 +6,33 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+// Handle both ES modules and CommonJS
+let __dirname: string;
+try {
+  if (typeof import.meta !== 'undefined' && import.meta.url) {
+    const __filename = fileURLToPath(import.meta.url);
+    __dirname = dirname(__filename);
+  } else {
+    // Fallback for CommonJS - get current working directory
+    __dirname = process.cwd();
+  }
+} catch {
+  // Final fallback - use process.cwd()
+  __dirname = process.cwd();
+}
+
 const ffmpegPath = join(__dirname, 'ffmpeg');
 
 // Download FFmpeg binary if it doesn't exist
 async function ensureFFmpeg(): Promise<void> {
   try {
     await access(ffmpegPath);
-    console.log('✅ FFmpeg binary already exists');
+    console.log('✅ FFmpeg binary already exists at:', ffmpegPath);
     return;
   } catch {
-    console.log('📥 Downloading FFmpeg binary for Linux...');
+    console.log('📥 Downloading FFmpeg binary for Linux to:', ffmpegPath);
+    console.log('📁 Current working directory:', process.cwd());
+    console.log('📁 Function directory:', __dirname);
     
     const ffmpegUrl = 'https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4.0/linux-x64';
     
@@ -30,7 +45,7 @@ async function ensureFFmpeg(): Promise<void> {
     await writeFile(ffmpegPath, new Uint8Array(buffer));
     await chmod(ffmpegPath, 0o755); // Make executable
     
-    console.log('✅ FFmpeg binary downloaded and made executable');
+    console.log('✅ FFmpeg binary downloaded and made executable at:', ffmpegPath);
   }
 }
 
@@ -73,7 +88,9 @@ export const handler: Handler = async (event) => {
       frames: request.frames.length,
       framerate: request.framerate,
       duration: request.duration,
-      ffmpegPath
+      ffmpegPath,
+      workingDir: process.cwd(),
+      functionDir: __dirname
     });
 
     // Create temporary directory
