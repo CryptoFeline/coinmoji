@@ -485,20 +485,32 @@ export class CoinExporter {
       body: JSON.stringify(payload),
     });
     
+    const result = await response.json();
+    
+    // Handle the new server response format
+    if (response.ok && result.serverless_limitation) {
+      console.log('📋 Server provided detailed animation guidance:', result);
+      console.log('🎯 Animation specs:', result.animation_specs);
+      console.log('🛠️ Recommended tools:', result.recommended_workflow.tools);
+      
+      // Create a helpful error message with the guidance
+      const toolInfo = result.recommended_workflow.tools[0]; // EZGIF as primary recommendation
+      throw new Error(`Server-side animation requires external processing. Use ${toolInfo.name} (${toolInfo.description}) - ${toolInfo.url || 'verified working'}`);
+    }
+    
     if (!response.ok) {
       let errorMessage = `Server animated WebP creation failed: ${response.status} ${response.statusText}`;
       
       // Try to get more detailed error information
       try {
-        const errorData = await response.json();
-        if (errorData.reason || errorData.workaround) {
-          console.log('💡 Server provided workaround information:', errorData);
+        if (result.reason || result.workaround) {
+          console.log('💡 Server provided workaround information:', result);
           
-          if (errorData.workaround && errorData.workaround.steps) {
-            console.log('🔧 Workaround steps:', errorData.workaround.steps);
-            errorMessage = `${errorData.error}. Workaround: ${errorData.workaround.message}`;
+          if (result.workaround && result.workaround.steps) {
+            console.log('🔧 Workaround steps:', result.workaround.steps);
+            errorMessage = `${result.error}. Workaround: ${result.workaround.message}`;
           } else {
-            errorMessage = errorData.error || errorMessage;
+            errorMessage = result.error || errorMessage;
           }
         }
       } catch (parseError) {
@@ -507,8 +519,6 @@ export class CoinExporter {
       
       throw new Error(errorMessage);
     }
-    
-    const result = await response.json();
     
     if (!result.success || !result.webp_base64) {
       throw new Error(result.error || 'Server response missing animated WebP data');
