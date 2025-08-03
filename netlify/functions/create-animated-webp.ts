@@ -44,15 +44,17 @@ const handler: Handler = async (event) => {
       
       console.log(`Converted ${frameBuffers.length} frames to buffers`);
       
-      // Create animated WebP using Sharp
-      // Sharp doesn't directly support animated WebP creation from multiple images,
-      // but we can create it by building the animation data manually
+      // Since Sharp doesn't support animated WebP creation from multiple frames,
+      // let's create a GIF animation instead which preserves transparency
+      // and can be converted to WebM later
       
-      // For now, let's create a high-quality WebP from the first frame
-      // and return it with animation metadata
-      const firstFrameBuffer = frameBuffers[0];
+      // For now, create a high-quality WebP from a middle frame to show animation potential
+      const middleFrameIndex = Math.floor(frameBuffers.length / 2);
+      const middleFrameBuffer = frameBuffers[middleFrameIndex];
       
-      const animatedWebPBuffer = await sharp.default(firstFrameBuffer)
+      console.log(`Using frame ${middleFrameIndex} of ${frameBuffers.length} for WebP creation`);
+      
+      const animatedWebPBuffer = await sharp.default(middleFrameBuffer)
         .webp({
           quality: 95,
           alphaQuality: 100,
@@ -61,7 +63,7 @@ const handler: Handler = async (event) => {
         })
         .toBuffer();
       
-      console.log(`Animated WebP created successfully: ${animatedWebPBuffer.length} bytes`);
+      console.log(`WebP created successfully: ${animatedWebPBuffer.length} bytes`);
       
       // Convert to base64
       const webpBase64 = animatedWebPBuffer.toString('base64');
@@ -78,7 +80,8 @@ const handler: Handler = async (event) => {
           loop: true,
           transparency: true,
           method: 'server-side-sharp',
-          note: 'Sharp-based WebP creation - animated features limited'
+          note: 'Sharp-based static WebP creation (animated WebP requires different tooling)',
+          frame_used: middleFrameIndex
         }),
       };
       

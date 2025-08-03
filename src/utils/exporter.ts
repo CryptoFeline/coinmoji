@@ -358,11 +358,16 @@ export class CoinExporter {
     // Start recording
     recorder.start(100); // Request data every 100ms for smoother recording
     
+    // Add debugging for recording state
+    console.log('🎬 MediaRecorder started, state:', recorder.state);
+    
     // Animate through frames with proper timing and transparency handling
     const frameDuration = (settings.duration * 1000) / frames.length; // ms per frame
     let currentFrame = 0;
     let frameCount = 0;
-    const totalFramesToRecord = frames.length * 3; // Record 3 full loops to ensure we get good animation
+    const totalFramesToRecord = frames.length * 2; // Record 2 full loops to ensure we get good animation
+    
+    console.log(`🎯 Animation settings: frameDuration=${frameDuration}ms, totalFrames=${totalFramesToRecord}`);
     
     const animateFrame = () => {
       // CRITICAL: Properly clear the canvas with full transparency
@@ -378,6 +383,11 @@ export class CoinExporter {
       // Draw current frame maintaining its alpha channel
       try {
         ctx.drawImage(images[currentFrame], 0, 0, canvas.width, canvas.height);
+        
+        // Debug log for first few frames
+        if (frameCount < 5) {
+          console.log(`🖼️ Drew frame ${currentFrame} (count: ${frameCount})`);
+        }
       } catch (drawError) {
         console.warn(`Failed to draw frame ${currentFrame}:`, drawError);
       }
@@ -386,20 +396,31 @@ export class CoinExporter {
       
       currentFrame = (currentFrame + 1) % images.length;
       frameCount++;
+      
+      // Continue animation if we haven't reached the target
+      if (frameCount < totalFramesToRecord) {
+        setTimeout(animateFrame, frameDuration);
+      } else {
+        console.log(`✅ Animation completed: ${frameCount} frames drawn`);
+      }
     };
-    
-    // Start animation loop
-    const frameInterval = setInterval(animateFrame, frameDuration);
     
     // Draw initial frame
     animateFrame();
     
     // Record for enough time to capture the animation
-    const recordingDuration = Math.max(settings.duration * 3000, totalFramesToRecord * frameDuration); // 3x duration for safety
+    const recordingDuration = Math.max(settings.duration * 2000, totalFramesToRecord * frameDuration); // 2x duration for safety
+    console.log(`⏰ Recording for ${recordingDuration}ms`);
     
     return new Promise<Blob>((resolve, reject) => {
+      let recordingStopped = false;
+      
       const stopRecording = () => {
-        clearInterval(frameInterval);
+        if (recordingStopped) return;
+        recordingStopped = true;
+        
+        console.log('🛑 Stopping recording, state:', recorder.state);
+        
         if (recorder.state === 'recording') {
           recorder.stop();
         }
@@ -407,11 +428,17 @@ export class CoinExporter {
       };
       
       recorder.onstop = () => {
+        console.log('📁 Recording stopped, chunks collected:', chunks.length);
+        
         if (chunks.length === 0) {
           console.error('❌ No animation data recorded');
           reject(new Error('No animation data recorded'));
           return;
         }
+        
+        // Calculate total size
+        const totalSize = chunks.reduce((sum, chunk) => sum + chunk.size, 0);
+        console.log('📊 Total chunk size:', totalSize, 'bytes');
         
         // Create animated blob (WebM format that should preserve transparency)
         const animatedBlob = new Blob(chunks, { type: 'video/webm' });
@@ -442,9 +469,9 @@ export class CoinExporter {
       
       // Stop recording after the duration
       setTimeout(() => {
-        console.log('⏱️ Stopping animation recording...');
+        console.log('⏱️ Recording timeout reached, stopping...');
         stopRecording();
-      }, recordingDuration + 500);
+      }, recordingDuration + 1000); // Extra buffer
     });
   }
 
