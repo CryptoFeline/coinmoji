@@ -257,10 +257,18 @@ export class CoinExporter {
       
       console.log(`✅ Downscaled ${frames100.length} frames to 100×100`);
       
-      // Step 3: Create 512×512 animated WebP for reference
-      const animatedWebP512 = await this.createAnimatedWebP(frames512, settings);
+      // Clear 512px frames from memory after downscaling
+      frames512.length = 0;
+      console.log('🗑️ Cleared 512px frames from memory');
+      
+      // Step 3: Create 512×512 animated WebP for reference (use frames512 copy)
+      const frames512Copy = await this.exportFrames(settings);
+      const animatedWebP512 = await this.createAnimatedWebP(frames512Copy, settings);
       this.downloadBlob(animatedWebP512, 'coinmoji-animated-512px.webp');
       console.log('📦 Downloaded 512×512 animated WebP: coinmoji-animated-512px.webp');
+      
+      // Clear the copy as well
+      frames512Copy.length = 0;
       
       // Step 4: Create 100×100 WebM directly from individual frames (skip animated WebP)
       console.log('🎬 Creating 100×100 WebM directly from downscaled frames...');
@@ -270,12 +278,11 @@ export class CoinExporter {
         
         console.log('✅ WebM created:', { size: webmBlob.size });
         
-        // Download final WebM for emoji
+                // Download final WebM for emoji
         this.downloadBlob(webmBlob, 'coinmoji-final-100px.webm');
         console.log('📦 Downloaded final WebM: coinmoji-final-100px.webm');
         
-        // Clear frames from memory after successful WebM creation
-        frames512.length = 0;
+        // Clear 100px frames from memory after successful WebM creation
         frames100.length = 0;
         
         return webmBlob;
@@ -285,7 +292,6 @@ export class CoinExporter {
         console.log('💡 Use the 512×512 animated WebP file for emoji creation externally');
         
         // Clear memory after fallback
-        frames512.length = 0;
         frames100.length = 0;
         
         // Return the 512×512 animated WebP as fallback
@@ -705,9 +711,6 @@ export class CoinExporter {
         if (i === 0 || i === frames.length - 1) {
           console.log(`📋 Frame ${i}: ${filename}, original: ${frames[i].size} bytes, written: ${frameData.length} bytes, verified: ${written.length} bytes`);
         }
-        
-        // Clear the frame from memory immediately after writing to reduce memory pressure
-        frames[i] = new Blob(); // Replace with empty blob to free memory
       }
       
       // Calculate framerate from settings
