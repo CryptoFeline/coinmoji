@@ -7,24 +7,12 @@ export const handler: Handler = async (event) => {
   try {
     console.log('🔧 Setting up FFmpeg binary for WebM creation...');
     
-    // Get function directory
-    let __dirname: string;
-    try {
-      if (typeof __filename !== 'undefined') {
-        __dirname = require('path').dirname(__filename);
-      } else {
-        __dirname = process.cwd();
-      }
-    } catch {
-      __dirname = process.cwd();
-    }
+    // Use /tmp directory which is writable in serverless functions
+    const ffmpegPath = '/tmp/ffmpeg';
     
-    const ffmpegPath = join(__dirname, 'ffmpeg');
-    
-    console.log('📁 Function directory:', __dirname);
     console.log('📁 FFmpeg path:', ffmpegPath);
     
-    // Check if FFmpeg already exists
+    // Check if FFmpeg already exists in /tmp
     try {
       await access(ffmpegPath);
       console.log('✅ FFmpeg binary already exists at:', ffmpegPath);

@@ -4,19 +4,8 @@ import { writeFile, readFile, rm, mkdtemp, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-// Handle both ES modules and CommonJS
-let __dirname: string;
-try {
-  if (typeof __filename !== 'undefined') {
-    __dirname = require('path').dirname(__filename);
-  } else {
-    __dirname = process.cwd();
-  }
-} catch {
-  __dirname = process.cwd();
-}
-
-const ffmpegPath = join(__dirname, 'ffmpeg');
+// Use /tmp directory for FFmpeg binary (writable in serverless functions)
+const ffmpegPath = '/tmp/ffmpeg';
 
 // Check if FFmpeg binary exists and is executable
 async function ensureFFmpeg(): Promise<void> {
