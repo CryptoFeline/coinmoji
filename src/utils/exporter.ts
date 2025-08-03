@@ -467,7 +467,7 @@ export class CoinExporter {
         '-quality',  '90',                         // 0-100; higher->better
         '-compression_level', '1',                 // 0-6 size vs. speed
         '-loop', '0',                              // infinite loop
-        'animated.webp'
+        'animated_100.webp'
       ]);
 
       
