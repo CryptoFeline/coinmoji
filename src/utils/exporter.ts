@@ -457,17 +457,18 @@ export class CoinExporter {
       const framerate = Math.round(frames.length / settings.duration);
       console.log(`🎯 Creating animated WebP: ${frames.length} frames, ${framerate} fps, ${settings.duration}s duration`);
       
-      // Create animated WebP with transparency and frame replacement (not stacking)
+      // Create animated WebP with transparency and proper frame disposal
       await ffmpeg.exec([
         '-framerate', framerate.toString(),
         '-i', 'frame%04d.webp',
         '-c:v', 'libwebp',
-        '-pix_fmt', 'yuva420p', // Enable alpha channel
-        '-loop', '0', // Loop forever
+        '-lossless', '0', // Use lossy compression for smaller size
         '-q:v', '80', // Quality (0-100, higher = better quality)
-        '-compression_level', '1', // Compression level (0-6, higher = smaller file)
-        '-vf', 'scale=512:512', // Ensure consistent frame size
-        '-dispose', 'background', // Clear frame before next (prevents stacking)
+        '-preset', 'default', // Encoding preset
+        '-an', // No audio
+        '-loop', '0', // Loop forever
+        '-pix_fmt', 'yuva420p', // Enable alpha channel
+        '-vf', 'fps=' + framerate, // Explicit framerate filter
         'animated.webp'
       ]);
       
