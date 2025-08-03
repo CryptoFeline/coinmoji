@@ -251,20 +251,34 @@ export class CoinExporter {
       this.downloadBlob(zipBlob, 'coinmoji-frames.zip');
       console.log('📦 Downloaded ZIP of transparent frames');
       
-      // Step 2: Stack frames into animated WebP
+      // Step 2: Create animated WebP (512×512) with transparency
       const animatedWebPBlob = await this.createAnimatedWebP(frames, settings);
       
       console.log('✅ Animated WebP created:', { size: animatedWebPBlob.size });
       
-      // Download with correct extension based on actual file type
-      const isWebM = animatedWebPBlob.type.includes('video/webm');
-      const filename = isWebM ? 'coinmoji-animated.webm' : 'coinmoji-animated.webp';
-      const fileDescription = isWebM ? 'animated WebM (client-side fallback)' : 'animated WebP (server-side)';
+      // Download 512×512 animated WebP for inspection
+      this.downloadBlob(animatedWebPBlob, 'coinmoji-animated-512px.webp');
+      console.log('📦 Downloaded 512×512 animated WebP: coinmoji-animated-512px.webp');
       
-      this.downloadBlob(animatedWebPBlob, filename);
-      console.log(`📦 Downloaded ${fileDescription}: ${filename}`);
+      // Step 3: Downscale to 100×100 for emoji format
+      const scaledWebPBlob = await this.downscaleAnimatedWebP(animatedWebPBlob, 100);
       
-      return animatedWebPBlob;
+      console.log('✅ Downscaled to 100×100:', { size: scaledWebPBlob.size });
+      
+      // Download 100×100 animated WebP for quality check
+      this.downloadBlob(scaledWebPBlob, 'coinmoji-animated-100px.webp');
+      console.log('📦 Downloaded 100×100 animated WebP: coinmoji-animated-100px.webp');
+      
+      // Step 4: Convert 100×100 WebP to WebM for emoji format
+      const webmBlob = await this.convertWebPToWebM(scaledWebPBlob);
+      
+      console.log('✅ WebM created:', { size: webmBlob.size });
+      
+      // Download final WebM for emoji
+      this.downloadBlob(webmBlob, 'coinmoji-final-100px.webm');
+      console.log('📦 Downloaded final WebM: coinmoji-final-100px.webm');
+      
+      return webmBlob;
       
     } catch (error) {
       console.error('❌ Animated WebP creation failed:', error);
@@ -468,7 +482,7 @@ export class CoinExporter {
         '-compression_level', '0',  // 0-6, trade-off size vs. speed
         '-loop',      '0',          // 0 = infinite loop
         '-cr_threshold', '0',       // always refresh blocks (prevents stacking)
-        'animated.webp'
+        'animated_512.webp'
       ]);
       
       console.log('📖 Reading animated WebP from FFmpeg filesystem...');
@@ -495,6 +509,119 @@ export class CoinExporter {
     } catch (error) {
       console.error('FFmpeg.wasm processing error:', error);
       throw new Error(`FFmpeg.wasm failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  private async downscaleAnimatedWebP(webpBlob: Blob, targetSize: number): Promise<Blob> {
+    console.log(`🔽 Downscaling animated WebP to ${targetSize}×${targetSize}...`);
+    
+    // Dynamic import for code splitting and lazy loading
+    const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+    const { fetchFile } = await import('@ffmpeg/util');
+    
+    console.log('📦 Initializing FFmpeg.wasm for downscaling...');
+    const ffmpeg = new FFmpeg();
+    
+    await ffmpeg.load();
+    console.log('✅ FFmpeg.wasm loaded for downscaling');
+    
+    try {
+      // Write the animated WebP to filesystem
+      const webpData = await fetchFile(webpBlob);
+      await ffmpeg.writeFile('input.webp', webpData);
+      
+      // Downscale using high-quality Lanczos filter with alpha preservation
+      await ffmpeg.exec([
+        '-i', 'input.webp',
+        '-vf', `scale=${targetSize}:${targetSize}:flags=lanczos`,
+        '-pix_fmt', 'yuva420p', // Preserve alpha channel
+        '-c:v', 'libwebp_anim',
+        '-lossless', '0',
+        '-quality', '95', // High quality for small emoji
+        '-compression_level', '6', // Maximum compression
+        '-loop', '0',
+        '-cr_threshold', '0', // Prevent stacking
+        'output.webp'
+      ]);
+      
+      console.log('📖 Reading downscaled WebP...');
+      const scaledData = await ffmpeg.readFile('output.webp');
+      
+      // Clean up
+      try {
+        await ffmpeg.deleteFile('input.webp');
+        await ffmpeg.deleteFile('output.webp');
+      } catch (cleanupError) {
+        console.warn('Failed to clean up downscaling files:', cleanupError);
+      }
+      
+      const scaledBlob = new Blob([scaledData], { type: 'image/webp' });
+      
+      console.log(`✅ Downscaled to ${targetSize}×${targetSize}: ${scaledBlob.size} bytes`);
+      
+      return scaledBlob;
+      
+    } catch (error) {
+      console.error('Downscaling error:', error);
+      throw new Error(`Downscaling failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  private async convertWebPToWebM(webpBlob: Blob): Promise<Blob> {
+    console.log('🎬 Converting animated WebP to WebM for emoji format...');
+    
+    // Dynamic import for code splitting and lazy loading
+    const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+    const { fetchFile } = await import('@ffmpeg/util');
+    
+    console.log('📦 Initializing FFmpeg.wasm for WebM conversion...');
+    const ffmpeg = new FFmpeg();
+    
+    await ffmpeg.load();
+    console.log('✅ FFmpeg.wasm loaded for WebM conversion');
+    
+    try {
+      // Write the animated WebP to filesystem
+      const webpData = await fetchFile(webpBlob);
+      await ffmpeg.writeFile('input.webp', webpData);
+      
+      // Convert to WebM with VP9 codec and alpha channel
+      await ffmpeg.exec([
+        '-i', 'input.webp',
+        '-c:v', 'libvpx-vp9',
+        '-pix_fmt', 'yuva420p', // VP9 with alpha
+        '-auto-alt-ref', '0', // Disable alt-ref frames for better compatibility
+        '-lag-in-frames', '0', // Reduce latency
+        '-deadline', 'good', // Good quality/speed trade-off
+        '-cpu-used', '1', // Faster encoding
+        '-row-mt', '1', // Multi-threading
+        '-crf', '30', // Quality (lower = better, 15-35 range)
+        '-b:v', '0', // Variable bitrate
+        '-f', 'webm',
+        'output.webm'
+      ]);
+      
+      console.log('📖 Reading WebM file...');
+      const webmData = await ffmpeg.readFile('output.webm');
+      
+      // Clean up
+      try {
+        await ffmpeg.deleteFile('input.webp');
+        await ffmpeg.deleteFile('output.webm');
+      } catch (cleanupError) {
+        console.warn('Failed to clean up WebM conversion files:', cleanupError);
+      }
+      
+      const webmBlob = new Blob([webmData], { type: 'video/webm' });
+      
+      console.log(`✅ WebM created: ${webmBlob.size} bytes`);
+      console.log('🎯 WebM with VP9 and alpha channel ready for emoji!');
+      
+      return webmBlob;
+      
+    } catch (error) {
+      console.error('WebM conversion error:', error);
+      throw new Error(`WebM conversion failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
