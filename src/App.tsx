@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { TelegramProvider, useTelegram } from './providers/TelegramProvider';
-import NotInTelegram from './components/NotInTelegram';
+// import NotInTelegram from './components/NotInTelegram'; // Temporarily disabled for testing
 import CoinEditor, { CoinEditorRef } from './components/CoinEditor';
 import SettingsPanel, { CoinSettings } from './components/SettingsPanel';
 import { CoinExporter, createCustomEmoji } from './utils/exporter';
@@ -40,8 +40,11 @@ const AppContent: React.FC = () => {
     );
   }
 
+  // TEMPORARY: Allow testing outside Telegram for production deployment testing
+  // TODO: Change back to: if (!isInTelegram) { return <NotInTelegram />; }
   if (!isInTelegram) {
-    return <NotInTelegram />;
+    console.log('⚠️ TESTING MODE: Running outside Telegram with mock initData');
+    // Mock initData for testing - this will fail emoji creation but allow WebM download testing
   }
 
   const handleExport = async () => {
