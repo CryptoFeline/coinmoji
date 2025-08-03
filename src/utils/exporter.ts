@@ -246,20 +246,38 @@ export class CoinExporter {
       
       console.log(`✅ Got ${frames.length} WebP frames for animated WebP creation`);
       
+      // For testing: Download ZIP of frames
+      const zipBlob = await this.exportAsZip(settings);
+      this.downloadBlob(zipBlob, 'coinmoji-frames.zip');
+      console.log('📦 Downloaded ZIP of frames for inspection');
+      
       // Step 2: Create animated WebP using webpmux (server-side)
       const animatedWebPBlob = await this.createAnimatedWebP(frames, settings);
       
       console.log('✅ Animated WebP created:', { size: animatedWebPBlob.size });
+      
+      // For testing: Download original animated WebP (512x512)
+      this.downloadBlob(animatedWebPBlob, 'coinmoji-animated-512px.webp');
+      console.log('📦 Downloaded 512px animated WebP for inspection');
       
       // Step 3: Resize animated WebP to 100x100 (preserving transparency)
       const resizedWebPBlob = await this.resizeAnimatedWebP(animatedWebPBlob, settings.size);
       
       console.log('✅ Animated WebP resized to 100x100:', { size: resizedWebPBlob.size });
       
+      // For testing: Download resized animated WebP (100x100)
+      this.downloadBlob(resizedWebPBlob, 'coinmoji-animated-100px.webp');
+      console.log('📦 Downloaded 100px animated WebP for inspection');
+      
       // Step 4: Convert resized animated WebP to WebM
       const webmBlob = await this.convertAnimatedWebPToWebM(resizedWebPBlob, settings);
       
       console.log('✅ WebM created successfully:', { size: webmBlob.size });
+      
+      // For testing: Download final WebM
+      this.downloadBlob(webmBlob, 'coinmoji-final.webm');
+      console.log('📦 Downloaded final WebM for inspection');
+      
       return webmBlob;
       
     } catch (error) {
@@ -343,9 +361,6 @@ export class CoinExporter {
   private async createAnimatedWebPViaCanvas(frames: Blob[], settings: ExportSettings): Promise<Blob> {
     console.log('🎨 Creating animated WebP via Canvas (client-side fallback)...');
     
-    // For client-side fallback, we'll create a simple animated GIF-like sequence
-    // that can be converted to WebM using MediaRecorder
-    
     // Create a canvas to composite the frames
     const canvas = document.createElement('canvas');
     canvas.width = 512; // Use original frame size
@@ -361,12 +376,39 @@ export class CoinExporter {
     
     console.log(`📸 Loaded ${images.length} images for canvas animation`);
     
-    // Create a video stream from the canvas
+    // Create a video stream from the canvas with alpha support
     const stream = canvas.captureStream(settings.fps);
-    const recorder = new MediaRecorder(stream, {
-      mimeType: 'video/webm;codecs=vp9',
-      videoBitsPerSecond: 2000000 // Higher bitrate for quality
-    });
+    
+    // Try different codecs for better transparency support
+    let mimeType = 'video/webm;codecs=vp9';
+    let recorder: MediaRecorder;
+    
+    try {
+      // Try VP9 with alpha support first
+      recorder = new MediaRecorder(stream, {
+        mimeType: 'video/webm;codecs=vp9',
+        videoBitsPerSecond: 3000000 // Higher bitrate for quality and transparency
+      });
+    } catch (vp9Error) {
+      console.log('⚠️ VP9 codec not supported, trying VP8...');
+      try {
+        // Fallback to VP8
+        recorder = new MediaRecorder(stream, {
+          mimeType: 'video/webm;codecs=vp8',
+          videoBitsPerSecond: 3000000
+        });
+        mimeType = 'video/webm;codecs=vp8';
+      } catch (vp8Error) {
+        console.log('⚠️ VP8 codec not supported, using default...');
+        // Final fallback to default
+        recorder = new MediaRecorder(stream, {
+          videoBitsPerSecond: 3000000
+        });
+        mimeType = 'video/webm';
+      }
+    }
+    
+    console.log(`🎥 Using codec: ${mimeType}`);
     
     const chunks: Blob[] = [];
     recorder.ondataavailable = (event) => {
@@ -378,44 +420,58 @@ export class CoinExporter {
     // Start recording
     recorder.start();
     
-    // Animate through the frames
+    // Animate through the frames with precise timing
     const frameDuration = (settings.duration * 1000) / frames.length; // ms per frame
     let currentFrame = 0;
+    let frameCount = 0;
     
     const animateFrame = () => {
-      // Clear canvas with transparency
+      // Clear canvas completely (this ensures transparency)
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Set composite operation to handle transparency properly
+      ctx.globalCompositeOperation = 'source-over';
       
       // Draw current frame
       ctx.drawImage(images[currentFrame], 0, 0);
       
       currentFrame = (currentFrame + 1) % images.length;
+      frameCount++;
     };
     
-    // Start animation loop
+    // Start animation loop with precise timing
     const frameInterval = setInterval(animateFrame, frameDuration);
     
     // Initial frame
     animateFrame();
     
-    // Record for the specified duration (one full loop)
-    const recordingDuration = settings.duration * 1000;
+    // Record for the specified duration (ensure we get at least one full loop)
+    const recordingDuration = Math.max(settings.duration * 1000, frames.length * frameDuration);
     
     return new Promise<Blob>((resolve, reject) => {
       setTimeout(() => {
         clearInterval(frameInterval);
         
         recorder.onstop = () => {
-          // Create a WebP-compatible blob (actually WebM, but compatible)
-          const webmBlob = new Blob(chunks, { type: 'image/webp' }); // Fake WebP mime type
-          console.log('✅ Canvas animated WebP creation completed:', { size: webmBlob.size });
+          // Create a WebP-compatible blob (actually WebM, but will be detected properly)
+          const webmBlob = new Blob(chunks, { type: 'video/webm' });
+          console.log('✅ Canvas animated WebM creation completed:', { 
+            size: webmBlob.size,
+            codec: mimeType,
+            framesProcessed: frameCount,
+            duration: recordingDuration
+          });
           resolve(webmBlob);
         };
         
-        recorder.onerror = () => reject(new Error('Canvas recording failed'));
+        recorder.onerror = (error) => {
+          console.error('❌ Canvas recording failed:', error);
+          reject(new Error('Canvas recording failed'));
+        };
+        
         recorder.stop();
         stream.getTracks().forEach(track => track.stop());
-      }, recordingDuration + 100);
+      }, recordingDuration + 200); // Extra buffer
     });
   }
 
@@ -508,9 +564,8 @@ export class CoinExporter {
     console.log('🔧 Converting animated WebP to WebM...');
     
     // Check if we already have a WebM (from client-side canvas approach)
-    // Canvas MediaRecorder creates large files, real WebP animated files are smaller
-    if (animatedWebPBlob.type === 'image/webp' && animatedWebPBlob.size > 50000) {
-      console.log('🎯 Detected likely WebM with fake WebP mime type from canvas, converting to proper WebM...');
+    if (animatedWebPBlob.type === 'video/webm' || animatedWebPBlob.size > 50000) {
+      console.log('🎯 Detected WebM from canvas fallback, resizing to target dimensions...');
       // Create a resized WebM with proper dimensions
       return await this.resizeWebMToTarget(animatedWebPBlob, settings.size);
     }
@@ -536,6 +591,7 @@ export class CoinExporter {
       video.loop = true;
       video.muted = true;
       video.playsInline = true;
+      video.setAttribute('crossorigin', 'anonymous');
       
       // Wait for video to load
       await new Promise((resolve, reject) => {
@@ -544,18 +600,47 @@ export class CoinExporter {
         video.load();
       });
       
-      // Create canvas for resizing
+      console.log(`📹 Video loaded: ${video.videoWidth}x${video.videoHeight}, duration: ${video.duration}s`);
+      
+      // Create canvas for resizing with transparency support
       const canvas = document.createElement('canvas');
       canvas.width = targetSize;
       canvas.height = targetSize;
-      const ctx = canvas.getContext('2d', { alpha: true })!;
+      const ctx = canvas.getContext('2d', { 
+        alpha: true,
+        willReadFrequently: false 
+      })!;
       
-      // Setup MediaRecorder for resized output
+      // Setup MediaRecorder for resized output with transparency
       const stream = canvas.captureStream(30); // 30 FPS
-      const recorder = new MediaRecorder(stream, {
-        mimeType: 'video/webm;codecs=vp9',
-        videoBitsPerSecond: 500000 // Lower bitrate for smaller emoji
-      });
+      
+      // Try VP9 first for better transparency support
+      let recorder: MediaRecorder;
+      let codecUsed = 'vp9';
+      
+      try {
+        recorder = new MediaRecorder(stream, {
+          mimeType: 'video/webm;codecs=vp9',
+          videoBitsPerSecond: 800000 // Moderate bitrate for emoji
+        });
+      } catch (vp9Error) {
+        console.log('⚠️ VP9 not available, trying VP8...');
+        try {
+          recorder = new MediaRecorder(stream, {
+            mimeType: 'video/webm;codecs=vp8',
+            videoBitsPerSecond: 800000
+          });
+          codecUsed = 'vp8';
+        } catch (vp8Error) {
+          console.log('⚠️ VP8 not available, using default...');
+          recorder = new MediaRecorder(stream, {
+            videoBitsPerSecond: 800000
+          });
+          codecUsed = 'default';
+        }
+      }
+      
+      console.log(`🎥 Resizing with codec: ${codecUsed}`);
       
       const chunks: Blob[] = [];
       recorder.ondataavailable = (event) => {
@@ -568,21 +653,28 @@ export class CoinExporter {
       recorder.start();
       await video.play();
       
-      // Record for 3 seconds (one loop)
-      const recordingDuration = 3000;
+      // Record for the video duration or 3 seconds, whichever is longer
+      const recordingDuration = Math.max(3000, (video.duration || 3) * 1000);
       
       const startTime = Date.now();
       const drawFrame = () => {
         if (Date.now() - startTime < recordingDuration) {
+          // Clear with full transparency
           ctx.clearRect(0, 0, canvas.width, canvas.height);
+          
+          // Set composite operation for proper transparency handling
+          ctx.globalCompositeOperation = 'source-over';
+          
+          // Draw video frame scaled to target size
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          
           requestAnimationFrame(drawFrame);
         }
       };
       drawFrame();
       
       // Stop recording after duration
-      await new Promise(resolve => setTimeout(resolve, recordingDuration + 100));
+      await new Promise(resolve => setTimeout(resolve, recordingDuration + 200));
       
       return new Promise<Blob>((resolve, reject) => {
         recorder.onstop = () => {
@@ -590,12 +682,18 @@ export class CoinExporter {
           console.log('✅ WebM resizing completed:', { 
             originalSize: webmBlob.size,
             resizedSize: resizedWebmBlob.size,
-            targetDimensions: `${targetSize}x${targetSize}`
+            targetDimensions: `${targetSize}x${targetSize}`,
+            codec: codecUsed,
+            duration: recordingDuration
           });
           resolve(resizedWebmBlob);
         };
         
-        recorder.onerror = () => reject(new Error('WebM resizing failed'));
+        recorder.onerror = (error) => {
+          console.error('❌ WebM resizing failed:', error);
+          reject(new Error('WebM resizing failed'));
+        };
+        
         recorder.stop();
         stream.getTracks().forEach(track => track.stop());
       });
