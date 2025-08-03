@@ -665,10 +665,12 @@ export class CoinExporter {
     console.log('📦 Initializing fresh FFmpeg.wasm instance for direct WebM creation...');
     const ffmpeg = new FFmpeg();
     
-    // Add logging to see FFmpeg output for debugging
+    // Add enhanced logging to see FFmpeg output for debugging
     ffmpeg.on('log', ({ message }) => {
-      if (message.includes('error') || message.includes('failed') || message.includes('invalid')) {
-        console.log('🔧 FFmpeg WebM ERROR:', message);
+      // Log more details to understand WebM creation issues
+      if (message.includes('error') || message.includes('failed') || message.includes('invalid') || 
+          message.includes('webm') || message.includes('libvpx') || message.includes('encoding')) {
+        console.log('🔧 FFmpeg WebM LOG:', message);
       }
     });
     
@@ -729,8 +731,9 @@ export class CoinExporter {
           '-kf-max-dist', '30',        // Keyframe every 30 frames
           outputFilename
         ]);
+        console.log('✅ VP8 with alpha encoding completed');
       } catch (alphaError) {
-        console.log('⚠️ VP8 with alpha failed, trying VP8 without alpha...');
+        console.log('⚠️ VP8 with alpha failed:', alphaError);
         console.log('📝 Note: Transparency will be lost but emoji should still work');
         
         // Fallback: VP8 without alpha (absolute minimal memory)
@@ -748,6 +751,23 @@ export class CoinExporter {
           '-kf-max-dist', '30',        // Keyframes
           outputFilename
         ]);
+        console.log('✅ VP8 without alpha encoding completed');
+      }
+      
+      // Check if the output file exists before trying to read it
+      console.log('🔍 Checking if WebM file was created...');
+      try {
+        const files = await ffmpeg.listDir('/');
+        console.log('📁 Available files:', files.map(f => f.name));
+        
+        const webmExists = files.some(f => f.name === outputFilename);
+        if (!webmExists) {
+          throw new Error(`WebM file ${outputFilename} was not created - VP8 encoding failed`);
+        }
+        console.log('✅ WebM file confirmed to exist');
+      } catch (listError) {
+        console.error('❌ Could not list files or WebM not found:', listError);
+        throw new Error('WebM encoding failed - output file not created');
       }
       
       console.log(`📖 Reading WebM from FFmpeg filesystem: ${outputFilename}`);
