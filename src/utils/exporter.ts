@@ -458,6 +458,13 @@ export class CoinExporter {
     console.log('📦 Initializing FFmpeg.wasm for frame downscaling...');
     const ffmpeg = new FFmpeg();
     
+    // Add error logging for downscaling
+    ffmpeg.on('log', ({ message }) => {
+      if (message.includes('error') || message.includes('failed') || message.includes('invalid')) {
+        console.log('🔧 FFmpeg downscale ERROR:', message);
+      }
+    });
+    
     await ffmpeg.load();
     console.log('✅ FFmpeg.wasm loaded for frame downscaling');
     
@@ -469,30 +476,68 @@ export class CoinExporter {
         const inputName = `input_${i}.webp`;
         const outputName = `output_${i}.webp`;
         
-        await ffmpeg.writeFile(inputName, frameData);
+        // Verify input frame data
+        if (!frameData || frameData.length === 0) {
+          console.error(`❌ Frame ${i} is empty: ${frameData?.length || 0} bytes`);
+          continue;
+        }
         
-        // Scale individual frame using simple image processing (not video)
+        await ffmpeg.writeFile(inputName, frameData);
+        console.log(`📝 Written ${inputName}: ${frameData.length} bytes`);
+        
+        // Scale individual frame using simple image processing with explicit WebP output
         await ffmpeg.exec([
           '-i', inputName,
-          '-vf', `scale=${targetSize}:${targetSize}`,
+          '-vf', `scale=${targetSize}:${targetSize}:flags=lanczos`, // Use high-quality scaling
+          '-c:v', 'libwebp', // Explicit WebP codec
           '-quality', '95',
+          '-lossless', '0', // Ensure lossy mode for size
+          '-method', '6', // Best compression method
           outputName
         ]);
         
+        // Verify output was created
         const scaledData = await ffmpeg.readFile(outputName);
+        
+        if (!scaledData || scaledData.length === 0) {
+          console.error(`❌ Downscaling failed for frame ${i}: output is empty`);
+          
+          // Try to list FFmpeg filesystem for debugging
+          try {
+            const files = await ffmpeg.listDir('/');
+            console.log(`📁 FFmpeg filesystem after frame ${i}:`, files);
+          } catch (listError) {
+            console.warn('Could not list FFmpeg filesystem:', listError);
+          }
+          
+          continue;
+        }
+        
         const scaledBlob = new Blob([scaledData], { type: 'image/webp' });
         scaledFrames.push(scaledBlob);
         
         // Clean up this frame's files
-        await ffmpeg.deleteFile(inputName);
-        await ffmpeg.deleteFile(outputName);
+        try {
+          await ffmpeg.deleteFile(inputName);
+          await ffmpeg.deleteFile(outputName);
+        } catch (cleanupError) {
+          console.warn(`Failed to clean up frame ${i} files:`, cleanupError);
+        }
         
         if (i === 0 || i === frames.length - 1 || i % 10 === 0) {
           console.log(`📸 Downscaled frame ${i + 1}/${frames.length}: ${scaledBlob.size} bytes`);
         }
       }
       
-      console.log(`✅ Successfully downscaled ${scaledFrames.length} frames to ${targetSize}×${targetSize}`);
+      if (scaledFrames.length === 0) {
+        throw new Error('No frames were successfully downscaled');
+      }
+      
+      if (scaledFrames.length !== frames.length) {
+        console.warn(`⚠️ Frame count mismatch: input ${frames.length}, output ${scaledFrames.length}`);
+      }
+      
+      console.log(`✅ Successfully downscaled ${scaledFrames.length}/${frames.length} frames to ${targetSize}×${targetSize}`);
       return scaledFrames;
       
     } catch (error) {
@@ -528,11 +573,24 @@ export class CoinExporter {
       for (let i = 0; i < frames.length; i++) {
         const frameData = await fetchFile(frames[i]);
         const filename = `frame${String(i).padStart(4, '0')}.webp`;
+        
+        // Validate frame data before writing
+        if (!frameData || frameData.length === 0) {
+          console.error(`❌ Frame ${i} is empty or invalid: ${frameData?.length || 0} bytes`);
+          throw new Error(`Frame ${i} is empty - cannot create animated WebP`);
+        }
+        
         await ffmpeg.writeFile(filename, frameData);
         
-        // Verify frame was written correctly
+        // Verify frame was written correctly by reading it back
+        const verifyData = await ffmpeg.readFile(filename);
+        if (!verifyData || verifyData.length !== frameData.length) {
+          console.error(`❌ Frame ${i} verification failed: written ${frameData.length}, read back ${verifyData?.length || 0}`);
+          throw new Error(`Frame ${i} write verification failed`);
+        }
+        
         if (i === 0 || i === frames.length - 1) {
-          console.log(`📋 Frame ${i}: ${filename}, size: ${frameData.length} bytes`);
+          console.log(`📋 Frame ${i}: ${filename}, written: ${frameData.length} bytes, verified: ${verifyData.length} bytes`);
         }
       }
       
@@ -546,17 +604,19 @@ export class CoinExporter {
       
       console.log(`📝 Output filename: ${outputFilename}`);
       
-      // Create animated WebP with transparency - simplified command for compatibility
+      // Create animated WebP with transparency - use simpler approach for better compatibility
+      console.log('🔧 Starting animated WebP creation with libwebp_anim...');
       await ffmpeg.exec([
         '-framerate', framerate.toString(),
         '-i', 'frame%04d.webp',
-        '-pix_fmt', 'yuva420p',     // make sure alpha is kept
         '-c:v', 'libwebp_anim',     // dedicated animated WebP encoder
+        '-pix_fmt', 'yuva420p',     // make sure alpha is kept
         '-lossless',  '0',          // 0 = lossy, 1 = lossless
         '-quality',   '100',        // 0-100
         '-compression_level', '0',  // 0-6, trade-off size vs. speed
         '-loop',      '0',          // 0 = infinite loop
         '-cr_threshold', '0',       // always refresh blocks (prevents stacking)
+        '-f', 'webp',               // Force WebP format
         outputFilename
       ]);
       
@@ -631,26 +691,92 @@ export class CoinExporter {
     try {
       // Write the animated WebP to filesystem
       const webpData = await fetchFile(webpBlob);
-      await ffmpeg.writeFile('input.webp', webpData);
       
+      // Validate input WebP data
+      if (!webpData || webpData.length === 0) {
+        throw new Error('WebP input data is empty or invalid');
+      }
+      
+      await ffmpeg.writeFile('input.webp', webpData);
       console.log(`📝 Written input.webp: ${webpData.length} bytes`);
       
-      // Convert to WebM with VP9 codec and alpha channel
-      console.log('🔧 Starting WebM conversion with VP9...');
-      await ffmpeg.exec([
-        '-i', 'input.webp',
-        '-c:v', 'libvpx-vp9',
-        '-pix_fmt', 'yuva420p', // VP9 with alpha
-        '-auto-alt-ref', '0', // Disable alt-ref frames for better compatibility
-        '-lag-in-frames', '0', // Reduce latency
-        '-deadline', 'good', // Good quality/speed trade-off
-        '-cpu-used', '1', // Faster encoding
-        '-row-mt', '1', // Multi-threading
-        '-crf', '30', // Quality (lower = better, 15-35 range)
-        '-b:v', '0', // Variable bitrate
-        '-f', 'webm',
-        'output.webm'
-      ]);
+      // Verify input file was written correctly
+      const verifyInput = await ffmpeg.readFile('input.webp');
+      if (!verifyInput || verifyInput.length !== webpData.length) {
+        throw new Error(`Input verification failed: expected ${webpData.length}, got ${verifyInput?.length || 0}`);
+      }
+      
+      // FFmpeg has issues with animated WebP ANIM chunks, so we'll use a different approach
+      // First, try to extract frames from the animated WebP and then reassemble as WebM
+      console.log('🔧 Converting animated WebP to WebM via frame extraction...');
+      
+      try {
+        // Method 1: Direct conversion with format hint
+        await ffmpeg.exec([
+          '-f', 'webp_pipe', // Force WebP format detection
+          '-i', 'input.webp',
+          '-c:v', 'libvpx-vp9',
+          '-pix_fmt', 'yuva420p', // VP9 with alpha
+          '-auto-alt-ref', '0', // Disable alt-ref frames for better compatibility
+          '-lag-in-frames', '0', // Reduce latency
+          '-deadline', 'good', // Good quality/speed trade-off
+          '-cpu-used', '1', // Faster encoding
+          '-row-mt', '1', // Multi-threading
+          '-crf', '30', // Quality (lower = better, 15-35 range)
+          '-b:v', '0', // Variable bitrate
+          '-f', 'webm',
+          'output.webm'
+        ]);
+      } catch (directError) {
+        console.log('🔄 Direct conversion failed, trying alternative method...');
+        
+        // Method 2: Extract frames first, then create WebM
+        await ffmpeg.exec([
+          '-i', 'input.webp',
+          '-f', 'image2',
+          'temp_%03d.png'
+        ]);
+        
+        // Check how many frames were extracted
+        try {
+          const files = await ffmpeg.listDir('/');
+          const tempFiles = files.filter(f => f.name.startsWith('temp_') && f.name.endsWith('.png'));
+          console.log(`📸 Extracted ${tempFiles.length} frames from animated WebP`);
+          
+          if (tempFiles.length === 0) {
+            throw new Error('No frames could be extracted from animated WebP');
+          }
+          
+          // Create WebM from extracted frames
+          await ffmpeg.exec([
+            '-framerate', '10', // Match our animation framerate
+            '-i', 'temp_%03d.png',
+            '-c:v', 'libvpx-vp9',
+            '-pix_fmt', 'yuva420p',
+            '-auto-alt-ref', '0',
+            '-lag-in-frames', '0',
+            '-deadline', 'good',
+            '-cpu-used', '1',
+            '-row-mt', '1',
+            '-crf', '30',
+            '-b:v', '0',
+            '-f', 'webm',
+            'output.webm'
+          ]);
+          
+          // Clean up temporary frame files
+          for (const file of tempFiles) {
+            try {
+              await ffmpeg.deleteFile(file.name);
+            } catch (deleteError) {
+              console.warn(`Failed to delete temp file ${file.name}:`, deleteError);
+            }
+          }
+          
+        } catch (listError) {
+          throw new Error('Frame extraction method also failed');
+        }
+      }
       
       console.log('📖 Reading WebM file...');
       const webmData = await ffmpeg.readFile('output.webm');
