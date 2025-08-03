@@ -234,35 +234,34 @@ export class CoinExporter {
   }
 
   async exportAsWebM(settings: ExportSettings): Promise<Blob> {
-    console.log('🎬 Creating animated WebP from transparent frames...');
+    console.log('🎬 Creating 100×100 WebM directly from frames (memory-optimized)...');
     
     try {
       // Step 1: Get the transparent WebP frames (512x512)
       const frames512 = await this.exportFrames(settings);
       
       if (frames512.length === 0) {
-        throw new Error('No frames captured for animated WebP creation');
+        throw new Error('No frames captured for WebM creation');
       }
       
       console.log(`✅ Got ${frames512.length} transparent WebP frames (512×512)`);
       
-      // Download ZIP of 512px frames for inspection
-      const zipBlob512 = await this.exportAsZip(settings);
-      this.downloadBlob(zipBlob512, 'coinmoji-frames-512px.zip');
-      console.log('📦 Downloaded ZIP of 512×512 transparent frames');
+      // Step 2: Immediately downscale to 100×100 and free 512px frames
+      console.log('🔽 Downscaling frames to 100×100 (memory-optimized)...');
+      const frames100 = await this.downscaleFramesMemoryOptimized(frames512, 100);
       
-      // Step 2: Downscale individual frames to 100×100
-      console.log('🔽 Downscaling individual frames to 100×100...');
-      const frames100 = await this.downscaleFrames(frames512, 100);
-      
-      console.log(`✅ Downscaled ${frames100.length} frames to 100×100`);
-      
-      // Clear 512px frames from memory after downscaling
+      // Clear 512px frames from memory immediately
       frames512.length = 0;
-      console.log('🗑️ Cleared 512px frames from memory');
+      
+      console.log(`✅ Downscaled ${frames100.length} frames to 100×100, freed 512px frames`);
+      
+      // Force garbage collection to free memory before WebM creation
+      if (typeof global !== 'undefined' && global.gc) {
+        global.gc();
+      }
       
       // Step 3: Create 100×100 WebM directly from downscaled frames
-      console.log('🎬 Creating 100×100 WebM directly from downscaled frames...');
+      console.log('🎬 Creating 100×100 WebM directly from frames...');
       
       try {
         const webmBlob = await this.createWebMFromFrames(frames100, settings);
@@ -273,20 +272,19 @@ export class CoinExporter {
         this.downloadBlob(webmBlob, 'coinmoji-final-100px.webm');
         console.log('📦 Downloaded final WebM: coinmoji-final-100px.webm');
         
-        // Clear 100px frames from memory after successful WebM creation
-        frames100.length = 0;
-        
         return webmBlob;
       } catch (webmError) {
         console.error('❌ Direct WebM creation failed:', webmError);
-        console.log('🔄 WebM creation failed - this is the final attempt');
-        console.log('💡 Try reducing frame count or use external tools for WebM creation');
+        console.log('🔄 WebM creation failed - creating fallback 512×512 animated WebP...');
         
-        // Clear memory after error
-        frames100.length = 0;
+        // Fallback: re-capture frames and create 512px animated WebP
+        const fallbackFrames = await this.exportFrames(settings);
+        const animatedWebP512 = await this.createAnimatedWebP(fallbackFrames, settings);
+        this.downloadBlob(animatedWebP512, 'coinmoji-animated-512px.webp');
+        console.log('💡 Use the 512×512 animated WebP file for emoji creation externally');
         
-        // Re-throw the error since we don't have a fallback anymore
-        throw new Error(`WebM creation failed: ${webmError instanceof Error ? webmError.message : 'Unknown error'}`);
+        // Return the 512×512 animated WebP as fallback
+        return animatedWebP512;
       }
       
     } catch (error) {
@@ -455,8 +453,8 @@ export class CoinExporter {
     });
   }
 
-  private async downscaleFrames(frames: Blob[], targetSize: number): Promise<Blob[]> {
-    console.log(`🔽 Downscaling ${frames.length} individual frames to ${targetSize}×${targetSize}...`);
+  private async downscaleFramesMemoryOptimized(frames: Blob[], targetSize: number): Promise<Blob[]> {
+    console.log(`🔽 Memory-optimized downscaling ${frames.length} frames to ${targetSize}×${targetSize}...`);
     
     // Dynamic import for code splitting and lazy loading
     const { FFmpeg } = await import('@ffmpeg/ffmpeg');
@@ -487,21 +485,15 @@ export class CoinExporter {
         
         await ffmpeg.writeFile(inputName, frameData);
         
-        // Verify input file was written
-        const inputCheck = await ffmpeg.readFile(inputName);
-        if (inputCheck.length === 0) {
-          throw new Error(`Input frame ${i} written as 0 bytes`);
-        }
-        
         // Scale individual frame with proper WebP encoding
         await ffmpeg.exec([
           '-i', inputName,
           '-vf', `scale=${targetSize}:${targetSize}:flags=lanczos`,
           '-c:v', 'libwebp',           // Explicit WebP encoder
-          '-quality', '95',            // WebP quality
+          '-quality', '90',            // Slightly lower quality for memory efficiency
           '-lossless', '0',            // Allow lossy compression for smaller size
-          '-compression_level', '4',   // Balance between size and speed
-          '-method', '6',              // Best quality method
+          '-compression_level', '3',   // Faster compression for memory efficiency
+          '-method', '4',              // Good quality but faster method
           outputName
         ]);
         
@@ -514,11 +506,14 @@ export class CoinExporter {
         const scaledBlob = new Blob([scaledData], { type: 'image/webp' });
         scaledFrames.push(scaledBlob);
         
-        // Clean up this frame's files immediately to free memory
+        // Immediately clean up this frame's files and source frame
         await ffmpeg.deleteFile(inputName);
         await ffmpeg.deleteFile(outputName);
         
-        if (i === 0 || i === frames.length - 1 || i % 5 === 0) {
+        // Clear source frame from memory immediately
+        frames[i] = null as any;
+        
+        if (i === 0 || i === frames.length - 1 || i % 10 === 0) {
           console.log(`📸 Downscaled frame ${i + 1}/${frames.length}: ${frameData.length} → ${scaledBlob.size} bytes`);
         }
       }
@@ -665,12 +660,10 @@ export class CoinExporter {
     console.log('📦 Initializing fresh FFmpeg.wasm instance for direct WebM creation...');
     const ffmpeg = new FFmpeg();
     
-    // Add enhanced logging to see FFmpeg output for debugging
+    // Add logging to see FFmpeg output for debugging
     ffmpeg.on('log', ({ message }) => {
-      // Log more details to understand WebM creation issues
-      if (message.includes('error') || message.includes('failed') || message.includes('invalid') || 
-          message.includes('webm') || message.includes('libvpx') || message.includes('encoding')) {
-        console.log('🔧 FFmpeg WebM LOG:', message);
+      if (message.includes('error') || message.includes('failed') || message.includes('invalid')) {
+        console.log('🔧 FFmpeg WebM ERROR:', message);
       }
     });
     
@@ -678,7 +671,7 @@ export class CoinExporter {
     console.log('✅ Fresh FFmpeg.wasm loaded for direct WebM creation');
     
     try {
-      // Write individual frames to FFmpeg filesystem with immediate cleanup
+      // Write individual frames to FFmpeg filesystem
       console.log(`📝 Writing ${frames.length} WebP frames to FFmpeg filesystem...`);
       for (let i = 0; i < frames.length; i++) {
         // Validate frame before processing
@@ -713,62 +706,25 @@ export class CoinExporter {
       const outputFilename = 'thumb_100.webm';
       console.log(`📝 Output filename: ${outputFilename}`);
       
-      try {
-        // First attempt: VP8 with alpha channel (minimal memory)
-        console.log('🔧 Attempt 1: VP8 with alpha channel...');
-        await ffmpeg.exec([
-          '-framerate', framerate.toString(),
-          '-i', 'thumb%04d.webp',
-          '-c:v', 'libvpx',            // VP8 codec (less memory than VP9)
-          '-pix_fmt', 'yuva420p',      // VP8 with alpha channel
-          '-b:v', '200k',              // Fixed bitrate for predictable memory usage
-          '-auto-alt-ref', '0',        // Disable alt-ref frames
-          '-threads', '1',             // Single thread
-          '-deadline', 'realtime',     // Fastest encoding
-          '-cpu-used', '16',           // Maximum speed setting for VP8
-          '-lag-in-frames', '0',       // No lag
-          '-error-resilient', '1',     // Error resilient mode
-          '-kf-max-dist', '30',        // Keyframe every 30 frames
-          outputFilename
-        ]);
-        console.log('✅ VP8 with alpha encoding completed');
-      } catch (alphaError) {
-        console.log('⚠️ VP8 with alpha failed:', alphaError);
-        console.log('📝 Note: Transparency will be lost but emoji should still work');
-        
-        // Fallback: VP8 without alpha (absolute minimal memory)
-        await ffmpeg.exec([
-          '-framerate', framerate.toString(),
-          '-i', 'thumb%04d.webp',
-          '-c:v', 'libvpx',            // VP8 codec
-          '-pix_fmt', 'yuv420p',       // Standard format without alpha
-          '-b:v', '150k',              // Even lower bitrate
-          '-threads', '1',             // Single thread
-          '-deadline', 'realtime',     // Fastest encoding
-          '-cpu-used', '16',           // Maximum speed
-          '-lag-in-frames', '0',       // No lag
-          '-error-resilient', '1',     // Error resilient
-          '-kf-max-dist', '30',        // Keyframes
-          outputFilename
-        ]);
-        console.log('✅ VP8 without alpha encoding completed');
-      }
-      
-      // Check if the output file exists before trying to read it
-      console.log('🔍 Checking if WebM file was created...');
-      try {
-        const files = await ffmpeg.listDir('/');
-        console.log('📁 Available files:', files.map(f => f.name));
-        
-        const webmExists = files.some(f => f.name === outputFilename);
-        if (!webmExists) {
-          throw new Error(`WebM file ${outputFilename} was not created - VP8 encoding failed`);
-        }
-        console.log('✅ WebM file confirmed to exist');
-      } catch (listError) {
-        console.error('❌ Could not list files or WebM not found:', listError);
-        throw new Error('WebM encoding failed - output file not created');
-      }
+      // Create WebM directly from individual frames with optimized VP9 settings for memory efficiency
+      await ffmpeg.exec([
+        '-framerate', framerate.toString(),
+        '-i', 'thumb%04d.webp',
+        '-pix_fmt', 'yuva420p',      // VP9 with alpha channel
+        '-c:v', 'libvpx-vp9',        // VP9 codec supports alpha
+        '-b:v', '0',                 // CRF mode (constant rate factor)
+        '-crf', '35',                // Slightly lower quality for memory efficiency (was 30)
+        '-auto-alt-ref', '0',        // Keep alpha plane intact
+        '-row-mt', '0',              // Disable multi-thread rows to save memory
+        '-threads', '1',             // Single thread for predictable memory usage
+        '-deadline', 'realtime',     // Faster encoding with less memory (was 'good')
+        '-cpu-used', '8',            // Fastest encoding to reduce memory pressure (was 1)
+        '-lag-in-frames', '0',       // Reduce latency and memory usage
+        '-tile-columns', '0',        // Disable tiling to save memory
+        '-frame-parallel', '0',      // Disable frame parallelism
+        '-g', '30',                  // Set GOP size to frame count for predictable memory
+        outputFilename
+      ]);
       
       console.log(`📖 Reading WebM from FFmpeg filesystem: ${outputFilename}`);
       const webmData = await ffmpeg.readFile(outputFilename);
@@ -815,95 +771,6 @@ export class CoinExporter {
       }
       
       throw new Error(`Direct WebM creation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-
-  private async convertWebPToWebM(webpBlob: Blob): Promise<Blob> {
-    console.log('🎬 Converting animated WebP to WebM for emoji format...');
-    
-    // Validate input WebP blob
-    if (!webpBlob || webpBlob.size === 0) {
-      throw new Error('Invalid WebP input: blob is empty or null');
-    }
-    
-    console.log(`📊 Input WebP size: ${webpBlob.size} bytes`);
-    
-    // Dynamic import for code splitting and lazy loading
-    const { FFmpeg } = await import('@ffmpeg/ffmpeg');
-    const { fetchFile } = await import('@ffmpeg/util');
-    
-    console.log('📦 Initializing FFmpeg.wasm for WebM conversion...');
-    const ffmpeg = new FFmpeg();
-    
-    // Add logging to see FFmpeg output for debugging
-    ffmpeg.on('log', ({ message }) => {
-      if (message.includes('error') || message.includes('failed') || message.includes('invalid') || message.includes('skipping')) {
-        console.log('🔧 FFmpeg WebM log:', message);
-      }
-    });
-    
-    await ffmpeg.load();
-    console.log('✅ FFmpeg.wasm loaded for WebM conversion');
-    
-    try {
-      // Write the animated WebP to filesystem
-      const webpData = await fetchFile(webpBlob);
-      await ffmpeg.writeFile('input.webp', webpData);
-      
-      console.log(`📝 Written input.webp: ${webpData.length} bytes`);
-      
-      // Convert to WebM with VP9 codec and alpha channel
-      console.log('🔧 Starting WebM conversion with VP9...');
-      await ffmpeg.exec([
-        '-i', 'input.webp',
-        '-c:v', 'libvpx-vp9',
-        '-pix_fmt', 'yuva420p', // VP9 with alpha
-        '-auto-alt-ref', '0', // Disable alt-ref frames for better compatibility
-        '-lag-in-frames', '0', // Reduce latency
-        '-deadline', 'good', // Good quality/speed trade-off
-        '-cpu-used', '1', // Faster encoding
-        '-row-mt', '1', // Multi-threading
-        '-crf', '30', // Quality (lower = better, 15-35 range)
-        '-b:v', '0', // Variable bitrate
-        '-f', 'webm',
-        'output.webm'
-      ]);
-      
-      console.log('📖 Reading WebM file...');
-      const webmData = await ffmpeg.readFile('output.webm');
-      
-      if (!webmData || webmData.length === 0) {
-        console.error('❌ WebM file is empty!');
-        
-        // Debug: List all files in FFmpeg filesystem
-        try {
-          const files = await ffmpeg.listDir('/');
-          console.log('📁 FFmpeg WebM filesystem contents:', files);
-        } catch (listError) {
-          console.warn('Could not list FFmpeg filesystem:', listError);
-        }
-        
-        throw new Error('WebM conversion failed - output file is empty');
-      }
-      
-      // Clean up
-      try {
-        await ffmpeg.deleteFile('input.webp');
-        await ffmpeg.deleteFile('output.webm');
-      } catch (cleanupError) {
-        console.warn('Failed to clean up WebM conversion files:', cleanupError);
-      }
-      
-      const webmBlob = new Blob([webmData], { type: 'video/webm' });
-      
-      console.log(`✅ WebM created: ${webmBlob.size} bytes`);
-      console.log('🎯 WebM with VP9 and alpha channel ready for emoji!');
-      
-      return webmBlob;
-      
-    } catch (error) {
-      console.error('WebM conversion error:', error);
-      throw new Error(`WebM conversion failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
