@@ -234,166 +234,58 @@ export class CoinExporter {
   }
 
   async exportAsWebM(settings: ExportSettings): Promise<Blob> {
-    console.log('🎬 Creating WebM from WebP frames...');
+    console.log('� Creating Animated WebP from WebP frames...');
     
     try {
       // First, get the WebP frames (same as ZIP export)
       const frames = await this.exportFrames(settings);
       
       if (frames.length === 0) {
-        throw new Error('No frames captured for WebM creation');
+        throw new Error('No frames captured for animated WebP creation');
       }
       
-      console.log(`✅ Got ${frames.length} WebP frames for WebM creation`);
+      console.log(`✅ Got ${frames.length} WebP frames for animated WebP creation`);
       
-      // Convert WebP frames to WebM using client-side approach
-      const webmBlob = await this.createWebMFromFrames(frames, settings);
-      
-      console.log('✅ WebM created successfully:', { size: webmBlob.size });
-      return webmBlob;
-      
-    } catch (error) {
-      console.error('❌ WebM creation failed:', error);
-      throw error;
-    }
-  }
-
-  private async createWebMFromFrames(frames: Blob[], settings: ExportSettings): Promise<Blob> {
-    console.log('🔧 Converting WebP frames to WebM with transparency preservation...');
-    
-    try {
-      // Method 1: Try server-side conversion with the improved pipeline
-      console.log('🌐 Trying server-side animated WebP → WebM conversion...');
-      return await this.createWebMViaServer(frames, settings);
-    } catch (serverError) {
-      console.log('⚠️ Server-side failed, trying client-side animated WebP → WebM conversion:', serverError);
-      // Method 2: Client-side animated WebP → WebM conversion
-      try {
-        return await this.createWebMViaAnimatedWebP(frames, settings);
-      } catch (animatedError) {
-        console.log('⚠️ Animated WebP pipeline failed, trying simple canvas approach:', animatedError);
-        // Method 3: Simple canvas approach as final fallback
-        return await this.createWebMViaSimpleCanvas(frames, settings);
-      }
-    }
-  }
-
-  private async createWebMViaServer(frames: Blob[], settings: ExportSettings): Promise<Blob> {
-    console.log('📤 Sending WebP frames to server for FFmpeg conversion...');
-    
-    // Convert frames to base64 for server transmission
-    const framesBase64: string[] = [];
-    for (let i = 0; i < frames.length; i++) {
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result as string;
-          const base64Data = result.split(',')[1];
-          resolve(base64Data);
-        };
-        reader.onerror = () => reject(new Error(`Failed to convert frame ${i} to base64`));
-        reader.readAsDataURL(frames[i]);
-      });
-      framesBase64.push(base64);
-    }
-    
-    const payload = {
-      frames_base64: framesBase64,
-      frame_format: 'webp',
-      settings: {
-        fps: settings.fps,
-        size: settings.size,
-        duration: settings.duration
-      }
-    };
-    
-    const response = await fetch('/.netlify/functions/create-webm-from-frames', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Server conversion failed: ${response.status} ${response.statusText}`);
-    }
-    
-    const result = await response.json();
-    
-    if (!result.success || !result.webm_base64) {
-      throw new Error(result.error || 'Server response missing WebM data');
-    }
-    
-    console.log('✅ Server FFmpeg conversion successful');
-    
-    // Convert base64 back to blob
-    const webmBuffer = Uint8Array.from(atob(result.webm_base64), c => c.charCodeAt(0));
-    return new Blob([webmBuffer], { type: 'video/webm' });
-  }
-
-  private async createWebMViaAnimatedWebP(frames: Blob[], settings: ExportSettings): Promise<Blob> {
-    console.log('🎨 Creating WebM via Animated WebP → Resize → WebM pipeline...');
-    
-    try {
-      // Step 1: Create animated WebP from individual WebP frames
-      console.log('📸 Creating animated WebP from individual frames...');
+      // Create animated WebP directly from frames
       const animatedWebP = await this.createAnimatedWebPFromFrames(frames, settings);
       
-      // Step 2: Resize animated WebP to target size (preserves transparency)
-      console.log(`🔍 Resizing animated WebP to ${settings.size}x${settings.size}...`);
-      const resizedAnimatedWebP = await this.resizeAnimatedWebP(animatedWebP, settings.size);
-      
-      // Step 3: Convert resized animated WebP to WebM
-      console.log('🎬 Converting resized animated WebP to WebM...');
-      const webmBlob = await this.convertAnimatedWebPToWebM(resizedAnimatedWebP, settings);
-      
-      console.log('✅ Animated WebP → WebM conversion completed:', { size: webmBlob.size });
-      return webmBlob;
+      console.log('✅ Animated WebP created successfully:', { size: animatedWebP.size });
+      return animatedWebP;
       
     } catch (error) {
-      console.error('❌ Animated WebP conversion failed:', error);
+      console.error('❌ Animated WebP creation failed:', error);
       throw error;
     }
   }
 
   private async createAnimatedWebPFromFrames(frames: Blob[], settings: ExportSettings): Promise<Blob> {
-    console.log('🔧 Creating animated WebP from individual WebP frames...');
+    console.log('🎨 Creating animated WebP from individual frames...');
     
     // Create a canvas to work with the frames
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d', { alpha: true })!;
     
-    // Get dimensions from first frame
-    const firstImg = await this.blobToImage(frames[0]);
-    canvas.width = firstImg.width;
-    canvas.height = firstImg.height;
+    // Get dimensions from first frame to verify it loads
+    await this.blobToImage(frames[0]); // Ensure frames are valid
     
-    console.log(`📐 Canvas size: ${canvas.width}x${canvas.height}`);
+    // Set canvas to target size for direct output
+    canvas.width = settings.size;
+    canvas.height = settings.size;
     
-    // For now, we'll use a simple approach: create frames as data URLs and use them with MediaRecorder
-    // This creates an intermediate video that we can convert to WebM
+    console.log(`📐 Canvas size: ${canvas.width}x${canvas.height} (target size)`);
+    
+    // Set up MediaRecorder to create animated WebP-compatible video
     const stream = canvas.captureStream(settings.fps);
     
-    // Use WebM with alpha support - try VP9 first, fallback to VP8
-    let mimeType = 'video/webm;codecs=vp9';
-    let videoBitsPerSecond = 2000000;
+    // Use the most compatible WebM settings
+    let mimeType = 'video/webm';
+    let videoBitsPerSecond = 1000000; // Good quality
     
     if (!MediaRecorder.isTypeSupported(mimeType)) {
-      console.log('⚠️ VP9 not supported, trying VP8...');
-      mimeType = 'video/webm;codecs=vp8';
-      videoBitsPerSecond = 1500000; // Lower bitrate for VP8
-      
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        console.log('⚠️ VP8 not supported, trying default WebM...');
-        mimeType = 'video/webm';
-        videoBitsPerSecond = 1000000; // Conservative bitrate
-        
-        if (!MediaRecorder.isTypeSupported(mimeType)) {
-          throw new Error('WebM not supported in this browser for animated WebP conversion');
-        }
-      }
+      throw new Error('WebM not supported in this browser for animated WebP creation');
     }
     
-    console.log('✅ Using MediaRecorder with:', { mimeType, videoBitsPerSecond });
+    console.log('✅ Using MediaRecorder with:', { mimeType, videoBitsPerSecond, size: settings.size });
     
     const recorder = new MediaRecorder(stream, {
       mimeType,
@@ -414,20 +306,20 @@ export class CoinExporter {
     // Calculate frame timing
     const frameDuration = (settings.duration * 1000) / frames.length; // ms per frame
     
-    // Render each frame with transparency preservation
+    // Render each frame directly to target size with transparency preservation
     for (let i = 0; i < frames.length; i++) {
       // Clear canvas with full transparency
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
-      // Load and draw the WebP frame
+      // Load and draw the WebP frame at target size
       const img = await this.blobToImage(frames[i]);
-      ctx.drawImage(img, 0, 0);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       
       // Wait for frame duration
       await new Promise(resolve => setTimeout(resolve, frameDuration));
       
       if (i % 5 === 0) {
-        console.log(`📸 Processed animated frame ${i + 1}/${frames.length}`);
+        console.log(`📸 Processed frame ${i + 1}/${frames.length} at ${settings.size}x${settings.size}`);
       }
     }
     
@@ -435,313 +327,19 @@ export class CoinExporter {
     return new Promise<Blob>((resolve, reject) => {
       recorder.onstop = () => {
         const animatedBlob = new Blob(chunks, { type: 'video/webm' });
-        console.log('✅ Animated WebP (as WebM) created:', { size: animatedBlob.size });
+        console.log('✅ Animated WebP (as WebM) created:', { 
+          size: animatedBlob.size,
+          sizeKB: Math.round(animatedBlob.size / 1024),
+          duration: settings.duration,
+          fps: settings.fps,
+          targetSize: settings.size
+        });
         resolve(animatedBlob);
       };
       
       recorder.onerror = (event) => {
         console.error('❌ Animated WebP recording error:', event);
         reject(new Error('Animated WebP recording failed'));
-      };
-      
-      setTimeout(() => {
-        recorder.stop();
-        stream.getTracks().forEach(track => track.stop());
-      }, 100);
-    });
-  }
-
-  private async resizeAnimatedWebP(animatedWebP: Blob, targetSize: number): Promise<Blob> {
-    console.log(`🔍 Resizing animated WebP to ${targetSize}x${targetSize}...`);
-    
-    // Create video element to load the animated WebP (stored as WebM)
-    const video = document.createElement('video');
-    video.src = URL.createObjectURL(animatedWebP);
-    video.muted = true;
-    video.loop = true;
-    video.playsInline = true;
-    
-    // Wait for video to be ready and have valid duration
-    await new Promise((resolve, reject) => {
-      video.onloadedmetadata = () => {
-        console.log('📺 Video metadata loaded:', { 
-          duration: video.duration, 
-          videoWidth: video.videoWidth, 
-          videoHeight: video.videoHeight 
-        });
-        
-        if (video.duration && video.duration > 0) {
-          resolve(video.duration);
-        } else {
-          console.log('⚠️ Video duration invalid, using default duration: 3 seconds');
-          resolve(3); // Default 3 second duration
-        }
-      };
-      video.onerror = (e) => {
-        console.error('❌ Video load error:', e);
-        reject(new Error('Video failed to load'));
-      };
-      video.load();
-    });
-    
-    // Create canvas for resizing
-    const canvas = document.createElement('canvas');
-    canvas.width = targetSize;
-    canvas.height = targetSize;
-    const ctx = canvas.getContext('2d', { alpha: true })!;
-    
-    // Set up recording for resized version with codec fallback
-    const stream = canvas.captureStream(30); // Use 30fps for smooth resize
-    
-    let mimeType = 'video/webm;codecs=vp9';
-    let videoBitsPerSecond = 1500000;
-    
-    if (!MediaRecorder.isTypeSupported(mimeType)) {
-      console.log('⚠️ VP9 not supported for resize, trying VP8...');
-      mimeType = 'video/webm;codecs=vp8';
-      videoBitsPerSecond = 1200000;
-      
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        console.log('⚠️ VP8 not supported for resize, using default WebM...');
-        mimeType = 'video/webm';
-        videoBitsPerSecond = 1000000;
-      }
-    }
-    
-    console.log('✅ Resize recorder using:', { mimeType, videoBitsPerSecond });
-    
-    const recorder = new MediaRecorder(stream, {
-      mimeType,
-      videoBitsPerSecond
-    });
-    
-    const chunks: Blob[] = [];
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        chunks.push(event.data);
-      }
-    };
-    
-    // Start recording resized version
-    recorder.start();
-    await video.play();
-    
-    console.log('🎬 Recording resized animated WebP...');
-    
-    // Continuously draw video to canvas at target size to create resized version
-    const drawFrame = () => {
-      ctx.clearRect(0, 0, targetSize, targetSize);
-      ctx.drawImage(video, 0, 0, targetSize, targetSize);
-    };
-    
-    // Draw frames for the duration of the animation
-    const interval = setInterval(drawFrame, 1000/30); // 30fps
-    
-    // Use the actual video duration or fallback to 3 seconds
-    const recordDuration = (video.duration && video.duration > 0) ? video.duration * 1000 : 3000;
-    console.log('🎬 Recording for duration:', recordDuration, 'ms');
-    
-    // Record for the duration of the animation  
-    await new Promise(resolve => setTimeout(resolve, recordDuration));
-    
-    clearInterval(interval);
-    
-    // Stop recording
-    return new Promise<Blob>((resolve, reject) => {
-      recorder.onstop = () => {
-        const resizedBlob = new Blob(chunks, { type: 'video/webm' });
-        console.log('✅ Resized animated WebP created:', { size: resizedBlob.size });
-        URL.revokeObjectURL(video.src);
-        resolve(resizedBlob);
-      };
-      
-      recorder.onerror = (event) => {
-        console.error('❌ Resize recording error:', event);
-        URL.revokeObjectURL(video.src);
-        reject(new Error('Resize recording failed'));
-      };
-      
-      recorder.stop();
-      stream.getTracks().forEach(track => track.stop());
-      video.pause();
-    });
-  }
-
-  private async convertAnimatedWebPToWebM(animatedWebP: Blob, settings: ExportSettings): Promise<Blob> {
-    console.log('🎬 Converting animated WebP to final WebM...');
-    
-    // The resized animated WebP is already in WebM format from our pipeline
-    // But we want to ensure it meets Telegram emoji requirements
-    
-    // Create video element
-    const video = document.createElement('video');
-    video.src = URL.createObjectURL(animatedWebP);
-    video.muted = true;
-    video.loop = false; // Don't loop for final version
-    video.playsInline = true;
-    
-    await new Promise((resolve, reject) => {
-      video.onloadedmetadata = resolve;
-      video.onerror = reject;
-      video.load();
-    });
-    
-    // Create final canvas at exact target size
-    const canvas = document.createElement('canvas');
-    canvas.width = settings.size;
-    canvas.height = settings.size;
-    const ctx = canvas.getContext('2d', { alpha: true })!;
-    
-    // Set up final recording with Telegram-compatible settings and codec fallback
-    const stream = canvas.captureStream(settings.fps);
-    
-    let mimeType = 'video/webm;codecs=vp9';
-    let videoBitsPerSecond = 800000; // Telegram emoji size limit friendly
-    
-    if (!MediaRecorder.isTypeSupported(mimeType)) {
-      console.log('⚠️ VP9 not supported for final, trying VP8...');
-      mimeType = 'video/webm;codecs=vp8';
-      videoBitsPerSecond = 600000;
-      
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        console.log('⚠️ VP8 not supported for final, using default WebM...');
-        mimeType = 'video/webm';
-        videoBitsPerSecond = 500000;
-      }
-    }
-    
-    console.log('✅ Final recorder using:', { mimeType, videoBitsPerSecond });
-    
-    const recorder = new MediaRecorder(stream, {
-      mimeType,
-      videoBitsPerSecond
-    });
-    
-    const chunks: Blob[] = [];
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        chunks.push(event.data);
-      }
-    };
-    
-    // Start final recording
-    recorder.start();
-    await video.play();
-    
-    console.log('🎬 Recording final WebM for Telegram...');
-    
-    // Draw video frames to canvas for exact duration
-    const drawFrame = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    };
-    
-    // Draw frames for the specified duration
-    const frameInterval = 1000 / settings.fps;
-    const totalFrames = Math.floor(settings.duration * settings.fps);
-    
-    for (let i = 0; i < totalFrames; i++) {
-      drawFrame();
-      await new Promise(resolve => setTimeout(resolve, frameInterval));
-    }
-    
-    // Stop recording and return final WebM
-    return new Promise<Blob>((resolve, reject) => {
-      recorder.onstop = () => {
-        const finalWebM = new Blob(chunks, { type: 'video/webm' });
-        console.log('✅ Final WebM created for Telegram:', { 
-          size: finalWebM.size,
-          sizeKB: Math.round(finalWebM.size / 1024),
-          underLimit: finalWebM.size < 256 * 1024
-        });
-        URL.revokeObjectURL(video.src);
-        resolve(finalWebM);
-      };
-      
-      recorder.onerror = (event) => {
-        console.error('❌ Final WebM recording error:', event);
-        URL.revokeObjectURL(video.src);
-        reject(new Error('Final WebM recording failed'));
-      };
-      
-      recorder.stop();
-      stream.getTracks().forEach(track => track.stop());
-      video.pause();
-    });
-  }
-
-  private async createWebMViaSimpleCanvas(frames: Blob[], settings: ExportSettings): Promise<Blob> {
-    console.log('🎨 Creating WebM via Simple Canvas approach (fallback)...');
-    
-    // Create a canvas directly at target size
-    const canvas = document.createElement('canvas');
-    canvas.width = settings.size;
-    canvas.height = settings.size;
-    const ctx = canvas.getContext('2d', { alpha: true })!;
-    
-    // Set up recording with the most compatible settings
-    const stream = canvas.captureStream(settings.fps);
-    
-    let mimeType = 'video/webm';
-    let videoBitsPerSecond = 500000; // Conservative bitrate
-    
-    if (!MediaRecorder.isTypeSupported(mimeType)) {
-      throw new Error('WebM not supported in this browser - cannot create video');
-    }
-    
-    console.log('✅ Simple canvas using:', { mimeType, videoBitsPerSecond, targetSize: settings.size });
-    
-    const recorder = new MediaRecorder(stream, {
-      mimeType,
-      videoBitsPerSecond
-    });
-    
-    const chunks: Blob[] = [];
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        chunks.push(event.data);
-      }
-    };
-    
-    // Start recording
-    recorder.start();
-    console.log('🎬 Started simple canvas recording...');
-    
-    // Calculate frame timing
-    const frameDuration = (settings.duration * 1000) / frames.length; // ms per frame
-    
-    // Render each frame directly to target size
-    for (let i = 0; i < frames.length; i++) {
-      // Clear canvas with transparency
-      ctx.clearRect(0, 0, settings.size, settings.size);
-      
-      // Load and draw the WebP frame at target size
-      const img = await this.blobToImage(frames[i]);
-      ctx.drawImage(img, 0, 0, settings.size, settings.size);
-      
-      // Wait for frame duration
-      await new Promise(resolve => setTimeout(resolve, frameDuration));
-      
-      if (i % 5 === 0) {
-        console.log(`📸 Simple canvas frame ${i + 1}/${frames.length}`);
-      }
-    }
-    
-    // Stop recording and return result
-    return new Promise<Blob>((resolve, reject) => {
-      recorder.onstop = () => {
-        const webmBlob = new Blob(chunks, { type: 'video/webm' });
-        console.log('✅ Simple canvas WebM created:', { 
-          size: webmBlob.size,
-          sizeKB: Math.round(webmBlob.size / 1024),
-          underLimit: webmBlob.size < 256 * 1024
-        });
-        resolve(webmBlob);
-      };
-      
-      recorder.onerror = (event) => {
-        console.error('❌ Simple canvas recording error:', event);
-        reject(new Error('Simple canvas recording failed'));
       };
       
       setTimeout(() => {
