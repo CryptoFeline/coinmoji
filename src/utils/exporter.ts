@@ -268,7 +268,13 @@ export class CoinExporter {
     } catch (serverError) {
       console.log('⚠️ Server-side failed, trying client-side animated WebP → WebM conversion:', serverError);
       // Method 2: Client-side animated WebP → WebM conversion
-      return await this.createWebMViaAnimatedWebP(frames, settings);
+      try {
+        return await this.createWebMViaAnimatedWebP(frames, settings);
+      } catch (animatedError) {
+        console.log('⚠️ Animated WebP pipeline failed, trying simple canvas approach:', animatedError);
+        // Method 3: Simple canvas approach as final fallback
+        return await this.createWebMViaSimpleCanvas(frames, settings);
+      }
     }
   }
 
@@ -367,15 +373,31 @@ export class CoinExporter {
     // This creates an intermediate video that we can convert to WebM
     const stream = canvas.captureStream(settings.fps);
     
-    // Use WebM/VP9 with alpha support
-    const mimeType = 'video/webm;codecs=vp9';
+    // Use WebM with alpha support - try VP9 first, fallback to VP8
+    let mimeType = 'video/webm;codecs=vp9';
+    let videoBitsPerSecond = 2000000;
+    
     if (!MediaRecorder.isTypeSupported(mimeType)) {
-      throw new Error('VP9 WebM not supported for animated WebP conversion');
+      console.log('⚠️ VP9 not supported, trying VP8...');
+      mimeType = 'video/webm;codecs=vp8';
+      videoBitsPerSecond = 1500000; // Lower bitrate for VP8
+      
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        console.log('⚠️ VP8 not supported, trying default WebM...');
+        mimeType = 'video/webm';
+        videoBitsPerSecond = 1000000; // Conservative bitrate
+        
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          throw new Error('WebM not supported in this browser for animated WebP conversion');
+        }
+      }
     }
+    
+    console.log('✅ Using MediaRecorder with:', { mimeType, videoBitsPerSecond });
     
     const recorder = new MediaRecorder(stream, {
       mimeType,
-      videoBitsPerSecond: 2000000 // Higher bitrate for better quality
+      videoBitsPerSecond
     });
     
     const chunks: Blob[] = [];
@@ -439,10 +461,26 @@ export class CoinExporter {
     video.loop = true;
     video.playsInline = true;
     
-    // Wait for video to be ready
+    // Wait for video to be ready and have valid duration
     await new Promise((resolve, reject) => {
-      video.onloadedmetadata = resolve;
-      video.onerror = reject;
+      video.onloadedmetadata = () => {
+        console.log('📺 Video metadata loaded:', { 
+          duration: video.duration, 
+          videoWidth: video.videoWidth, 
+          videoHeight: video.videoHeight 
+        });
+        
+        if (video.duration && video.duration > 0) {
+          resolve(video.duration);
+        } else {
+          console.log('⚠️ Video duration invalid, using default duration: 3 seconds');
+          resolve(3); // Default 3 second duration
+        }
+      };
+      video.onerror = (e) => {
+        console.error('❌ Video load error:', e);
+        reject(new Error('Video failed to load'));
+      };
       video.load();
     });
     
@@ -452,11 +490,29 @@ export class CoinExporter {
     canvas.height = targetSize;
     const ctx = canvas.getContext('2d', { alpha: true })!;
     
-    // Set up recording for resized version
+    // Set up recording for resized version with codec fallback
     const stream = canvas.captureStream(30); // Use 30fps for smooth resize
+    
+    let mimeType = 'video/webm;codecs=vp9';
+    let videoBitsPerSecond = 1500000;
+    
+    if (!MediaRecorder.isTypeSupported(mimeType)) {
+      console.log('⚠️ VP9 not supported for resize, trying VP8...');
+      mimeType = 'video/webm;codecs=vp8';
+      videoBitsPerSecond = 1200000;
+      
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        console.log('⚠️ VP8 not supported for resize, using default WebM...');
+        mimeType = 'video/webm';
+        videoBitsPerSecond = 1000000;
+      }
+    }
+    
+    console.log('✅ Resize recorder using:', { mimeType, videoBitsPerSecond });
+    
     const recorder = new MediaRecorder(stream, {
-      mimeType: 'video/webm;codecs=vp9',
-      videoBitsPerSecond: 1500000
+      mimeType,
+      videoBitsPerSecond
     });
     
     const chunks: Blob[] = [];
@@ -481,8 +537,12 @@ export class CoinExporter {
     // Draw frames for the duration of the animation
     const interval = setInterval(drawFrame, 1000/30); // 30fps
     
+    // Use the actual video duration or fallback to 3 seconds
+    const recordDuration = (video.duration && video.duration > 0) ? video.duration * 1000 : 3000;
+    console.log('🎬 Recording for duration:', recordDuration, 'ms');
+    
     // Record for the duration of the animation  
-    await new Promise(resolve => setTimeout(resolve, video.duration * 1000));
+    await new Promise(resolve => setTimeout(resolve, recordDuration));
     
     clearInterval(interval);
     
@@ -532,11 +592,29 @@ export class CoinExporter {
     canvas.height = settings.size;
     const ctx = canvas.getContext('2d', { alpha: true })!;
     
-    // Set up final recording with Telegram-compatible settings
+    // Set up final recording with Telegram-compatible settings and codec fallback
     const stream = canvas.captureStream(settings.fps);
+    
+    let mimeType = 'video/webm;codecs=vp9';
+    let videoBitsPerSecond = 800000; // Telegram emoji size limit friendly
+    
+    if (!MediaRecorder.isTypeSupported(mimeType)) {
+      console.log('⚠️ VP9 not supported for final, trying VP8...');
+      mimeType = 'video/webm;codecs=vp8';
+      videoBitsPerSecond = 600000;
+      
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        console.log('⚠️ VP8 not supported for final, using default WebM...');
+        mimeType = 'video/webm';
+        videoBitsPerSecond = 500000;
+      }
+    }
+    
+    console.log('✅ Final recorder using:', { mimeType, videoBitsPerSecond });
+    
     const recorder = new MediaRecorder(stream, {
-      mimeType: 'video/webm;codecs=vp9',
-      videoBitsPerSecond: 800000 // Telegram emoji size limit friendly
+      mimeType,
+      videoBitsPerSecond
     });
     
     const chunks: Blob[] = [];
@@ -589,6 +667,87 @@ export class CoinExporter {
       recorder.stop();
       stream.getTracks().forEach(track => track.stop());
       video.pause();
+    });
+  }
+
+  private async createWebMViaSimpleCanvas(frames: Blob[], settings: ExportSettings): Promise<Blob> {
+    console.log('🎨 Creating WebM via Simple Canvas approach (fallback)...');
+    
+    // Create a canvas directly at target size
+    const canvas = document.createElement('canvas');
+    canvas.width = settings.size;
+    canvas.height = settings.size;
+    const ctx = canvas.getContext('2d', { alpha: true })!;
+    
+    // Set up recording with the most compatible settings
+    const stream = canvas.captureStream(settings.fps);
+    
+    let mimeType = 'video/webm';
+    let videoBitsPerSecond = 500000; // Conservative bitrate
+    
+    if (!MediaRecorder.isTypeSupported(mimeType)) {
+      throw new Error('WebM not supported in this browser - cannot create video');
+    }
+    
+    console.log('✅ Simple canvas using:', { mimeType, videoBitsPerSecond, targetSize: settings.size });
+    
+    const recorder = new MediaRecorder(stream, {
+      mimeType,
+      videoBitsPerSecond
+    });
+    
+    const chunks: Blob[] = [];
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        chunks.push(event.data);
+      }
+    };
+    
+    // Start recording
+    recorder.start();
+    console.log('🎬 Started simple canvas recording...');
+    
+    // Calculate frame timing
+    const frameDuration = (settings.duration * 1000) / frames.length; // ms per frame
+    
+    // Render each frame directly to target size
+    for (let i = 0; i < frames.length; i++) {
+      // Clear canvas with transparency
+      ctx.clearRect(0, 0, settings.size, settings.size);
+      
+      // Load and draw the WebP frame at target size
+      const img = await this.blobToImage(frames[i]);
+      ctx.drawImage(img, 0, 0, settings.size, settings.size);
+      
+      // Wait for frame duration
+      await new Promise(resolve => setTimeout(resolve, frameDuration));
+      
+      if (i % 5 === 0) {
+        console.log(`📸 Simple canvas frame ${i + 1}/${frames.length}`);
+      }
+    }
+    
+    // Stop recording and return result
+    return new Promise<Blob>((resolve, reject) => {
+      recorder.onstop = () => {
+        const webmBlob = new Blob(chunks, { type: 'video/webm' });
+        console.log('✅ Simple canvas WebM created:', { 
+          size: webmBlob.size,
+          sizeKB: Math.round(webmBlob.size / 1024),
+          underLimit: webmBlob.size < 256 * 1024
+        });
+        resolve(webmBlob);
+      };
+      
+      recorder.onerror = (event) => {
+        console.error('❌ Simple canvas recording error:', event);
+        reject(new Error('Simple canvas recording failed'));
+      };
+      
+      setTimeout(() => {
+        recorder.stop();
+        stream.getTracks().forEach(track => track.stop());
+      }, 100);
     });
   }
 
