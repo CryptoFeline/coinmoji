@@ -1,51 +1,30 @@
 import { Handler } from '@netlify/functions';
 import { spawn } from 'node:child_process';
-import { writeFile, readFile, rm, mkdtemp, access, chmod } from 'node:fs/promises';
+import { writeFile, readFile, rm, mkdtemp, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { dirname } from 'node:path';
 
 // Handle both ES modules and CommonJS
 let __dirname: string;
 try {
-  if (typeof import.meta !== 'undefined' && import.meta.url) {
-    const __filename = fileURLToPath(import.meta.url);
-    __dirname = dirname(__filename);
+  if (typeof __filename !== 'undefined') {
+    __dirname = require('path').dirname(__filename);
   } else {
-    // Fallback for CommonJS - get current working directory
     __dirname = process.cwd();
   }
 } catch {
-  // Final fallback - use process.cwd()
   __dirname = process.cwd();
 }
 
 const ffmpegPath = join(__dirname, 'ffmpeg');
 
-// Download FFmpeg binary if it doesn't exist
+// Check if FFmpeg binary exists and is executable
 async function ensureFFmpeg(): Promise<void> {
   try {
     await access(ffmpegPath);
-    console.log('✅ FFmpeg binary already exists at:', ffmpegPath);
-    return;
+    console.log('✅ FFmpeg binary found at:', ffmpegPath);
   } catch {
-    console.log('📥 Downloading FFmpeg binary for Linux to:', ffmpegPath);
-    console.log('📁 Current working directory:', process.cwd());
-    console.log('📁 Function directory:', __dirname);
-    
-    const ffmpegUrl = 'https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4.0/linux-x64';
-    
-    const response = await fetch(ffmpegUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to download FFmpeg: ${response.status} ${response.statusText}`);
-    }
-    
-    const buffer = await response.arrayBuffer();
-    await writeFile(ffmpegPath, new Uint8Array(buffer));
-    await chmod(ffmpegPath, 0o755); // Make executable
-    
-    console.log('✅ FFmpeg binary downloaded and made executable at:', ffmpegPath);
+    throw new Error(`FFmpeg binary not found at ${ffmpegPath}. Please run the setup-ffmpeg function first by visiting: /.netlify/functions/setup-ffmpeg`);
   }
 }
 
