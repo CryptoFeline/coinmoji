@@ -46,12 +46,58 @@ export const handler: Handler = async (event) => {
 
     console.log('🚀 Launching serverless Chrome...');
 
+    // Get Chrome executable path with proper error handling
+    let executablePath;
+    try {
+      executablePath = await chromium.executablePath;
+      console.log('📍 Chrome executable path:', executablePath);
+    } catch (error) {
+      console.log('⚠️ Chrome path error, checking alternatives:', error.message);
+      
+      // For Netlify Functions, try bundled Chrome or system Chrome
+      const commonPaths = [
+        '/opt/chrome/chrome',
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/google-chrome',
+        '/usr/bin/chromium-browser',
+        '/usr/bin/chromium',
+        process.env.CHROME_EXECUTABLE // Allow override via env var
+      ].filter(Boolean);
+      
+      const fs = await import('fs');
+      for (const path of commonPaths) {
+        try {
+          if (path && fs.existsSync(path)) {
+            executablePath = path;
+            console.log('✅ Found Chrome at:', path);
+            break;
+          }
+        } catch (e) {
+          // Continue to next path
+        }
+      }
+      
+      if (!executablePath) {
+        console.log('❌ No Chrome found, using puppeteer default');
+        executablePath = undefined; // Let puppeteer handle it
+      }
+    }
+
     // Launch headless Chrome with chrome-aws-lambda
     browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath,
-      headless: chromium.headless,
+      args: [
+        ...chromium.args,
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--single-process',
+        '--no-zygote',
+        '--disable-web-security'
+      ],
+      defaultViewport: { width: 400, height: 400 },
+      executablePath: executablePath,
+      headless: true,
       ignoreHTTPSErrors: true,
     });
 
