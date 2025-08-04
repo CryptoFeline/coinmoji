@@ -140,29 +140,28 @@ export const handler: Handler = async (event) => {
       const targetFileSize = request.targetFileSize || 60 * 1024; // Default 60KB
       const qualityMode = request.qualityMode || 'balanced';
       
-      // Calculate optimal CRF for VP9 with ALPHA channel - MUCH LOWER CRFs since we have size budget
+      // Calculate optimal CRF for VP9 - FORCE MAXIMUM QUALITY regardless of budget
       const bytesPerFrame = targetFileSize / request.frames.length;
-      const crfByQuality = {
-        // With 64KB budget and getting 32KB results, we can afford MUCH lower CRF
-        high: bytesPerFrame > 2000 ? 10 : bytesPerFrame > 1500 ? 12 : bytesPerFrame > 1000 ? 15 : 18,   // 10-18 CRF for maximum quality
-        balanced: bytesPerFrame > 2000 ? 15 : bytesPerFrame > 1500 ? 18 : bytesPerFrame > 1000 ? 22 : 25, // 15-25 CRF for balanced
-        compact: bytesPerFrame > 1000 ? 25 : 30                                                          // 25-30 CRF for compact
-      };
       
-      const crf = crfByQuality[qualityMode];
+      // EXPERIMENT: Try absolute maximum quality CRF=1 to see if graininess is from CRF
+      const crf = qualityMode === 'high' ? 1 :           // ABSOLUTE MAXIMUM quality
+                  qualityMode === 'balanced' ? 5 :       // Still very high quality  
+                  10;                                     // High quality for compact
       
-      // Bitrate targeting - MUCH MORE AGGRESSIVE since we're underutilizing our 64KB budget
+      console.log(`🔬 EXPERIMENTAL: Using CRF=${crf} for maximum quality test (bytes per frame: ${bytesPerFrame.toFixed(0)})`);
+      
+      // Bitrate targeting - EXTREMELY AGGRESSIVE for maximum quality test
       const baseBitrate = Math.floor((targetFileSize * 8) / request.duration / 1000);
-      const targetBitrate = Math.floor(baseBitrate * 1.5); // INCREASE bitrate to use more of our budget
-      const maxBitrate = Math.floor(targetBitrate * 2.0); // Allow even higher peaks for quality
+      const targetBitrate = Math.floor(baseBitrate * 2.5); // VERY AGGRESSIVE bitrate
+      const maxBitrate = Math.floor(targetBitrate * 3.0); // Allow massive peaks for quality
       
-      console.log('🎯 Dynamic VP9 settings (MAXIMUM QUALITY - using full 64KB budget):', {
+      console.log('🎯 EXPERIMENTAL VP9 settings (CRF=1 MAXIMUM QUALITY TEST):', {
         crf,
         targetBitrate: `${targetBitrate}kbps`,
         maxBitrate: `${maxBitrate}kbps`,
         bytesPerFrame: `${bytesPerFrame.toFixed(0)} bytes/frame`,
         qualityMode,
-        budgetUtilization: `${(32800/65536*100).toFixed(1)}% (was underutilizing)`,
+        experimentalMode: 'CRF=1 quality test',
         avgWebPFrameSize: `${(avgWebPFrameSize/1024).toFixed(2)}KB`
       });
 

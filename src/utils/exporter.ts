@@ -235,17 +235,13 @@ export class CoinExporter {
           console.log(`🔄 Direct downscale: ${canvas.width}px → ${finalSize}px`);
         }
 
-        // Convert to WebP with CONSERVATIVE quality optimized for VP9 encoding
+        // Convert to WebP with EXPERIMENTAL MAXIMUM quality
         const estimatedFrameSize = targetFileSize / totalFrames;
         
-        // MUCH more conservative WebP quality - let VP9 handle the quality
-        // WebP is just intermediate format, VP9 does the real compression
-        const webpQuality = estimatedFrameSize > 2000 ? 0.75 :  // Conservative quality
-                           estimatedFrameSize > 1500 ? 0.70 :   // Balanced quality
-                           estimatedFrameSize > 1000 ? 0.65 :   // Efficient quality
-                           0.60;                                 // Compact quality
+        // EXPERIMENT: Try maximum WebP quality to test if graininess is from WebP compression
+        const webpQuality = 0.99; // MAXIMUM WebP quality for testing
         
-        console.log(`🎨 Frame capture: ${highResSize}px → ${finalSize}px, WebP quality: ${webpQuality} (conservative for VP9), budget: ${estimatedFrameSize.toFixed(0)} bytes/frame`);
+        console.log(`🔬 EXPERIMENTAL Frame capture: ${highResSize}px → ${finalSize}px, WebP quality: ${webpQuality} (MAXIMUM for testing), budget: ${estimatedFrameSize.toFixed(0)} bytes/frame`);
         
         outputCanvas.toBlob((blob) => {
           if (!blob) {
