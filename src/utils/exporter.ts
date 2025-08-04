@@ -38,9 +38,9 @@ export class CoinExporter {
     
     // Dynamic capture resolution based on quality mode and target size
     const captureResolution = {
-      high: targetFileSize > 50 * 1024 ? 768 : 512,    // Higher res if we have size budget
-      balanced: 512,                                     // Standard resolution 
-      compact: 384                                       // Lower res for smaller files
+      high: targetFileSize > 50 * 1024 ? 100 : 100,    // Higher res if we have size budget
+      balanced: 100,                                     // Standard resolution 
+      compact: 100                                       // Lower res for smaller files
     };
     
     const captureSize = captureResolution[qualityMode];
