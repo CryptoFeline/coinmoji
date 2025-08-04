@@ -38,25 +38,24 @@ export class CoinExporter {
     
     // Dynamic capture resolution based on quality mode and target size
     const captureResolution = {
-      high: targetFileSize > 50 * 1024 ? 100 : 100,    // Higher res if we have size budget
-      balanced: 100,                                     // Standard resolution 
-      compact: 100                                       // Lower res for smaller files
+      high: targetFileSize > 50 * 1024 ? 768 : 512,    // Higher res if we have size budget
+      balanced: 512,                                     // Standard resolution 
+      compact: 384                                       // Lower res for smaller files
     };
     
     const captureSize = captureResolution[qualityMode];
     
     const frames: Blob[] = [];
 
-    console.log('📹 Starting DIRECT 100PX frame export (NO DOWNSCALING):', { 
+    console.log('📹 Starting OPTIMIZED frame export:', { 
       fps, 
       duration, 
       size, 
       actualFrames,
-      captureSize: `${captureSize}px (direct emoji resolution)`,
+      captureSize,
       targetFileSize: `${(targetFileSize / 1024).toFixed(1)}KB`,
       qualityMode,
-      estimatedFrameSize: `${(targetFileSize / actualFrames / 1024).toFixed(1)}KB per frame`,
-      breakthrough: 'Eliminated downscaling artifacts by rendering directly at 100px!'
+      estimatedFrameSize: `${(targetFileSize / actualFrames / 1024).toFixed(1)}KB per frame`
     });
 
     // Store original rotation
@@ -173,11 +172,6 @@ export class CoinExporter {
         // Final output size for Telegram emoji standard
         const finalSize = 100;
         
-        // Calculate WebP quality early for direct rendering path
-        const estimatedFrameSize = targetFileSize / totalFrames;
-        const webpQuality = 0.99; // MAXIMUM WebP quality for testing
-        console.log(`EXPERIMENTAL Frame capture: ${highResSize}px → ${finalSize}px, WebP quality: ${webpQuality} (MAXIMUM for testing), budget: ${estimatedFrameSize.toFixed(0)} bytes/frame`);
-        
         // Create a temporary canvas for high-res capture
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = canvas.width;
@@ -194,29 +188,6 @@ export class CoinExporter {
         // Draw the rendered frame - this preserves alpha from WebGL
         tempCtx.drawImage(canvas, 0, 0);
 
-        // 🎯 BREAKTHROUGH: Skip downscaling if we're already at target size!
-        // This eliminates artifacts from downscaling metallic PBR materials
-        if (canvas.width === finalSize && canvas.height === finalSize) {
-          console.log(`✅ Already at target size ${finalSize}px - skipping downscaling for perfect quality!`);
-          
-          // Convert directly from temp canvas (no downscaling artifacts!)
-          tempCanvas.toBlob((blob) => {
-            if (!blob) {
-              console.log('⚠️ WebP capture failed, trying PNG with alpha...');
-              tempCanvas.toBlob((pngBlob) => {
-                resolve(pngBlob || new Blob());
-              }, 'image/png');
-              return;
-            }
-            console.log(`✅ Direct WebP capture (no downscaling): ${blob.size} bytes`);
-            resolve(blob);
-          }, 'image/webp', webpQuality);
-          return;
-        }
-
-        // Legacy downscaling path (only used if captureSize != 100)
-        console.log(`🔄 Downscaling required: ${canvas.width}px → ${finalSize}px`);
-
         // Create final output canvas at 100px for Telegram emoji standard
         const outputCanvas = document.createElement('canvas');
         outputCanvas.width = finalSize;
@@ -225,7 +196,7 @@ export class CoinExporter {
         const outputCtx = outputCanvas.getContext('2d', { 
           alpha: true,
           willReadFrequently: false 
-        })!;;
+        })!;
         
         // Enable high-quality downscaling with multiple passes
         outputCtx.imageSmoothingEnabled = true;
@@ -264,8 +235,13 @@ export class CoinExporter {
           console.log(`🔄 Direct downscale: ${canvas.width}px → ${finalSize}px`);
         }
 
-        // Convert to WebP with quality already calculated above
-        console.log(`🔬 Using pre-calculated WebP quality: ${webpQuality} for downscaled output`);
+        // Convert to WebP with EXPERIMENTAL MAXIMUM quality
+        const estimatedFrameSize = targetFileSize / totalFrames;
+        
+        // EXPERIMENT: Try maximum WebP quality to test if graininess is from WebP compression
+        const webpQuality = 0.99; // MAXIMUM WebP quality for testing
+        
+        console.log(`🔬 EXPERIMENTAL Frame capture: ${highResSize}px → ${finalSize}px, WebP quality: ${webpQuality} (MAXIMUM for testing), budget: ${estimatedFrameSize.toFixed(0)} bytes/frame`);
         
         outputCanvas.toBlob((blob) => {
           if (!blob) {
@@ -301,16 +277,7 @@ export class CoinExporter {
   }
 
   async exportAsZip(settings: ExportSettings): Promise<Blob> {
-    console.log('📦 Creating ZIP of raw captured frames for inspection...');
-    
-    // Use the SAME frame export process as WebM to ensure identical quality inspection
     const frames = await this.exportFrames(settings);
-    
-    if (frames.length === 0) {
-      throw new Error('No frames captured for ZIP creation');
-    }
-    
-    console.log(`✅ Got ${frames.length} raw frames for ZIP inspection`);
     
     const files: Record<string, Uint8Array> = {};
     
@@ -347,66 +314,8 @@ export class CoinExporter {
     });
   }
 
-  async exportAsWebM(settings: ExportSettings, autoDownload: boolean = false, telegramInitData?: string): Promise<Blob> {
+  async exportAsWebM(settings: ExportSettings, autoDownload: boolean = false): Promise<Blob> {
     console.log('🎬 Creating 100×100 WebM via serverless function (memory-optimized)...');
-    
-    // DEBUGGING: If autoDownload is true, send raw frames ZIP for inspection instead
-    if (autoDownload) {
-      console.log('🔍 DEBUG MODE: Sending raw captured frames as ZIP for quality inspection...');
-      
-      try {
-        // Create ZIP of the raw captured frames for inspection
-        const framesZip = await this.exportAsZip(settings);
-        console.log(`📦 Created frames ZIP: ${framesZip.size} bytes`);
-        
-        // Get Telegram initData - prefer passed parameter, fallback to window
-        let finalInitData = telegramInitData;
-        
-        if (!finalInitData) {
-          const telegramWebApp = (window as any).Telegram?.WebApp;
-          finalInitData = telegramWebApp?.initData;
-        }
-        
-        console.log('🔍 Debug Telegram check:', {
-          hasPassedInitData: !!telegramInitData,
-          hasWindowInitData: !!(window as any).Telegram?.WebApp?.initData,
-          finalInitDataLength: finalInitData?.length || 0,
-          finalInitDataSample: finalInitData ? finalInitData.substring(0, 50) + '...' : 'None'
-        });
-        
-        if (!finalInitData) {
-          console.log('❌ No Telegram initData available from any source, falling back to browser download');
-          // Download the ZIP instead of sending to Telegram
-          this.downloadBlob(framesZip, 'coinmoji-debug-frames.zip');
-          console.log('📦 Downloaded debug frames ZIP to browser');
-          return new Blob();
-        }
-        
-        // Send ZIP to Telegram
-        console.log('📤 Attempting to send frames ZIP to Telegram...');
-        console.log('📤 Using initData length:', finalInitData.length);
-        await sendToTelegram(framesZip, finalInitData);
-        console.log('✅ Sent raw frames ZIP to Telegram for quality inspection');
-        
-        // Return empty blob since we're in debug mode
-        return new Blob();
-        
-      } catch (zipError) {
-        console.error('❌ Failed to send frames ZIP:', zipError);
-        console.log('🔄 Falling back to browser download of debug ZIP...');
-        
-        try {
-          // Still try to create and download the ZIP even if Telegram fails
-          const framesZip = await this.exportAsZip(settings);
-          this.downloadBlob(framesZip, 'coinmoji-debug-frames.zip');
-          console.log('📦 Downloaded debug frames ZIP to browser as fallback');
-          return new Blob();
-        } catch (downloadError) {
-          console.error('❌ Even fallback ZIP download failed:', downloadError);
-          // Fall through to normal WebM creation if everything fails
-        }
-      }
-    }
     
     try {
       // Step 1: Get the transparent WebP frames (512x512)
