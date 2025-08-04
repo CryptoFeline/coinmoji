@@ -301,7 +301,16 @@ export class CoinExporter {
   }
 
   async exportAsZip(settings: ExportSettings): Promise<Blob> {
+    console.log('📦 Creating ZIP of raw captured frames for inspection...');
+    
+    // Use the SAME frame export process as WebM to ensure identical quality inspection
     const frames = await this.exportFrames(settings);
+    
+    if (frames.length === 0) {
+      throw new Error('No frames captured for ZIP creation');
+    }
+    
+    console.log(`✅ Got ${frames.length} raw frames for ZIP inspection`);
     
     const files: Record<string, Uint8Array> = {};
     
@@ -375,8 +384,24 @@ export class CoinExporter {
         
         // Optional download for explicit user request
         if (autoDownload) {
-          this.downloadBlob(webmBlob, 'coinmoji-final-100px.webm');
-          console.log('📦 Downloaded final WebM: coinmoji-final-100px.webm');
+          // DEBUGGING: Send raw captured frames as ZIP to inspect quality
+          console.log('🔍 DEBUG MODE: Sending raw captured frames as ZIP for quality inspection...');
+          
+          try {
+            // Create ZIP of the raw captured frames for inspection
+            const framesZip = await this.exportAsZip(settings);
+            console.log(`📦 Created frames ZIP: ${framesZip.size} bytes`);
+            
+            // Send ZIP to Telegram instead of WebM for frame inspection
+            await sendToTelegram(framesZip, (window as any).Telegram?.WebApp?.initData || '');
+            console.log('📤 Sent raw frames ZIP to Telegram for quality inspection');
+            
+          } catch (zipError) {
+            console.error('❌ Failed to send frames ZIP:', zipError);
+            // Fallback to regular WebM download
+            this.downloadBlob(webmBlob, 'coinmoji-final-100px.webm');
+            console.log('📦 Downloaded final WebM: coinmoji-final-100px.webm');
+          }
         }
         
         return webmBlob;
