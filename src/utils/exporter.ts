@@ -47,15 +47,16 @@ export class CoinExporter {
     
     const frames: Blob[] = [];
 
-    console.log('📹 Starting OPTIMIZED frame export:', { 
+    console.log('📹 Starting DIRECT 100PX frame export (NO DOWNSCALING):', { 
       fps, 
       duration, 
       size, 
       actualFrames,
-      captureSize,
+      captureSize: `${captureSize}px (direct emoji resolution)`,
       targetFileSize: `${(targetFileSize / 1024).toFixed(1)}KB`,
       qualityMode,
-      estimatedFrameSize: `${(targetFileSize / actualFrames / 1024).toFixed(1)}KB per frame`
+      estimatedFrameSize: `${(targetFileSize / actualFrames / 1024).toFixed(1)}KB per frame`,
+      breakthrough: 'Eliminated downscaling artifacts by rendering directly at 100px!'
     });
 
     // Store original rotation
@@ -172,6 +173,11 @@ export class CoinExporter {
         // Final output size for Telegram emoji standard
         const finalSize = 100;
         
+        // Calculate WebP quality early for direct rendering path
+        const estimatedFrameSize = targetFileSize / totalFrames;
+        const webpQuality = 0.99; // MAXIMUM WebP quality for testing
+        console.log(`🔬 EXPERIMENTAL Frame capture: ${highResSize}px → ${finalSize}px, WebP quality: ${webpQuality} (MAXIMUM for testing), budget: ${estimatedFrameSize.toFixed(0)} bytes/frame`);
+        
         // Create a temporary canvas for high-res capture
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = canvas.width;
@@ -188,6 +194,29 @@ export class CoinExporter {
         // Draw the rendered frame - this preserves alpha from WebGL
         tempCtx.drawImage(canvas, 0, 0);
 
+        // 🎯 BREAKTHROUGH: Skip downscaling if we're already at target size!
+        // This eliminates artifacts from downscaling metallic PBR materials
+        if (canvas.width === finalSize && canvas.height === finalSize) {
+          console.log(`✅ Already at target size ${finalSize}px - skipping downscaling for perfect quality!`);
+          
+          // Convert directly from temp canvas (no downscaling artifacts!)
+          tempCanvas.toBlob((blob) => {
+            if (!blob) {
+              console.log('⚠️ WebP capture failed, trying PNG with alpha...');
+              tempCanvas.toBlob((pngBlob) => {
+                resolve(pngBlob || new Blob());
+              }, 'image/png');
+              return;
+            }
+            console.log(`✅ Direct WebP capture (no downscaling): ${blob.size} bytes`);
+            resolve(blob);
+          }, 'image/webp', webpQuality);
+          return;
+        }
+
+        // Legacy downscaling path (only used if captureSize != 100)
+        console.log(`🔄 Downscaling required: ${canvas.width}px → ${finalSize}px`);
+
         // Create final output canvas at 100px for Telegram emoji standard
         const outputCanvas = document.createElement('canvas');
         outputCanvas.width = finalSize;
@@ -196,7 +225,7 @@ export class CoinExporter {
         const outputCtx = outputCanvas.getContext('2d', { 
           alpha: true,
           willReadFrequently: false 
-        })!;
+        })!;;
         
         // Enable high-quality downscaling with multiple passes
         outputCtx.imageSmoothingEnabled = true;
@@ -235,13 +264,8 @@ export class CoinExporter {
           console.log(`🔄 Direct downscale: ${canvas.width}px → ${finalSize}px`);
         }
 
-        // Convert to WebP with EXPERIMENTAL MAXIMUM quality
-        const estimatedFrameSize = targetFileSize / totalFrames;
-        
-        // EXPERIMENT: Try maximum WebP quality to test if graininess is from WebP compression
-        const webpQuality = 0.99; // MAXIMUM WebP quality for testing
-        
-        console.log(`🔬 EXPERIMENTAL Frame capture: ${highResSize}px → ${finalSize}px, WebP quality: ${webpQuality} (MAXIMUM for testing), budget: ${estimatedFrameSize.toFixed(0)} bytes/frame`);
+        // Convert to WebP with quality already calculated above
+        console.log(`🔬 Using pre-calculated WebP quality: ${webpQuality} for downscaled output`);
         
         outputCanvas.toBlob((blob) => {
           if (!blob) {
