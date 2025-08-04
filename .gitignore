@@ -2,6 +2,9 @@
 .history/
 .DS_Store
 
+# Instructions files
+.github/instructions/README.md.instructions.md
+
 # Logs
 logs
 *.log

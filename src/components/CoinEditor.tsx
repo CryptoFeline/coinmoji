@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
 import { CoinExporter } from '../utils/exporter';
+import { COIN_CONFIG } from '../utils/coin-config';
 
 interface CoinEditorProps {
   className?: string;
@@ -99,11 +100,8 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     rotationSpeedRef.current = currentSettings.rotationSpeed;
   }, [currentSettings.rotationSpeed]);
 
-  const speedMap = {
-    slow: 0.01,
-    medium: 0.02,
-    fast: 0.035,
-  };
+  // Use centralized rotation speed configuration
+  const speedMap = COIN_CONFIG.ROTATION_SPEEDS;
 
   const hasWebCodecs = typeof window !== 'undefined' && 'VideoEncoder' in window && 'VideoFrame' in window;
 
