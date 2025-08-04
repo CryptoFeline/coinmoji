@@ -45,14 +45,86 @@ export const handler: Handler = async (event) => {
     });
 
     console.log('🚀 Launching serverless Chrome with @sparticuz/chromium...');
-
-    // Launch headless Chrome with @sparticuz/chromium
-    browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(),
-      headless: chromium.headless,
+    console.log('🔍 Environment check:', {
+      NODE_ENV: process.env.NODE_ENV,
+      AWS_LAMBDA_FUNCTION_NAME: process.env.AWS_LAMBDA_FUNCTION_NAME,
+      NETLIFY: process.env.NETLIFY
     });
+
+    // Try to get Chrome executable with proper error handling
+    let executablePath;
+    try {
+      // Set environment variables that @sparticuz/chromium might need
+      process.env.FONTCONFIG_PATH = '/tmp';
+      process.env.HOME = '/tmp';
+      
+      executablePath = await chromium.executablePath();
+      console.log('📍 Chrome executable path found:', executablePath);
+    } catch (pathError) {
+      console.error('❌ @sparticuz/chromium path error:', pathError.message);
+      
+      // In Netlify, try to use bundled Chrome if available
+      const netlifyPaths = [
+        '/opt/chrome/chrome',          // Common Lambda layer path
+        '/opt/chromium/chrome',        // Alternative layer path
+        '/usr/bin/google-chrome',      // System Chrome
+        '/usr/bin/chromium-browser'    // System Chromium
+      ];
+      
+      for (const path of netlifyPaths) {
+        try {
+          const fs = await import('fs');
+          if (fs.existsSync(path)) {
+            executablePath = path;
+            console.log('✅ Found system Chrome at:', path);
+            break;
+          }
+        } catch (e) {
+          console.log('⚠️ Path check failed for:', path);
+        }
+      }
+      
+      if (!executablePath) {
+        console.log('⚠️ No Chrome executable found, attempting puppeteer fallback...');
+        // Try puppeteer's own Chrome (if available)
+        try {
+          // Don't specify executablePath, let puppeteer handle it
+          executablePath = null; // Will be handled specially in launch
+        } catch (e) {
+          throw new Error(`Chrome not found anywhere. @sparticuz/chromium error: ${pathError.message}. Available paths checked: ${netlifyPaths.join(', ')}`);
+        }
+      }
+    }
+
+    // Launch Chrome with robust configuration
+    const launchOptions: any = {
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--single-process',
+        '--no-zygote',
+        '--disable-web-security',
+        '--disable-features=VizDisplayCompositor',
+        '--disable-background-timer-throttling',
+        '--disable-renderer-backgrounding',
+        '--disable-backgrounding-occluded-windows',
+        '--window-size=400,400'
+      ],
+      defaultViewport: { width: 400, height: 400 },
+      headless: true,
+    };
+    
+    // Only set executablePath if we found one
+    if (executablePath) {
+      launchOptions.executablePath = executablePath;
+      console.log('🚀 Launching Chrome with custom executable:', executablePath);
+    } else {
+      console.log('🚀 Launching Chrome with puppeteer default');
+    }
+    
+    browser = await puppeteer.launch(launchOptions);
 
     console.log('✅ Chrome launched successfully');
 
