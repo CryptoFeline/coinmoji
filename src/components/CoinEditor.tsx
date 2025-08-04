@@ -395,17 +395,16 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       
       // Animation state
       let currentFrame = 0;
-      let lastUpdateTime = 0;
-      let accumulatedTime = 0;
+      let frameCounter = 0;
       
-      // Speed mapping for GIF animation
-      const getSpeedMultiplier = () => {
-        const speedMap = {
-          slow: 0.5,    // Half speed
-          medium: 1.0,  // Normal speed
-          fast: 2.0     // Double speed
+      // Frame-rate-based speed mapping to sync with Three.js 60fps rendering
+      const getFrameInterval = () => {
+        const intervalMap = {
+          slow: 4,      // Change frame every 4 renders (15fps effective)
+          medium: 2,    // Change frame every 2 renders (30fps effective)  
+          fast: 1       // Change frame every render (60fps effective)
         };
-        return speedMap[currentSettings.gifAnimationSpeed];
+        return intervalMap[currentSettings.gifAnimationSpeed];
       };
       
       // Helper to draw frame to canvas
@@ -451,18 +450,11 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       texture.userData.update = () => {
         if (frames.length <= 1) return; // Static image
         
-        const now = performance.now();
-        const deltaTime = now - lastUpdateTime;
-        lastUpdateTime = now;
+        frameCounter++;
+        const frameInterval = getFrameInterval();
         
-        accumulatedTime += deltaTime;
-        
-        // Get current frame delay (in ms) with speed adjustment
-        const frame = frames[currentFrame];
-        const baseDelay = frame.delay * 10; // Convert to milliseconds
-        const adjustedDelay = baseDelay / getSpeedMultiplier();
-        
-        if (accumulatedTime >= adjustedDelay) {
+        // Only advance frame when we hit the interval
+        if (frameCounter >= frameInterval) {
           // Advance to next frame
           currentFrame = (currentFrame + 1) % frames.length;
           
@@ -472,8 +464,8 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           // Mark texture as needing update
           texture.needsUpdate = true;
           
-          // Reset accumulated time
-          accumulatedTime = 0;
+          // Reset counter
+          frameCounter = 0;
         }
       };
       
