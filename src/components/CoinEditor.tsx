@@ -103,8 +103,6 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
   // Use centralized rotation speed configuration
   const speedMap = COIN_CONFIG.ROTATION_SPEEDS;
 
-  const hasWebCodecs = typeof window !== 'undefined' && 'VideoEncoder' in window && 'VideoFrame' in window;
-
   useEffect(() => {
     if (!mountRef.current) return;
 
@@ -354,21 +352,105 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     geometry.setAttribute('uv', new THREE.BufferAttribute(uvArray, 2));
   };
 
-  // ---- Simple GIF loading (static image only - animation removed) ----
-  const gifUrlToVideoTexture = async (url: string): Promise<THREE.Texture> => {
-    // Simplified: Load GIF as static image texture
-    console.warn('GIF animation support removed. Loading as static image.');
+  // ---- Enhanced GIF loading with proper animation support ----
+  const gifUrlToVideoTexture = async (url: string): Promise<THREE.VideoTexture | THREE.CanvasTexture> => {
+    console.log('🎬 Loading animated GIF texture:', url);
+    
+    // First, try to load as video element (for animated WebP/GIF converted to video)
     return new Promise((resolve, reject) => {
-      const loader = new THREE.TextureLoader();
-      loader.load(
-        url,
-        (texture) => {
-          texture.colorSpace = THREE.SRGBColorSpace;
-          resolve(texture);
-        },
-        undefined,
-        (error) => reject(error)
-      );
+      // Try loading as video first (some GIFs can be loaded directly as video)
+      const video = document.createElement('video');
+      video.crossOrigin = 'anonymous';
+      video.loop = true;
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = 'auto';
+      
+      const handleVideoSuccess = () => {
+        console.log('✅ GIF loaded as video texture');
+        try {
+          const videoTexture = new THREE.VideoTexture(video);
+          videoTexture.colorSpace = THREE.SRGBColorSpace;
+          videoTexture.minFilter = THREE.LinearFilter;
+          videoTexture.magFilter = THREE.LinearFilter;
+          videoTexture.format = THREE.RGBAFormat;
+          videoTexture.flipY = true;
+          
+          // Start video playback
+          video.play().catch(console.warn);
+          
+          resolve(videoTexture);
+        } catch (error) {
+          console.warn('VideoTexture creation failed for GIF, falling back to canvas method:', error);
+          createAnimatedCanvasTexture();
+        }
+      };
+      
+      const createAnimatedCanvasTexture = () => {
+        console.log('🎨 Creating animated canvas texture for GIF');
+        // Fallback: Create animated canvas texture using image element
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        
+        // Create hidden container for the image
+        const holder = document.createElement('div');
+        holder.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
+        holder.appendChild(img);
+        (mountRef.current || document.body).appendChild(holder);
+        
+        img.onload = () => {
+          console.log('✅ GIF loaded as image, creating animated canvas texture');
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d')!;
+          canvas.width = img.naturalWidth || img.width;
+          canvas.height = img.naturalHeight || img.height;
+          
+          // Initial draw
+          ctx.drawImage(img, 0, 0);
+          
+          const tex = new THREE.CanvasTexture(canvas);
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.flipY = true;
+          
+          if (sceneRef.current) {
+            tex.anisotropy = sceneRef.current.renderer.capabilities.getMaxAnisotropy();
+          }
+          
+          // Add animation update function
+          tex.userData.update = () => {
+            // For animated GIFs, the image element automatically updates
+            // We just need to redraw to the canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0);
+            tex.needsUpdate = true;
+          };
+          
+          // Add cleanup function
+          tex.userData.dispose = () => {
+            if (holder.parentNode) {
+              holder.parentNode.removeChild(holder);
+            }
+          };
+          
+          resolve(tex);
+        };
+        
+        img.onerror = () => {
+          console.error('❌ Failed to load GIF as image');
+          reject(new Error('Failed to load GIF'));
+        };
+        
+        img.src = url;
+      };
+      
+      video.onloadeddata = handleVideoSuccess;
+      video.onerror = () => {
+        console.log('📷 GIF video load failed, trying canvas method...');
+        createAnimatedCanvasTexture();
+      };
+      
+      // Try to load the GIF as video first
+      video.src = url;
     });
   };
 
@@ -379,48 +461,15 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       const isWebM = /\.webm$/i.test(url);
       
       if (isGif) {
-        // Prefer in-browser transcode to WebM VP9 (alpha) with WebCodecs
+        // Use enhanced GIF loading with proper animation support
         (async () => {
-          if (hasWebCodecs) {
-            try {
-              const tex = await gifUrlToVideoTexture(url);
-              resolve(tex);
-              return;
-            } catch (e) {
-              console.warn('WebCodecs GIF->WebM failed, falling back to canvas driver:', e);
-            }
-          }
-          // Fallback: hidden <img> + CanvasTexture (animated via rAF)
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-          const holder = document.createElement('div');
-          holder.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
-          holder.appendChild(img);
-          (mountRef.current || document.body).appendChild(holder);
-          img.onload = () => {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d')!;
-            canvas.width = img.naturalWidth || img.width;
-            canvas.height = img.naturalHeight || img.height;
-            ctx.drawImage(img, 0, 0);
-            const tex = new THREE.CanvasTexture(canvas);
-            tex.colorSpace = THREE.SRGBColorSpace;
-            tex.flipY = true;
-            if (sceneRef.current) {
-              tex.anisotropy = sceneRef.current.renderer.capabilities.getMaxAnisotropy();
-            }
-            tex.userData.update = () => {
-              ctx.clearRect(0, 0, canvas.width, canvas.height);
-              ctx.drawImage(img, 0, 0);
-              tex.needsUpdate = true;
-            };
-            tex.userData.dispose = () => {
-              if (holder.parentNode) holder.parentNode.removeChild(holder);
-            };
+          try {
+            const tex = await gifUrlToVideoTexture(url);
             resolve(tex);
-          };
-          img.onerror = () => reject(new Error('Failed to load GIF'));
-          img.src = url;
+          } catch (e) {
+            console.error('GIF loading failed:', e);
+            reject(e);
+          }
         })();
 
       } else if (isWebM) {
