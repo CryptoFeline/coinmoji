@@ -1,6 +1,6 @@
 import { Handler } from '@netlify/functions';
 import puppeteer from 'puppeteer-core';
-import chromium from 'chrome-aws-lambda';
+import chromium from '@sparticuz/chromium';
 
 interface RenderFramesRequest {
   settings: {
@@ -44,61 +44,14 @@ export const handler: Handler = async (event) => {
       exportSettings: request.exportSettings
     });
 
-    console.log('🚀 Launching serverless Chrome...');
+    console.log('🚀 Launching serverless Chrome with @sparticuz/chromium...');
 
-    // Get Chrome executable path with proper error handling
-    let executablePath;
-    try {
-      executablePath = await chromium.executablePath;
-      console.log('📍 Chrome executable path:', executablePath);
-    } catch (error) {
-      console.log('⚠️ Chrome path error, checking alternatives:', error.message);
-      
-      // For Netlify Functions, try bundled Chrome or system Chrome
-      const commonPaths = [
-        '/opt/chrome/chrome',
-        '/usr/bin/google-chrome-stable',
-        '/usr/bin/google-chrome',
-        '/usr/bin/chromium-browser',
-        '/usr/bin/chromium',
-        process.env.CHROME_EXECUTABLE // Allow override via env var
-      ].filter(Boolean);
-      
-      const fs = await import('fs');
-      for (const path of commonPaths) {
-        try {
-          if (path && fs.existsSync(path)) {
-            executablePath = path;
-            console.log('✅ Found Chrome at:', path);
-            break;
-          }
-        } catch (e) {
-          // Continue to next path
-        }
-      }
-      
-      if (!executablePath) {
-        console.log('❌ No Chrome found, using puppeteer default');
-        executablePath = undefined; // Let puppeteer handle it
-      }
-    }
-
-    // Launch headless Chrome with chrome-aws-lambda
+    // Launch headless Chrome with @sparticuz/chromium
     browser = await puppeteer.launch({
-      args: [
-        ...chromium.args,
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--single-process',
-        '--no-zygote',
-        '--disable-web-security'
-      ],
-      defaultViewport: { width: 400, height: 400 },
-      executablePath: executablePath,
-      headless: true,
-      ignoreHTTPSErrors: true,
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath(),
+      headless: chromium.headless,
     });
 
     console.log('✅ Chrome launched successfully');

@@ -1,9 +1,9 @@
 import { Handler } from '@netlify/functions';
-import chromium from 'chrome-aws-lambda';
+import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
 
 export const handler: Handler = async (event, context) => {
-  console.log('🧪 Testing chrome-aws-lambda in Netlify environment...');
+  console.log('🧪 Testing @sparticuz/chromium in Netlify environment...');
   
   try {
     console.log('📍 Starting Chrome browser...');
@@ -11,7 +11,7 @@ export const handler: Handler = async (event, context) => {
     const browser = await puppeteer.launch({
       args: chromium.args,
       defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath,
+      executablePath: await chromium.executablePath(),
       headless: chromium.headless,
     });
     
@@ -33,9 +33,9 @@ export const handler: Handler = async (event, context) => {
       },
       body: JSON.stringify({
         success: true,
-        message: 'Chrome AWS Lambda working correctly',
+        message: '@sparticuz/chromium working correctly',
         pageContent: title,
-        chromeVersion: await chromium.executablePath ? 'Chrome available' : 'Chrome not found'
+        chromeVersion: 'Sparticuz Chromium v130'
       }),
     };
     
