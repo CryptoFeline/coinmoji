@@ -179,8 +179,8 @@ export class CoinExporter {
         // 🔬 DIRECT CAPTURE: Already rendering at 100px, no downscaling needed!
         console.log(`📸 DIRECT CAPTURE: ${canvas.width}x${canvas.height} (no downscaling artifacts)`);
         
-        // 🎯 BALANCED QUALITY: Direct rendering preserved quality, now optimize for size
-        const webpQuality = 0.85; // High quality but reasonable for 64KB target
+        // Convert directly to WebP with maximum quality - no canvas copying needed
+        const webpQuality = 0.99; // Maximum quality for testing
         
         canvas.toBlob((blob) => {
           if (!blob) {
@@ -197,7 +197,7 @@ export class CoinExporter {
             return;
           }
 
-          console.log(`✅ Direct WebP capture: ${blob.size} bytes, quality: ${webpQuality} (optimized for 64KB target)`);
+          console.log(`✅ Direct WebP capture: ${blob.size} bytes, quality: ${webpQuality}`);
           resolve(blob);
         }, 'image/webp', webpQuality);
         
