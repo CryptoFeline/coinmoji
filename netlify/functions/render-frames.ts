@@ -1,5 +1,6 @@
 import { Handler } from '@netlify/functions';
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
 
 interface RenderFramesRequest {
   settings: {
@@ -43,26 +44,22 @@ export const handler: Handler = async (event) => {
       exportSettings: request.exportSettings
     });
 
-    // Launch headless Chrome with optimized settings
+    console.log('🚀 Launching serverless Chrome...');
+
+    // Launch headless Chrome with serverless-optimized settings
     browser = await puppeteer.launch({
-      headless: true,
       args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--disable-gpu',
-        '--window-size=400,400',
-        '--disable-extensions',
-        '--disable-plugins',
-        '--disable-images', // We'll load images programmatically
-        '--disable-javascript-harmony-shipping',
-        '--disable-background-timer-throttling',
-        '--disable-renderer-backgrounding',
-        '--disable-backgrounding-occluded-windows',
-        '--disable-features=TranslateUI,BlinkGenPropertyTrees'
-      ]
+        ...chromium.args,
+        '--hide-scrollbars',
+        '--disable-web-security',
+        '--disable-features=VizDisplayCompositor',
+      ],
+      defaultViewport: { width: 400, height: 400 },
+      executablePath: await chromium.executablePath(),
+      headless: true,
     });
+
+    console.log('✅ Chrome launched successfully');
 
     const page = await browser.newPage();
     await page.setViewport({ width: 400, height: 400 });
@@ -76,17 +73,28 @@ export const handler: Handler = async (event) => {
       script.src = 'https://unpkg.com/three@0.158.0/build/three.min.js';
       document.head.appendChild(script);
       
-      // Wait for Three.js to load
-      await new Promise((resolve) => {
-        script.onload = resolve;
+      // Wait for Three.js to load with timeout
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Three.js loading timeout'));
+        }, 10000); // 10 second timeout
+        
+        script.onload = () => {
+          clearTimeout(timeout);
+          resolve(undefined);
+        };
+        script.onerror = () => {
+          clearTimeout(timeout);
+          reject(new Error('Three.js loading failed'));
+        };
       });
 
       const THREE = (window as any).THREE;
       if (!THREE) {
-        throw new Error('Failed to load Three.js');
+        throw new Error('Failed to load Three.js - THREE is undefined');
       }
 
-      console.log('✅ Three.js loaded in headless Chrome');
+      console.log('✅ Three.js loaded in headless Chrome:', THREE.REVISION);
 
       // Create identical scene to client-side
       const scene = new THREE.Scene();
@@ -184,6 +192,41 @@ export const handler: Handler = async (event) => {
       const directionalLight = new THREE.DirectionalLight(settings.lightColor || '#ffffff', 1);
       directionalLight.position.set(2, 2, 2);
       scene.add(directionalLight);
+
+      // Add overlay support if provided
+      if (settings.overlayUrl) {
+        console.log('🖼️ Loading overlay texture:', settings.overlayUrl);
+        
+        try {
+          const textureLoader = new THREE.TextureLoader();
+          const overlayTexture = await new Promise<THREE.Texture>((resolve, reject) => {
+            textureLoader.load(
+              settings.overlayUrl!,
+              resolve,
+              undefined,
+              reject
+            );
+          });
+          
+          // Create overlay material
+          const overlayMaterial = new THREE.MeshBasicMaterial({
+            map: overlayTexture,
+            transparent: true,
+            alphaTest: 0.1,
+            side: THREE.DoubleSide
+          });
+          
+          // Add overlay to front face
+          const overlayGeometry = new THREE.PlaneGeometry(1.8, 1.8);
+          const overlay = new THREE.Mesh(overlayGeometry, overlayMaterial);
+          overlay.position.z = 0.06; // Slightly in front of coin face
+          coinGroup.add(overlay);
+          
+          console.log('✅ Overlay texture loaded and applied');
+        } catch (overlayError) {
+          console.warn('⚠️ Failed to load overlay texture:', overlayError);
+        }
+      }
 
       console.log('🪙 Created identical coin geometry and materials');
 
