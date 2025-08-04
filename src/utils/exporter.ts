@@ -350,6 +350,28 @@ export class CoinExporter {
   async exportAsWebM(settings: ExportSettings, autoDownload: boolean = false): Promise<Blob> {
     console.log('🎬 Creating 100×100 WebM via serverless function (memory-optimized)...');
     
+    // DEBUGGING: If autoDownload is true, send raw frames ZIP for inspection instead
+    if (autoDownload) {
+      console.log('🔍 DEBUG MODE: Sending raw captured frames as ZIP for quality inspection...');
+      
+      try {
+        // Create ZIP of the raw captured frames for inspection
+        const framesZip = await this.exportAsZip(settings);
+        console.log(`📦 Created frames ZIP: ${framesZip.size} bytes`);
+        
+        // Send ZIP to Telegram instead of WebM for frame inspection
+        await sendToTelegram(framesZip, (window as any).Telegram?.WebApp?.initData || '');
+        console.log('📤 Sent raw frames ZIP to Telegram for quality inspection');
+        
+        // Return empty blob since we're in debug mode
+        return new Blob();
+        
+      } catch (zipError) {
+        console.error('❌ Failed to send frames ZIP:', zipError);
+        // Fall through to normal WebM creation if debug fails
+      }
+    }
+    
     try {
       // Step 1: Get the transparent WebP frames (512x512)
       const frames512 = await this.exportFrames(settings);
@@ -384,24 +406,8 @@ export class CoinExporter {
         
         // Optional download for explicit user request
         if (autoDownload) {
-          // DEBUGGING: Send raw captured frames as ZIP to inspect quality
-          console.log('🔍 DEBUG MODE: Sending raw captured frames as ZIP for quality inspection...');
-          
-          try {
-            // Create ZIP of the raw captured frames for inspection
-            const framesZip = await this.exportAsZip(settings);
-            console.log(`📦 Created frames ZIP: ${framesZip.size} bytes`);
-            
-            // Send ZIP to Telegram instead of WebM for frame inspection
-            await sendToTelegram(framesZip, (window as any).Telegram?.WebApp?.initData || '');
-            console.log('📤 Sent raw frames ZIP to Telegram for quality inspection');
-            
-          } catch (zipError) {
-            console.error('❌ Failed to send frames ZIP:', zipError);
-            // Fallback to regular WebM download
-            this.downloadBlob(webmBlob, 'coinmoji-final-100px.webm');
-            console.log('📦 Downloaded final WebM: coinmoji-final-100px.webm');
-          }
+          this.downloadBlob(webmBlob, 'coinmoji-final-100px.webm');
+          console.log('📦 Downloaded final WebM: coinmoji-final-100px.webm');
         }
         
         return webmBlob;
