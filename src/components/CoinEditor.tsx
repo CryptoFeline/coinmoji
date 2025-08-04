@@ -361,30 +361,42 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     console.log('🎞️ Loading animated GIF texture:', url);
     
     return new Promise((resolve, reject) => {
+      // Create hidden image element to force GIF animation
       const img = document.createElement('img');
       img.crossOrigin = 'anonymous';
-      img.style.display = 'none';
+      
+      // Make image barely visible but present in layout to enable animation
+      img.style.position = 'fixed';
+      img.style.left = '-1000px';
+      img.style.top = '-1000px';
+      img.style.width = '1px';
+      img.style.height = '1px';
+      img.style.opacity = '0.01'; // Barely visible but not completely hidden
+      img.style.zIndex = '-1000';
+      img.style.pointerEvents = 'none';
       
       // Create canvas for animation frames
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d')!;
       
-      // Container to keep img in DOM (required for some GIF libraries)
-      const holder = document.createElement('div');
-      holder.style.position = 'absolute';
-      holder.style.left = '-9999px';
-      holder.style.top = '-9999px';
-      holder.appendChild(img);
-      (mountRef.current || document.body).appendChild(holder);
+      // Add to document body directly (not hidden container)
+      document.body.appendChild(img);
       
       img.onload = () => {
         try {
           // Set canvas size based on image
-          canvas.width = img.naturalWidth || img.width;
-          canvas.height = img.naturalHeight || img.height;
+          canvas.width = img.naturalWidth || img.width || 256;
+          canvas.height = img.naturalHeight || img.height || 256;
+          
+          console.log('🎯 GIF loaded:', { 
+            width: canvas.width, 
+            height: canvas.height,
+            naturalWidth: img.naturalWidth,
+            naturalHeight: img.naturalHeight
+          });
           
           // Initial draw
-          ctx.drawImage(img, 0, 0);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           
           // Create texture
           const texture = new THREE.CanvasTexture(canvas);
@@ -394,8 +406,9 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
             texture.anisotropy = sceneRef.current.renderer.capabilities.getMaxAnisotropy();
           }
           
-          // Animation timing variables (controlled by main animation loop)
+          // Animation timing variables
           let lastUpdateTime = 0;
+          let frameCount = 0;
           
           // Speed mapping for GIF animation
           const getFrameDelay = () => {
@@ -409,8 +422,8 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           
           // Store cleanup function
           texture.userData.dispose = () => {
-            if (holder.parentNode) {
-              holder.parentNode.removeChild(holder);
+            if (img.parentNode) {
+              img.parentNode.removeChild(img);
             }
           };
           
@@ -420,14 +433,20 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
             const frameDelay = getFrameDelay();
             
             if (now - lastUpdateTime >= frameDelay) {
-              // Clear canvas and redraw current frame
+              // Clear canvas and redraw from the auto-animating img element
               ctx.clearRect(0, 0, canvas.width, canvas.height);
-              ctx.drawImage(img, 0, 0);
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
               
               // Mark texture as needing update
               texture.needsUpdate = true;
               
               lastUpdateTime = now;
+              frameCount++;
+              
+              // Debug log every 60 frames (about every 6 seconds at 10fps)
+              if (frameCount % 60 === 0) {
+                console.log(`🔄 GIF animation frame ${frameCount}, speed: ${currentSettings.gifAnimationSpeed}`);
+              }
             }
           };
           
