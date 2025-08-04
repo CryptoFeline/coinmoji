@@ -176,7 +176,7 @@ export class CoinExporter {
         // Calculate WebP quality early for direct rendering path
         const estimatedFrameSize = targetFileSize / totalFrames;
         const webpQuality = 0.99; // MAXIMUM WebP quality for testing
-        console.log(`🔬 EXPERIMENTAL Frame capture: ${highResSize}px → ${finalSize}px, WebP quality: ${webpQuality} (MAXIMUM for testing), budget: ${estimatedFrameSize.toFixed(0)} bytes/frame`);
+        console.log(`EXPERIMENTAL Frame capture: ${highResSize}px → ${finalSize}px, WebP quality: ${webpQuality} (MAXIMUM for testing), budget: ${estimatedFrameSize.toFixed(0)} bytes/frame`);
         
         // Create a temporary canvas for high-res capture
         const tempCanvas = document.createElement('canvas');
