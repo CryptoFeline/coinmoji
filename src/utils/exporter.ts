@@ -347,7 +347,7 @@ export class CoinExporter {
     });
   }
 
-  async exportAsWebM(settings: ExportSettings, autoDownload: boolean = false): Promise<Blob> {
+  async exportAsWebM(settings: ExportSettings, autoDownload: boolean = false, telegramInitData?: string): Promise<Blob> {
     console.log('🎬 Creating 100×100 WebM via serverless function (memory-optimized)...');
     
     // DEBUGGING: If autoDownload is true, send raw frames ZIP for inspection instead
@@ -359,19 +359,23 @@ export class CoinExporter {
         const framesZip = await this.exportAsZip(settings);
         console.log(`📦 Created frames ZIP: ${framesZip.size} bytes`);
         
-        // Get Telegram initData more robustly
-        const telegramWebApp = (window as any).Telegram?.WebApp;
-        const initData = telegramWebApp?.initData;
+        // Get Telegram initData - prefer passed parameter, fallback to window
+        let finalInitData = telegramInitData;
+        
+        if (!finalInitData) {
+          const telegramWebApp = (window as any).Telegram?.WebApp;
+          finalInitData = telegramWebApp?.initData;
+        }
         
         console.log('🔍 Debug Telegram check:', {
-          hasTelegramWebApp: !!telegramWebApp,
-          hasInitData: !!initData,
-          initDataLength: initData?.length || 0,
-          initDataSample: initData ? initData.substring(0, 50) + '...' : 'None'
+          hasPassedInitData: !!telegramInitData,
+          hasWindowInitData: !!(window as any).Telegram?.WebApp?.initData,
+          finalInitDataLength: finalInitData?.length || 0,
+          finalInitDataSample: finalInitData ? finalInitData.substring(0, 50) + '...' : 'None'
         });
         
-        if (!initData) {
-          console.log('❌ No Telegram initData available, falling back to browser download');
+        if (!finalInitData) {
+          console.log('❌ No Telegram initData available from any source, falling back to browser download');
           // Download the ZIP instead of sending to Telegram
           this.downloadBlob(framesZip, 'coinmoji-debug-frames.zip');
           console.log('📦 Downloaded debug frames ZIP to browser');
@@ -380,7 +384,8 @@ export class CoinExporter {
         
         // Send ZIP to Telegram
         console.log('📤 Attempting to send frames ZIP to Telegram...');
-        await sendToTelegram(framesZip, initData);
+        console.log('📤 Using initData length:', finalInitData.length);
+        await sendToTelegram(framesZip, finalInitData);
         console.log('✅ Sent raw frames ZIP to Telegram for quality inspection');
         
         // Return empty blob since we're in debug mode
