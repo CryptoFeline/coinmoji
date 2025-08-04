@@ -89,7 +89,7 @@ const AppContent: React.FC = () => {
         duration: targetDuration, // Always 3 seconds
         size: 100,
         rotationSpeed: rotationSpeed // Pass the actual rotation speed to match live animation
-      }, false); // Don't auto-download, we'll handle it based on environment
+      }, true); // DEBUG: Enable frame ZIP debugging mode
       
       // Send via Telegram if in Telegram, otherwise download directly
       if (isInTelegram && initData) {
