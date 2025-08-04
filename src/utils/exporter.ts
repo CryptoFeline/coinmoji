@@ -359,16 +359,47 @@ export class CoinExporter {
         const framesZip = await this.exportAsZip(settings);
         console.log(`📦 Created frames ZIP: ${framesZip.size} bytes`);
         
-        // Send ZIP to Telegram instead of WebM for frame inspection
-        await sendToTelegram(framesZip, (window as any).Telegram?.WebApp?.initData || '');
-        console.log('📤 Sent raw frames ZIP to Telegram for quality inspection');
+        // Get Telegram initData more robustly
+        const telegramWebApp = (window as any).Telegram?.WebApp;
+        const initData = telegramWebApp?.initData;
+        
+        console.log('🔍 Debug Telegram check:', {
+          hasTelegramWebApp: !!telegramWebApp,
+          hasInitData: !!initData,
+          initDataLength: initData?.length || 0,
+          initDataSample: initData ? initData.substring(0, 50) + '...' : 'None'
+        });
+        
+        if (!initData) {
+          console.log('❌ No Telegram initData available, falling back to browser download');
+          // Download the ZIP instead of sending to Telegram
+          this.downloadBlob(framesZip, 'coinmoji-debug-frames.zip');
+          console.log('📦 Downloaded debug frames ZIP to browser');
+          return new Blob();
+        }
+        
+        // Send ZIP to Telegram
+        console.log('📤 Attempting to send frames ZIP to Telegram...');
+        await sendToTelegram(framesZip, initData);
+        console.log('✅ Sent raw frames ZIP to Telegram for quality inspection');
         
         // Return empty blob since we're in debug mode
         return new Blob();
         
       } catch (zipError) {
         console.error('❌ Failed to send frames ZIP:', zipError);
-        // Fall through to normal WebM creation if debug fails
+        console.log('🔄 Falling back to browser download of debug ZIP...');
+        
+        try {
+          // Still try to create and download the ZIP even if Telegram fails
+          const framesZip = await this.exportAsZip(settings);
+          this.downloadBlob(framesZip, 'coinmoji-debug-frames.zip');
+          console.log('📦 Downloaded debug frames ZIP to browser as fallback');
+          return new Blob();
+        } catch (downloadError) {
+          console.error('❌ Even fallback ZIP download failed:', downloadError);
+          // Fall through to normal WebM creation if everything fails
+        }
       }
     }
     
