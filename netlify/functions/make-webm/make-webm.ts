@@ -122,45 +122,48 @@ export const handler: Handler = async (event) => {
     try {
       // Write all WebP frames to temp directory
       console.log('📝 Writing WebP frames to temp directory...');
+      let totalWebPSize = 0;
       await Promise.all(
-        request.frames.map((base64Frame, i) => {
+        request.frames.map(async (base64Frame, i) => {
           const filename = `f${String(i).padStart(4, '0')}.webp`;
           const filepath = join(tmpDir, filename);
           const buffer = Buffer.from(base64Frame, 'base64');
+          totalWebPSize += buffer.length;
           return writeFile(filepath, buffer);
         })
       );
 
-      console.log(`✅ Written ${request.frames.length} WebP frames`);
+      const avgWebPFrameSize = totalWebPSize / request.frames.length;
+      console.log(`✅ Written ${request.frames.length} WebP frames, total: ${(totalWebPSize/1024).toFixed(1)}KB, avg: ${(avgWebPFrameSize/1024).toFixed(2)}KB per frame`);
 
       // Dynamic VP9 settings based on quality mode and target size
       const targetFileSize = request.targetFileSize || 60 * 1024; // Default 60KB
       const qualityMode = request.qualityMode || 'balanced';
       
-      // Calculate optimal CRF for VP9 with ALPHA channel - different from standard video
+      // Calculate optimal CRF for VP9 with ALPHA channel - MUCH LOWER CRFs since we have size budget
       const bytesPerFrame = targetFileSize / request.frames.length;
       const crfByQuality = {
-        // Alpha VP9 needs HIGHER CRF values to avoid artifacts
-        high: bytesPerFrame > 2000 ? 20 : bytesPerFrame > 1500 ? 23 : bytesPerFrame > 1000 ? 26 : 30,   // 20-30 CRF for alpha
-        balanced: bytesPerFrame > 2000 ? 26 : bytesPerFrame > 1500 ? 30 : bytesPerFrame > 1000 ? 33 : 35, // 26-35 CRF for alpha
-        compact: bytesPerFrame > 1000 ? 35 : 40                                                          // 35-40 CRF for alpha
+        // With 64KB budget and getting 32KB results, we can afford MUCH lower CRF
+        high: bytesPerFrame > 2000 ? 10 : bytesPerFrame > 1500 ? 12 : bytesPerFrame > 1000 ? 15 : 18,   // 10-18 CRF for maximum quality
+        balanced: bytesPerFrame > 2000 ? 15 : bytesPerFrame > 1500 ? 18 : bytesPerFrame > 1000 ? 22 : 25, // 15-25 CRF for balanced
+        compact: bytesPerFrame > 1000 ? 25 : 30                                                          // 25-30 CRF for compact
       };
       
       const crf = crfByQuality[qualityMode];
       
-      // Bitrate targeting optimized for alpha content
-      const alphaBitrateFactor = 1.3; // Alpha channels need ~30% more bitrate
+      // Bitrate targeting - MUCH MORE AGGRESSIVE since we're underutilizing our 64KB budget
       const baseBitrate = Math.floor((targetFileSize * 8) / request.duration / 1000);
-      const targetBitrate = Math.floor(baseBitrate / alphaBitrateFactor); // Reduce to account for alpha overhead
-      const maxBitrate = Math.floor(targetBitrate * 1.8); // Higher overhead for alpha content
+      const targetBitrate = Math.floor(baseBitrate * 1.5); // INCREASE bitrate to use more of our budget
+      const maxBitrate = Math.floor(targetBitrate * 2.0); // Allow even higher peaks for quality
       
-      console.log('🎯 Dynamic VP9 settings (ALPHA-OPTIMIZED):', {
+      console.log('🎯 Dynamic VP9 settings (MAXIMUM QUALITY - using full 64KB budget):', {
         crf,
         targetBitrate: `${targetBitrate}kbps`,
         maxBitrate: `${maxBitrate}kbps`,
         bytesPerFrame: `${bytesPerFrame.toFixed(0)} bytes/frame`,
         qualityMode,
-        alphaOptimized: true
+        budgetUtilization: `${(32800/65536*100).toFixed(1)}% (was underutilizing)`,
+        avgWebPFrameSize: `${(avgWebPFrameSize/1024).toFixed(2)}KB`
       });
 
       // Prepare OPTIMIZED FFmpeg arguments for VP9 with alpha
@@ -177,15 +180,14 @@ export const handler: Handler = async (event) => {
         '-bufsize', `${targetBitrate * 2}k`, // Buffer size for rate control
         '-auto-alt-ref', '0',        // Preserve alpha channel
         '-lag-in-frames', '0',       // No lookahead for alpha transparency
-        '-deadline', 'good',         // Good quality vs speed balance  
-        '-cpu-used', '1',            // Slower encoding for better quality
+        '-deadline', 'best',         // BEST quality since we have size budget
+        '-cpu-used', '0',            // SLOWEST encoding for maximum quality
         '-row-mt', '1',              // Safe multi-threading
         '-threads', '1',             // Single thread for predictable memory
         '-tile-columns', '0',        // Disable tiling for small content
         '-frame-parallel', '0',      // Disable frame parallelism for alpha
-        '-aq-mode', '2',             // Adaptive quantization for better quality
+        '-aq-mode', '3',             // Maximum adaptive quantization
         '-tune-content', 'default',  // Default tuning for mixed content
-        '-frame-parallel', '0',      // Disable frame parallelism for alpha
         '-g', String(request.frames.length), // Keyframe interval = full loop
         '-pass', '1',                // Two-pass encoding for better quality
         '-passlogfile', passLogFile, // Specify log file location in /tmp
@@ -240,15 +242,14 @@ export const handler: Handler = async (event) => {
         '-bufsize', `${targetBitrate * 2}k`,
         '-auto-alt-ref', '0',
         '-lag-in-frames', '0',       // No lookahead for alpha transparency
-        '-deadline', 'good',         // Good quality vs speed balance
-        '-cpu-used', '1',            // Slower encoding for better quality
+        '-deadline', 'best',         // BEST quality since we have size budget
+        '-cpu-used', '0',            // SLOWEST encoding for maximum quality
         '-row-mt', '1',
         '-threads', '1',
         '-tile-columns', '0',
         '-frame-parallel', '0',      // Disable frame parallelism for alpha
-        '-aq-mode', '2',             // Adaptive quantization for better quality
+        '-aq-mode', '3',             // Maximum adaptive quantization
         '-tune-content', 'default',  // Default tuning for mixed content
-        '-frame-parallel', '0',
         '-g', String(request.frames.length),
         '-pass', '2',                // Second pass
         '-passlogfile', passLogFile, // Use same log file location
