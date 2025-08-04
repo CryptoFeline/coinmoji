@@ -13,15 +13,23 @@ export interface ExportSettings {
 export class CoinExporter {
   private scene: THREE.Scene;
   private turntable: THREE.Group;
+  private currentSettings: any; // Store current coin settings
 
   constructor(
     scene: THREE.Scene,
     _camera: THREE.PerspectiveCamera, // Keep for API compatibility but don't use
     _renderer: THREE.WebGLRenderer, // Keep for API compatibility but don't use
-    turntable: THREE.Group
+    turntable: THREE.Group,
+    settings?: any // Accept current settings
   ) {
     this.scene = scene;
     this.turntable = turntable;
+    this.currentSettings = settings;
+  }
+
+  // Update settings when they change
+  updateSettings(settings: any) {
+    this.currentSettings = settings;
   }
 
   async exportFrames(settings: ExportSettings): Promise<Blob[]> {
@@ -289,6 +297,126 @@ export class CoinExporter {
   }
 
   async exportAsWebM(settings: ExportSettings, autoDownload: boolean = false): Promise<Blob> {
+    console.log('🎬 Creating WebM via server-side Three.js rendering for perfect quality...');
+    
+    try {
+      // NEW APPROACH: Server-side Three.js rendering for perfect quality
+      console.log('🚀 Using server-side Three.js rendering (headless Chrome)...');
+      
+      // Get current coin settings from the scene
+      const coinSettings = this.extractCoinSettings();
+      
+      // Send settings to server for identical recreation
+      const serverFrames = await this.renderFramesOnServer(coinSettings, settings);
+      
+      if (serverFrames.length === 0) {
+        throw new Error('No frames rendered on server');
+      }
+      
+      console.log(`✅ Got ${serverFrames.length} perfect quality frames from server`);
+      
+      // Convert base64 frames back to blobs
+      const frameBlobs: Blob[] = [];
+      for (let i = 0; i < serverFrames.length; i++) {
+        const binaryString = atob(serverFrames[i]);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let j = 0; j < binaryString.length; j++) {
+          bytes[j] = binaryString.charCodeAt(j);
+        }
+        frameBlobs.push(new Blob([bytes], { type: 'image/webp' }));
+      }
+      
+      console.log('🔄 Converted server frames to blobs for WebM creation');
+      
+      // Create WebM using existing serverless pipeline
+      const webmBlob = await this.createWebMViaServerless(frameBlobs, settings);
+      
+      console.log('✅ Perfect quality WebM created via server-side rendering:', { size: webmBlob.size });
+      
+      // Optional download for explicit user request
+      if (autoDownload) {
+        this.downloadBlob(webmBlob, 'coinmoji-perfect-quality.webm');
+        console.log('📦 Downloaded perfect quality WebM');
+      }
+      
+      return webmBlob;
+      
+    } catch (error) {
+      console.error('❌ Server-side rendering failed, falling back to client-side:', error);
+      
+      // Fallback to original client-side method
+      return this.exportAsWebMClientSide(settings, autoDownload);
+    }
+  }
+
+  // Extract current coin settings for server recreation
+  private extractCoinSettings() {
+    // Use stored settings if available, otherwise return defaults
+    if (this.currentSettings) {
+      console.log('📋 Using stored coin settings for server recreation');
+      return this.currentSettings;
+    }
+    
+    console.log('⚠️ No stored settings, using defaults for server recreation');
+    return {
+      fillMode: 'solid' as const,
+      bodyColor: '#cecece',
+      gradientStart: '#00eaff',
+      gradientEnd: '#ee00ff',
+      bodyTextureUrl: '',
+      metallic: true,
+      rotationSpeed: 'medium' as const,
+      overlayUrl: '',
+      dualOverlay: false,
+      overlayUrl2: '',
+      lightColor: '#ffffff',
+      lightStrength: 'medium' as const,
+    };
+  }
+
+  // Server-side rendering call
+  private async renderFramesOnServer(coinSettings: any, exportSettings: ExportSettings): Promise<string[]> {
+    console.log('📡 Sending render request to server...');
+    
+    const payload = {
+      settings: coinSettings,
+      exportSettings: {
+        fps: exportSettings.fps,
+        duration: exportSettings.duration,
+        frames: Math.round(exportSettings.fps * exportSettings.duration),
+        qualityMode: exportSettings.qualityMode || 'balanced'
+      }
+    };
+    
+    const response = await fetch('/.netlify/functions/render-frames', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    
+    if (!response.ok) {
+      const errorResult = await response.json();
+      throw new Error(`Server rendering failed: ${errorResult.error || response.statusText}`);
+    }
+    
+    const result = await response.json();
+    
+    if (!result.success || !result.frames) {
+      throw new Error(result.error || 'Server response missing frames');
+    }
+    
+    console.log('✅ Server-side rendering successful:', {
+      frames_count: result.frames_count,
+      environment: result.rendering_environment
+    });
+    
+    return result.frames;
+  }
+
+  // Fallback to original client-side method (renamed)
+  private async exportAsWebMClientSide(settings: ExportSettings, autoDownload: boolean = false): Promise<Blob> {
     console.log('🎬 Creating 100×100 WebM via serverless function (memory-optimized)...');
     
     try {

@@ -59,7 +59,7 @@ const AppContent: React.FC = () => {
         throw new Error('Scene not ready');
       }
 
-      const exporter = new CoinExporter(scene, camera, renderer, turntable);
+      const exporter = new CoinExporter(scene, camera, renderer, turntable, coinSettings);
       
       // Calculate perfect rotation timing based on current rotation speed
       const speedMap = {
@@ -134,7 +134,7 @@ const AppContent: React.FC = () => {
         throw new Error('Scene not ready');
       }
 
-      const exporter = new CoinExporter(scene, camera, renderer, turntable);
+      const exporter = new CoinExporter(scene, camera, renderer, turntable, coinSettings);
       
       // Calculate perfect rotation timing based on current rotation speed (same as download)
       const speedMap = {
