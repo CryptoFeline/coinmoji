@@ -51,78 +51,84 @@ export const handler: Handler = async (event) => {
       NETLIFY: process.env.NETLIFY
     });
 
-    // Try to get Chrome executable with proper error handling
-    let executablePath;
+    // Try to get Chrome executable with proper error handling for Netlify
+    let launchOptions;
     try {
-      // Set environment variables that @sparticuz/chromium might need
-      process.env.FONTCONFIG_PATH = '/tmp';
-      process.env.HOME = '/tmp';
+      // Optional: Configure graphics mode (WebGL) for Three.js
+      chromium.setGraphicsMode = true;
       
-      executablePath = await chromium.executablePath();
-      console.log('📍 Chrome executable path found:', executablePath);
+      // Try the standard @sparticuz/chromium approach
+      launchOptions = {
+        args: chromium.args,
+        defaultViewport: chromium.defaultViewport,
+        executablePath: await chromium.executablePath(),
+        headless: chromium.headless,
+      };
+      
+      console.log('✅ @sparticuz/chromium path found:', launchOptions.executablePath);
+      
     } catch (pathError) {
-      console.error('❌ @sparticuz/chromium path error:', pathError.message);
+      console.error('❌ @sparticuz/chromium failed:', pathError.message);
+      console.log('⚠️ Falling back to custom Chrome configuration for Netlify...');
       
-      // In Netlify, try to use bundled Chrome if available
-      const netlifyPaths = [
-        '/opt/chrome/chrome',          // Common Lambda layer path
-        '/opt/chromium/chrome',        // Alternative layer path
-        '/usr/bin/google-chrome',      // System Chrome
-        '/usr/bin/chromium-browser'    // System Chromium
+      // Fallback configuration for Netlify Functions
+      launchOptions = {
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--single-process',
+          '--no-zygote',
+          '--disable-web-security',
+          '--disable-features=VizDisplayCompositor',
+          '--disable-background-timer-throttling',
+          '--disable-renderer-backgrounding',
+          '--disable-backgrounding-occluded-windows',
+          '--window-size=400,400',
+          '--disable-extensions',
+          '--disable-plugins'
+        ],
+        defaultViewport: { width: 400, height: 400 },
+        headless: true,
+        // For Netlify, try common Chrome paths or skip executablePath
+        executablePath: undefined // Let puppeteer try to find Chrome
+      };
+      
+      // Try to find system Chrome in Netlify environment
+      const systemPaths = [
+        '/usr/bin/google-chrome',
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/chromium-browser',
+        '/usr/bin/chromium',
+        '/opt/chrome/chrome'
       ];
       
-      for (const path of netlifyPaths) {
+      for (const path of systemPaths) {
         try {
           const fs = await import('fs');
           if (fs.existsSync(path)) {
-            executablePath = path;
+            launchOptions.executablePath = path;
             console.log('✅ Found system Chrome at:', path);
             break;
           }
         } catch (e) {
-          console.log('⚠️ Path check failed for:', path);
+          // Continue checking
         }
       }
       
-      if (!executablePath) {
-        console.log('⚠️ No Chrome executable found, attempting puppeteer fallback...');
-        // Try puppeteer's own Chrome (if available)
-        try {
-          // Don't specify executablePath, let puppeteer handle it
-          executablePath = null; // Will be handled specially in launch
-        } catch (e) {
-          throw new Error(`Chrome not found anywhere. @sparticuz/chromium error: ${pathError.message}. Available paths checked: ${netlifyPaths.join(', ')}`);
-        }
+      if (!launchOptions.executablePath) {
+        console.log('⚠️ No system Chrome found, will try puppeteer default');
+        // Remove executablePath entirely to let puppeteer handle it
+        delete launchOptions.executablePath;
       }
     }
-
-    // Launch Chrome with robust configuration
-    const launchOptions: any = {
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--single-process',
-        '--no-zygote',
-        '--disable-web-security',
-        '--disable-features=VizDisplayCompositor',
-        '--disable-background-timer-throttling',
-        '--disable-renderer-backgrounding',
-        '--disable-backgrounding-occluded-windows',
-        '--window-size=400,400'
-      ],
-      defaultViewport: { width: 400, height: 400 },
-      headless: true,
-    };
     
-    // Only set executablePath if we found one
-    if (executablePath) {
-      launchOptions.executablePath = executablePath;
-      console.log('🚀 Launching Chrome with custom executable:', executablePath);
-    } else {
-      console.log('🚀 Launching Chrome with puppeteer default');
-    }
+    console.log('🚀 Launching Chrome with configuration:', {
+      executablePath: launchOptions.executablePath || 'puppeteer-default',
+      argsCount: launchOptions.args.length,
+      headless: launchOptions.headless
+    });
     
     browser = await puppeteer.launch(launchOptions);
 
