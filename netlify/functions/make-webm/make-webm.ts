@@ -161,7 +161,8 @@ export const handler: Handler = async (event) => {
 
       // Prepare OPTIMIZED FFmpeg arguments for VP9 with alpha
       const outputPath = join(tmpDir, 'out.webm');
-      const args = [
+      const passLogFile = join(tmpDir, 'ffmpeg2pass'); // Write log file to /tmp
+      const pass1Args = [
         '-framerate', String(request.framerate),
         '-i', join(tmpDir, 'f%04d.webp'),
         '-pix_fmt', 'yuva420p',      // VP9 with alpha channel
@@ -180,16 +181,17 @@ export const handler: Handler = async (event) => {
         '-frame-parallel', '0',      // Disable frame parallelism for alpha
         '-g', String(request.frames.length), // Keyframe interval = full loop
         '-pass', '1',                // Two-pass encoding for better quality
+        '-passlogfile', passLogFile, // Specify log file location in /tmp
         '-f', 'null',                // First pass output to null
         '/dev/null'                  // Linux null device
       ];
 
       console.log('🔧 Starting OPTIMIZED two-pass FFmpeg encoding...');
-      console.log('🔧 Pass 1 args:', args.join(' '));
+      console.log('🔧 Pass 1 args:', pass1Args.join(' '));
 
       // PASS 1: Analysis
       await new Promise<void>((resolve, reject) => {
-        const ffmpegProcess = spawn(ffmpegPath, args, {
+        const ffmpegProcess = spawn(ffmpegPath, pass1Args, {
           stdio: ['ignore', 'pipe', 'pipe']
         });
 
@@ -239,6 +241,7 @@ export const handler: Handler = async (event) => {
         '-frame-parallel', '0',
         '-g', String(request.frames.length),
         '-pass', '2',                // Second pass
+        '-passlogfile', passLogFile, // Use same log file location
         '-y',                        // Overwrite output
         outputPath
       ];
