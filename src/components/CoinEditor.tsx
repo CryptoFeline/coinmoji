@@ -1,6 +1,8 @@
 import { useRef, useEffect, useState, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
 import { CoinExporter } from '../utils/exporter';
+// @ts-ignore - gifuct-js doesn't have types
+import { parseGIF, decompressFrames } from 'gifuct-js';
 
 interface CoinEditorProps {
   className?: string;
@@ -104,8 +106,6 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     medium: 0.02,
     fast: 0.035,
   };
-
-  const hasWebCodecs = typeof window !== 'undefined' && 'VideoEncoder' in window && 'VideoFrame' in window;
 
   useEffect(() => {
     if (!mountRef.current) return;
@@ -356,116 +356,134 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     geometry.setAttribute('uv', new THREE.BufferAttribute(uvArray, 2));
   };
 
-  // ---- GIF Animation Support with Canvas-based Frame Rendering ----
+  // ---- GIF Animation Support with Proper Frame Extraction ----
   const gifUrlToVideoTexture = async (url: string): Promise<THREE.Texture> => {
     console.log('🎞️ Loading animated GIF texture:', url);
     
-    return new Promise((resolve, reject) => {
-      // Create hidden image element to force GIF animation
-      const img = document.createElement('img');
-      img.crossOrigin = 'anonymous';
+    try {
+      // Fetch the GIF as a buffer
+      const response = await fetch(url);
+      const buffer = await response.arrayBuffer();
       
-      // Make image barely visible but present in layout to enable animation
-      img.style.position = 'fixed';
-      img.style.left = '-1000px';
-      img.style.top = '-1000px';
-      img.style.width = '1px';
-      img.style.height = '1px';
-      img.style.opacity = '0.01'; // Barely visible but not completely hidden
-      img.style.zIndex = '-1000';
-      img.style.pointerEvents = 'none';
+      // Parse GIF using gifuct-js
+      const gif = parseGIF(buffer);
+      const frames = decompressFrames(gif, true);
       
-      // Create canvas for animation frames
+      console.log('🎯 GIF parsed:', { 
+        frameCount: frames.length,
+        width: gif.lsd.width,
+        height: gif.lsd.height
+      });
+      
+      if (frames.length === 0) {
+        throw new Error('No frames found in GIF');
+      }
+      
+      // Create canvas for rendering frames
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d')!;
+      canvas.width = gif.lsd.width;
+      canvas.height = gif.lsd.height;
       
-      // Add to document body directly (not hidden container)
-      document.body.appendChild(img);
+      // Create texture
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.flipY = true;
+      if (sceneRef.current) {
+        texture.anisotropy = sceneRef.current.renderer.capabilities.getMaxAnisotropy();
+      }
       
-      img.onload = () => {
-        try {
-          // Set canvas size based on image
-          canvas.width = img.naturalWidth || img.width || 256;
-          canvas.height = img.naturalHeight || img.height || 256;
+      // Animation state
+      let currentFrame = 0;
+      let lastUpdateTime = 0;
+      let accumulatedTime = 0;
+      
+      // Speed mapping for GIF animation
+      const getSpeedMultiplier = () => {
+        const speedMap = {
+          slow: 0.5,    // Half speed
+          medium: 1.0,  // Normal speed
+          fast: 2.0     // Double speed
+        };
+        return speedMap[currentSettings.gifAnimationSpeed];
+      };
+      
+      // Helper to draw frame to canvas
+      const drawFrame = (frameIndex: number) => {
+        const frame = frames[frameIndex];
+        const imageData = new ImageData(
+          new Uint8ClampedArray(frame.patch),
+          frame.dims.width,
+          frame.dims.height
+        );
+        
+        // Clear canvas (handle disposal method)
+        if (frame.disposalType === 2) {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+        
+        // Create temporary canvas for the frame
+        const tempCanvas = document.createElement('canvas');
+        const tempCtx = tempCanvas.getContext('2d')!;
+        tempCanvas.width = frame.dims.width;
+        tempCanvas.height = frame.dims.height;
+        tempCtx.putImageData(imageData, 0, 0);
+        
+        // Draw frame at correct position
+        ctx.drawImage(
+          tempCanvas,
+          frame.dims.left,
+          frame.dims.top,
+          frame.dims.width,
+          frame.dims.height
+        );
+      };
+      
+      // Draw initial frame
+      drawFrame(0);
+      
+      // Store cleanup function
+      texture.userData.dispose = () => {
+        // No special cleanup needed for this implementation
+      };
+      
+      // Store update function called by main animation loop
+      texture.userData.update = () => {
+        if (frames.length <= 1) return; // Static image
+        
+        const now = performance.now();
+        const deltaTime = now - lastUpdateTime;
+        lastUpdateTime = now;
+        
+        accumulatedTime += deltaTime;
+        
+        // Get current frame delay (in ms) with speed adjustment
+        const frame = frames[currentFrame];
+        const baseDelay = frame.delay * 10; // Convert to milliseconds
+        const adjustedDelay = baseDelay / getSpeedMultiplier();
+        
+        if (accumulatedTime >= adjustedDelay) {
+          // Advance to next frame
+          currentFrame = (currentFrame + 1) % frames.length;
           
-          console.log('🎯 GIF loaded:', { 
-            width: canvas.width, 
-            height: canvas.height,
-            naturalWidth: img.naturalWidth,
-            naturalHeight: img.naturalHeight
-          });
+          // Draw new frame
+          drawFrame(currentFrame);
           
-          // Initial draw
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          // Mark texture as needing update
+          texture.needsUpdate = true;
           
-          // Create texture
-          const texture = new THREE.CanvasTexture(canvas);
-          texture.colorSpace = THREE.SRGBColorSpace;
-          texture.flipY = true;
-          if (sceneRef.current) {
-            texture.anisotropy = sceneRef.current.renderer.capabilities.getMaxAnisotropy();
-          }
-          
-          // Animation timing variables
-          let lastUpdateTime = 0;
-          let frameCount = 0;
-          
-          // Speed mapping for GIF animation
-          const getFrameDelay = () => {
-            const speedMap = {
-              slow: 200,    // 200ms per frame (5 fps)
-              medium: 100,  // 100ms per frame (10 fps)  
-              fast: 50      // 50ms per frame (20 fps)
-            };
-            return speedMap[currentSettings.gifAnimationSpeed];
-          };
-          
-          // Store cleanup function
-          texture.userData.dispose = () => {
-            if (img.parentNode) {
-              img.parentNode.removeChild(img);
-            }
-          };
-          
-          // Store update function called by main animation loop
-          texture.userData.update = () => {
-            const now = performance.now();
-            const frameDelay = getFrameDelay();
-            
-            if (now - lastUpdateTime >= frameDelay) {
-              // Clear canvas and redraw from the auto-animating img element
-              ctx.clearRect(0, 0, canvas.width, canvas.height);
-              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-              
-              // Mark texture as needing update
-              texture.needsUpdate = true;
-              
-              lastUpdateTime = now;
-              frameCount++;
-              
-              // Debug log every 60 frames (about every 6 seconds at 10fps)
-              if (frameCount % 60 === 0) {
-                console.log(`🔄 GIF animation frame ${frameCount}, speed: ${currentSettings.gifAnimationSpeed}`);
-              }
-            }
-          };
-          
-          console.log('✅ Animated GIF texture created successfully');
-          resolve(texture);
-          
-        } catch (error) {
-          console.error('Failed to create animated GIF texture:', error);
-          reject(error);
+          // Reset accumulated time
+          accumulatedTime = 0;
         }
       };
       
-      img.onerror = () => {
-        console.error('Failed to load GIF image');
-        reject(new Error('Failed to load GIF'));
-      };
+      console.log('✅ Animated GIF texture created successfully');
+      return texture;
       
-      img.src = url;
-    });
+    } catch (error) {
+      console.error('Failed to create animated GIF texture:', error);
+      throw error;
+    }
   };
 
   // Helper to create texture from URL with proper GIF animation support
@@ -475,48 +493,30 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       const isWebM = /\.webm$/i.test(url);
       
       if (isGif) {
-        // Prefer in-browser transcode to WebM VP9 (alpha) with WebCodecs
+        // Use proper GIF frame parsing
         (async () => {
-          if (hasWebCodecs) {
-            try {
-              const tex = await gifUrlToVideoTexture(url);
-              resolve(tex);
-              return;
-            } catch (e) {
-              console.warn('WebCodecs GIF->WebM failed, falling back to canvas driver:', e);
-            }
-          }
-          // Fallback: hidden <img> + CanvasTexture (animated via rAF)
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-          const holder = document.createElement('div');
-          holder.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
-          holder.appendChild(img);
-          (mountRef.current || document.body).appendChild(holder);
-          img.onload = () => {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d')!;
-            canvas.width = img.naturalWidth || img.width;
-            canvas.height = img.naturalHeight || img.height;
-            ctx.drawImage(img, 0, 0);
-            const tex = new THREE.CanvasTexture(canvas);
-            tex.colorSpace = THREE.SRGBColorSpace;
-            tex.flipY = true;
-            if (sceneRef.current) {
-              tex.anisotropy = sceneRef.current.renderer.capabilities.getMaxAnisotropy();
-            }
-            tex.userData.update = () => {
-              ctx.clearRect(0, 0, canvas.width, canvas.height);
-              ctx.drawImage(img, 0, 0);
-              tex.needsUpdate = true;
-            };
-            tex.userData.dispose = () => {
-              if (holder.parentNode) holder.parentNode.removeChild(holder);
-            };
+          try {
+            const tex = await gifUrlToVideoTexture(url);
             resolve(tex);
-          };
-          img.onerror = () => reject(new Error('Failed to load GIF'));
-          img.src = url;
+          } catch (e) {
+            console.warn('GIF parsing failed, falling back to static image:', e);
+            // Fallback: treat as static image
+            const loader = new THREE.TextureLoader();
+            loader.setCrossOrigin('anonymous');
+            loader.load(
+              url,
+              (texture) => {
+                texture.colorSpace = THREE.SRGBColorSpace;
+                texture.flipY = false;
+                if (sceneRef.current) {
+                  texture.anisotropy = sceneRef.current.renderer.capabilities.getMaxAnisotropy();
+                }
+                resolve(texture);
+              },
+              undefined,
+              reject
+            );
+          }
         })();
 
       } else if (isWebM) {
