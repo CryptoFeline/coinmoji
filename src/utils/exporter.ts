@@ -233,7 +233,7 @@ export class CoinExporter {
     });
   }
 
-  async exportAsWebM(settings: ExportSettings): Promise<Blob> {
+  async exportAsWebM(settings: ExportSettings, autoDownload: boolean = false): Promise<Blob> {
     console.log('🎬 Creating 100×100 WebM via serverless function (memory-optimized)...');
     
     try {
@@ -268,9 +268,11 @@ export class CoinExporter {
         
         console.log('✅ WebM created via serverless function:', { size: webmBlob.size });
         
-        // Download final WebM for emoji
-        this.downloadBlob(webmBlob, 'coinmoji-final-100px.webm');
-        console.log('📦 Downloaded final WebM: coinmoji-final-100px.webm');
+        // Optional download for explicit user request
+        if (autoDownload) {
+          this.downloadBlob(webmBlob, 'coinmoji-final-100px.webm');
+          console.log('📦 Downloaded final WebM: coinmoji-final-100px.webm');
+        }
         
         return webmBlob;
       } catch (serverError) {
