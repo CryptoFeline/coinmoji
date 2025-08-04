@@ -5,9 +5,7 @@ export interface ExportSettings {
   fps: number;
   duration: number; // in seconds
   size: number; // output size (100 for emoji)
-  rotationSpeed?: number; // radians per frame (replaces the old fixed calculation)
-  userRotationSpeed?: 'slow' | 'medium' | 'fast'; // User's rotation preference for context
-  totalFrames?: number; // Optional explicit frame count (overrides fps * duration)
+  rotationSpeed?: number; // radians per frame at 60fps (optional, defaults to medium speed)
 }
 
 export class CoinExporter {
@@ -25,35 +23,23 @@ export class CoinExporter {
   }
 
   async exportFrames(settings: ExportSettings): Promise<Blob[]> {
-    const { fps, duration, size, rotationSpeed, totalFrames: explicitFrames } = settings;
-    
-    // Phase 1: Use explicit frame count if provided, otherwise calculate from fps*duration
-    const totalFrames = explicitFrames || Math.floor(fps * duration);
+    const { fps, duration, size } = settings;
+    const totalFrames = Math.floor(fps * duration);
     
     // Limit frames more aggressively to prevent stack overflow
     // Max 30 frames but keep the SAME DURATION for proper timing
     const maxFrames = 30;
     const actualFrames = Math.min(totalFrames, maxFrames);
     
-    // CRITICAL FIX: Calculate rotation per frame based on ACTUAL frames captured, not theoretical
-    // This ensures we always get a complete 360° rotation regardless of frame limiting
-    const rotationPerFrame = rotationSpeed || (Math.PI * 2 / actualFrames);
-    
     const frames: Blob[] = [];
 
-    console.log('📹 Phase 1 frame export:', { 
+    console.log('📹 Starting frame export:', { 
       fps, 
       duration, 
       size, 
-      explicitFrames,
-      calculatedFrames: explicitFrames || Math.floor(fps * duration),
-      totalFrames,
+      requestedFrames: totalFrames, 
       actualFrames,
-      maxAllowed: maxFrames,
-      rotationSpeed: rotationSpeed || 'calculated',
-      rotationPerFrame: rotationPerFrame,
-      expectedRotationDegrees: (rotationPerFrame * actualFrames * 180 / Math.PI).toFixed(1),
-      userRotationSpeed: settings.userRotationSpeed
+      maxAllowed: maxFrames
     });
 
     // Store original rotation
@@ -96,19 +82,17 @@ export class CoinExporter {
 
       for (let i = 0; i < actualFrames; i++) {
         try {
-          // Phase 1: Use the corrected rotation calculation that ensures full 360° rotation
-          let frameRotation: number;
+          // Calculate rotation for COMPLETE 360° rotation over duration
+          const frameProgress = i / (actualFrames - 1); // 0 to 1 across all frames
+          const totalRotation = frameProgress * Math.PI * 2; // Full circle: 0 to 2π
           
-          // Always use the corrected rotationPerFrame that ensures complete rotation
-          frameRotation = i * rotationPerFrame;
-          
-          // Debug: Log rotation for first few frames to verify complete rotation
+          // Debug: Log rotation for first few frames to verify
           if (i === 0 || i === 1 || i === actualFrames - 1) {
-            console.log(`📐 Phase 1 Frame ${i}: rotation=${frameRotation.toFixed(3)} rad (${(frameRotation * 180 / Math.PI).toFixed(1)}°), method=corrected`);
+            console.log(`📐 Frame ${i}: progress=${frameProgress.toFixed(3)}, rotation=${totalRotation.toFixed(3)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°)`);
           }
           
           // Set rotation for this frame
-          this.turntable.rotation.y = frameRotation;
+          this.turntable.rotation.y = totalRotation;
 
           // Render to offscreen canvas with export camera
           offscreenRenderer.render(this.scene, exportCamera);
@@ -125,7 +109,7 @@ export class CoinExporter {
           frames.push(blob);
           
           if (i === 0 || i === actualFrames - 1 || i % 10 === 0) {
-            console.log(`📸 Captured frame ${i + 1}/${actualFrames}, size: ${blob.size} bytes, rotation: ${frameRotation.toFixed(2)} rad (${(frameRotation * 180 / Math.PI).toFixed(1)}°)`);
+            console.log(`📸 Captured frame ${i + 1}/${actualFrames}, size: ${blob.size} bytes, rotation: ${totalRotation.toFixed(2)} rad (${(totalRotation * 180 / Math.PI).toFixed(1)}°)`);
           }
         } catch (frameError) {
           const error = `Failed to capture frame ${i}: ${frameError instanceof Error ? frameError.message : 'Unknown frame error'}`;

@@ -1,7 +1,6 @@
 import { useRef, useEffect, useState, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
 import { CoinExporter } from '../utils/exporter';
-import { COIN_CONFIG } from '../utils/coin-config';
 
 interface CoinEditorProps {
   className?: string;
@@ -100,8 +99,13 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     rotationSpeedRef.current = currentSettings.rotationSpeed;
   }, [currentSettings.rotationSpeed]);
 
-  // Use centralized rotation speed configuration
-  const speedMap = COIN_CONFIG.ROTATION_SPEEDS;
+  const speedMap = {
+    slow: 0.01,
+    medium: 0.02,
+    fast: 0.035,
+  };
+
+  const hasWebCodecs = typeof window !== 'undefined' && 'VideoEncoder' in window && 'VideoFrame' in window;
 
   useEffect(() => {
     if (!mountRef.current) return;
@@ -352,170 +356,21 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     geometry.setAttribute('uv', new THREE.BufferAttribute(uvArray, 2));
   };
 
-  // ---- Working GIF animation support using video conversion ----
-  const gifUrlToVideoTexture = async (url: string): Promise<THREE.VideoTexture | THREE.CanvasTexture> => {
-    console.log('🎬 Loading animated GIF texture:', url);
-    
+  // ---- Simple GIF loading (static image only - animation removed) ----
+  const gifUrlToVideoTexture = async (url: string): Promise<THREE.Texture> => {
+    // Simplified: Load GIF as static image texture
+    console.warn('GIF animation support removed. Loading as static image.');
     return new Promise((resolve, reject) => {
-      // Create a video element and try to load the GIF as a video
-      // Modern browsers can often play GIFs as videos
-      const video = document.createElement('video');
-      video.crossOrigin = 'anonymous';
-      video.loop = true;
-      video.muted = true;
-      video.playsInline = true;
-      video.preload = 'metadata';
-      video.autoplay = false; // Don't autoplay yet
-      
-      // Set up success handler
-      const handleVideoSuccess = () => {
-        console.log('✅ GIF loaded as video texture');
-        try {
-          const videoTexture = new THREE.VideoTexture(video);
-          videoTexture.colorSpace = THREE.SRGBColorSpace;
-          videoTexture.minFilter = THREE.LinearFilter;
-          videoTexture.magFilter = THREE.LinearFilter;
-          videoTexture.format = THREE.RGBAFormat;
-          videoTexture.flipY = true;
-          
-          // Start video playback for animation
-          video.play().catch((e) => {
-            console.warn('Video autoplay failed, but texture created:', e);
-          });
-          
-          resolve(videoTexture);
-        } catch (error) {
-          console.warn('VideoTexture creation failed for GIF:', error);
-          tryImageMethod();
-        }
-      };
-      
-      // Fallback to image-based animation simulation
-      const tryImageMethod = () => {
-        console.log('🎨 Trying image-based GIF animation simulation');
-        
-        // Create multiple image elements to simulate animation by cycling through the same URL
-        // This is a workaround since true GIF frame parsing requires a library
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d')!;
-        let animationFrame: number | undefined;
-        
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        
-        // Create hidden container
-        const holder = document.createElement('div');
-        holder.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
-        holder.appendChild(img);
-        (mountRef.current || document.body).appendChild(holder);
-        
-        img.onload = () => {
-          console.log('✅ GIF loaded as image for animation simulation');
-          canvas.width = img.naturalWidth || img.width;
-          canvas.height = img.naturalHeight || img.height;
-          
-          // Initial draw
-          ctx.drawImage(img, 0, 0);
-          
-          const tex = new THREE.CanvasTexture(canvas);
-          tex.colorSpace = THREE.SRGBColorSpace;
-          tex.flipY = true;
-          
-          if (sceneRef.current) {
-            tex.anisotropy = sceneRef.current.renderer.capabilities.getMaxAnisotropy();
-          }
-          
-          // Create animation simulation by reloading the image periodically
-          // This forces browsers to show different frames of the GIF
-          let lastUpdate = 0;
-          const animationSpeed = 100; // ms between frame attempts
-          
-          tex.userData.update = () => {
-            const now = Date.now();
-            if (now - lastUpdate > animationSpeed) {
-              // Force reload to get next GIF frame (browser-dependent)
-              const newImg = new Image();
-              newImg.crossOrigin = 'anonymous';
-              newImg.onload = () => {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.drawImage(newImg, 0, 0);
-                tex.needsUpdate = true;
-              };
-              // Add a cache-busting parameter to potentially get different frames
-              newImg.src = url + (url.includes('?') ? '&' : '?') + '_t=' + now;
-              lastUpdate = now;
-            } else {
-              // Just mark as needing update for smoother animation
-              tex.needsUpdate = true;
-            }
-          };
-          
-          // Cleanup function
-          tex.userData.dispose = () => {
-            if (animationFrame) {
-              cancelAnimationFrame(animationFrame);
-            }
-            if (holder.parentNode) {
-              holder.parentNode.removeChild(holder);
-            }
-          };
-          
-          resolve(tex);
-        };
-        
-        img.onerror = () => {
-          console.error('❌ Failed to load GIF as image');
-          // Final fallback: static texture
-          const loader = new THREE.TextureLoader();
-          loader.setCrossOrigin('anonymous');
-          loader.load(
-            url,
-            (texture) => {
-              console.log('📷 Loaded GIF as static texture (fallback)');
-              texture.colorSpace = THREE.SRGBColorSpace;
-              texture.flipY = true;
-              resolve(texture as any); // Not ideal but better than failure
-            },
-            undefined,
-            () => reject(new Error('All GIF loading methods failed'))
-          );
-        };
-        
-        img.src = url;
-      };
-      
-      // Try video method first
-      video.addEventListener('loadeddata', () => {
-        if (video.duration > 0) {
-          handleVideoSuccess();
-        } else {
-          tryImageMethod();
-        }
-      });
-      
-      video.addEventListener('canplay', () => {
-        if (video.duration > 0) {
-          handleVideoSuccess();
-        } else {
-          tryImageMethod();
-        }
-      });
-      
-      video.addEventListener('error', () => {
-        console.log('📷 GIF video load failed, trying image method...');
-        tryImageMethod();
-      });
-      
-      // Set video source
-      video.src = url;
-      
-      // Timeout fallback
-      setTimeout(() => {
-        if (video.readyState < 2) {
-          console.log('⏰ GIF video loading timeout, trying image method...');
-          tryImageMethod();
-        }
-      }, 2000);
+      const loader = new THREE.TextureLoader();
+      loader.load(
+        url,
+        (texture) => {
+          texture.colorSpace = THREE.SRGBColorSpace;
+          resolve(texture);
+        },
+        undefined,
+        (error) => reject(error)
+      );
     });
   };
 
@@ -526,15 +381,48 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       const isWebM = /\.webm$/i.test(url);
       
       if (isGif) {
-        // Use enhanced GIF loading with proper animation support
+        // Prefer in-browser transcode to WebM VP9 (alpha) with WebCodecs
         (async () => {
-          try {
-            const tex = await gifUrlToVideoTexture(url);
-            resolve(tex);
-          } catch (e) {
-            console.error('GIF loading failed:', e);
-            reject(e);
+          if (hasWebCodecs) {
+            try {
+              const tex = await gifUrlToVideoTexture(url);
+              resolve(tex);
+              return;
+            } catch (e) {
+              console.warn('WebCodecs GIF->WebM failed, falling back to canvas driver:', e);
+            }
           }
+          // Fallback: hidden <img> + CanvasTexture (animated via rAF)
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          const holder = document.createElement('div');
+          holder.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
+          holder.appendChild(img);
+          (mountRef.current || document.body).appendChild(holder);
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d')!;
+            canvas.width = img.naturalWidth || img.width;
+            canvas.height = img.naturalHeight || img.height;
+            ctx.drawImage(img, 0, 0);
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.colorSpace = THREE.SRGBColorSpace;
+            tex.flipY = true;
+            if (sceneRef.current) {
+              tex.anisotropy = sceneRef.current.renderer.capabilities.getMaxAnisotropy();
+            }
+            tex.userData.update = () => {
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              ctx.drawImage(img, 0, 0);
+              tex.needsUpdate = true;
+            };
+            tex.userData.dispose = () => {
+              if (holder.parentNode) holder.parentNode.removeChild(holder);
+            };
+            resolve(tex);
+          };
+          img.onerror = () => reject(new Error('Failed to load GIF'));
+          img.src = url;
         })();
 
       } else if (isWebM) {

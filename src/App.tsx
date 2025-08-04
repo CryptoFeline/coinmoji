@@ -4,7 +4,6 @@ import NotInTelegram from './components/NotInTelegram';
 import CoinEditor, { CoinEditorRef } from './components/CoinEditor';
 import SettingsPanel, { CoinSettings } from './components/SettingsPanel';
 import { CoinExporter, createCustomEmoji, sendWebMFile } from './utils/exporter';
-import { COIN_CONFIG, calculateOptimalExportSettings } from './utils/coin-config';
 
 const AppContent: React.FC = () => {
   const { isInTelegram, initData, isLoading } = useTelegram();
@@ -62,29 +61,35 @@ const AppContent: React.FC = () => {
 
       const exporter = new CoinExporter(scene, camera, renderer, turntable);
       
-      // Phase 1: Calculate optimal export settings based on user's rotation speed
-      const optimalSettings = calculateOptimalExportSettings(coinSettings.rotationSpeed);
+      // Calculate perfect rotation timing based on current rotation speed
+      const speedMap = {
+        slow: 0.01,
+        medium: 0.02,
+        fast: 0.035,
+      };
       
-      console.log('🎬 Phase 1 Export settings:', {
-        userRotationSpeed: coinSettings.rotationSpeed,
-        calculatedFps: optimalSettings.fps,
-        duration: optimalSettings.duration,
-        totalFrames: optimalSettings.totalFrames,
-        rotationPerFrame: optimalSettings.rotationPerFrame,
-        speedMultiplier: optimalSettings.rotationSpeedMultiplier,
-        estimatedSize: `${(optimalSettings.estimatedFileSize / 1024).toFixed(1)}KB`,
-        maxAllowedSize: `${(COIN_CONFIG.EXPORT.MAX_FILE_SIZE_BYTES / 1024)}KB`
+      const rotationSpeed = speedMap[coinSettings.rotationSpeed];
+      
+      // FIXED: Always use 3 seconds and calculate the appropriate rotation amount
+      const targetDuration = 3; // Always 3 seconds for emoji
+      const rotationAmount = rotationSpeed * 60 * targetDuration; // How much rotation in 3 seconds
+      
+      console.log('🎬 Export settings:', {
+        rotationSpeed: coinSettings.rotationSpeed,
+        speedValue: rotationSpeed,
+        targetDuration,
+        rotationAmount: `${(rotationAmount / (2 * Math.PI)).toFixed(2)} full rotations`,
+        radiansAmount: rotationAmount.toFixed(3),
+        fps: 30
       });
       
-      // Export as WebM with intelligent frame synchronization
+      // Export as WebM for download
       const webmBlob = await exporter.exportAsWebM({
-        fps: optimalSettings.fps,
-        duration: optimalSettings.duration,
-        size: COIN_CONFIG.EXPORT.OUTPUT_SIZE_PIXELS,
-        rotationSpeed: optimalSettings.rotationPerFrame, // This now matches the preview exactly
-        userRotationSpeed: coinSettings.rotationSpeed,   // Pass the user preference for context
-        totalFrames: optimalSettings.totalFrames        // Explicit frame count
-      }, false);
+        fps: 30,
+        duration: targetDuration, // Always 3 seconds
+        size: 100,
+        rotationSpeed: rotationSpeed // Pass the actual rotation speed to match live animation
+      }, false); // Don't auto-download, we'll handle it based on environment
       
       // Send via Telegram if in Telegram, otherwise download directly
       if (isInTelegram && initData) {
@@ -131,28 +136,30 @@ const AppContent: React.FC = () => {
 
       const exporter = new CoinExporter(scene, camera, renderer, turntable);
       
-      // Phase 1: Calculate optimal export settings based on user's rotation speed (same as download)
-      const optimalSettings = calculateOptimalExportSettings(coinSettings.rotationSpeed);
+      // Calculate perfect rotation timing based on current rotation speed (same as download)
+      const speedMap = {
+        slow: 0.01,
+        medium: 0.02,
+        fast: 0.035,
+      };
       
-      console.log('🎭 Phase 1 Emoji export settings:', {
-        userRotationSpeed: coinSettings.rotationSpeed,
-        calculatedFps: optimalSettings.fps,
-        duration: optimalSettings.duration,
-        totalFrames: optimalSettings.totalFrames,
-        rotationPerFrame: optimalSettings.rotationPerFrame,
-        speedMultiplier: optimalSettings.rotationSpeedMultiplier,
-        estimatedSize: `${(optimalSettings.estimatedFileSize / 1024).toFixed(1)}KB`,
-        maxAllowedSize: `${(COIN_CONFIG.EXPORT.MAX_FILE_SIZE_BYTES / 1024)}KB`
+      const rotationSpeed = speedMap[coinSettings.rotationSpeed];
+      // Calculate time for one full rotation (2π radians)
+      const timeForFullRotation = (2 * Math.PI) / rotationSpeed / 60; // Convert to seconds (assuming 60fps)
+      
+      console.log('🎭 Emoji export settings:', {
+        rotationSpeed: coinSettings.rotationSpeed,
+        speedValue: rotationSpeed,
+        timeForFullRotation: timeForFullRotation,
+        fps: 30
       });
       
-      // Export as WebM for Telegram emoji with intelligent frame synchronization
+      // Export as WebM for Telegram emoji (no auto-download)
       const webmBlob = await exporter.exportAsWebM({
-        fps: optimalSettings.fps,
-        duration: optimalSettings.duration,
-        size: COIN_CONFIG.EXPORT.OUTPUT_SIZE_PIXELS,
-        rotationSpeed: optimalSettings.rotationPerFrame, // This now matches the preview exactly
-        userRotationSpeed: coinSettings.rotationSpeed,   // Pass the user preference for context
-        totalFrames: optimalSettings.totalFrames        // Explicit frame count
+        fps: 30,
+        duration: Math.max(1, Math.min(3, timeForFullRotation)), // Clamp between 1-3 seconds
+        size: 100,
+        rotationSpeed: rotationSpeed // Pass the actual rotation speed to match live animation
       }, false); // No auto-download for emoji creation
       
       // Create custom emoji in Telegram
