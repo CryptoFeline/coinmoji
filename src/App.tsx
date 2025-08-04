@@ -40,10 +40,10 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // Show non-Telegram page if not in Telegram environment
-  if (!isInTelegram) {
-    return <NotInTelegram />;
-  }
+  // 🔬 DEBUG MODE: Allow non-Telegram access for quality testing
+  // if (!isInTelegram) {
+  //   return <NotInTelegram />;
+  // }
 
   const handleExport = async () => {
     if (!coinEditorRef.current) return;

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { zip } from 'fflate';
+import { zip, zipSync } from 'fflate';
 
 export interface ExportSettings {
   fps: number;
@@ -36,14 +36,17 @@ export class CoinExporter {
     
     const actualFrames = maxFramesByQuality[qualityMode];
     
-    // Dynamic capture resolution based on quality mode and target size
+    // 🔬 EXPERIMENT: Render directly at final resolution to eliminate downscaling artifacts
+    // The graininess is NOT from VP9 (CRF=5 test proved this) but from canvas downscaling destroying metallic details
     const captureResolution = {
-      high: targetFileSize > 50 * 1024 ? 768 : 512,    // Higher res if we have size budget
-      balanced: 512,                                     // Standard resolution 
-      compact: 384                                       // Lower res for smaller files
+      high: 100,     // DIRECT rendering at emoji size - no downscaling
+      balanced: 100, // DIRECT rendering at emoji size - no downscaling  
+      compact: 100   // DIRECT rendering at emoji size - no downscaling
     };
     
     const captureSize = captureResolution[qualityMode];
+    
+    console.log(`🎯 DIRECT RENDERING EXPERIMENT: ${captureSize}px (no downscaling to preserve metallic surfaces)`);
     
     const frames: Blob[] = [];
 
@@ -146,6 +149,11 @@ export class CoinExporter {
         expectedFrames: actualFrames,
         success: frames.length === actualFrames
       });
+
+      // 🔬 EXPERIMENTAL: Auto-download frames as ZIP for quality inspection
+      console.log('📦 Creating ZIP of captured frames for quality analysis...');
+      await this.downloadFramesAsZip(frames);
+      
       return frames;
     } catch (error) {
       const errorMsg = `Frame export failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
@@ -167,87 +175,18 @@ export class CoinExporter {
     return new Promise((resolve) => {
       try {
         const canvas = renderer.domElement;
-        const highResSize = Math.max(canvas.width, canvas.height);
         
-        // Final output size for Telegram emoji standard
-        const finalSize = 100;
+        // 🔬 DIRECT CAPTURE: Already rendering at 100px, no downscaling needed!
+        console.log(`📸 DIRECT CAPTURE: ${canvas.width}x${canvas.height} (no downscaling artifacts)`);
         
-        // Create a temporary canvas for high-res capture
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = canvas.width;
-        tempCanvas.height = canvas.height;
+        // Convert directly to WebP with maximum quality - no canvas copying needed
+        const webpQuality = 0.99; // Maximum quality for testing
         
-        const tempCtx = tempCanvas.getContext('2d', { 
-          alpha: true,
-          willReadFrequently: false 
-        })!;
-        
-        // Clear with transparent background
-        tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
-        
-        // Draw the rendered frame - this preserves alpha from WebGL
-        tempCtx.drawImage(canvas, 0, 0);
-
-        // Create final output canvas at 100px for Telegram emoji standard
-        const outputCanvas = document.createElement('canvas');
-        outputCanvas.width = finalSize;
-        outputCanvas.height = finalSize;
-        
-        const outputCtx = outputCanvas.getContext('2d', { 
-          alpha: true,
-          willReadFrequently: false 
-        })!;
-        
-        // Enable high-quality downscaling with multiple passes
-        outputCtx.imageSmoothingEnabled = true;
-        outputCtx.imageSmoothingQuality = 'high';
-        
-        // Clear output canvas with transparent background
-        outputCtx.clearRect(0, 0, finalSize, finalSize);
-        
-        // Multi-step downscaling for better quality (avoid large jumps)
-        if (canvas.width > finalSize * 2) {
-          // For large downscales, use intermediate step
-          const intermediateSize = Math.floor(canvas.width / 2);
-          const intermediateCanvas = document.createElement('canvas');
-          intermediateCanvas.width = intermediateSize;
-          intermediateCanvas.height = intermediateSize;
-          
-          const intermediateCtx = intermediateCanvas.getContext('2d', { 
-            alpha: true,
-            willReadFrequently: false 
-          })!;
-          
-          intermediateCtx.imageSmoothingEnabled = true;
-          intermediateCtx.imageSmoothingQuality = 'high';
-          intermediateCtx.clearRect(0, 0, intermediateSize, intermediateSize);
-          
-          // First downscale: original → intermediate
-          intermediateCtx.drawImage(tempCanvas, 0, 0, canvas.width, canvas.height, 0, 0, intermediateSize, intermediateSize);
-          
-          // Second downscale: intermediate → final
-          outputCtx.drawImage(intermediateCanvas, 0, 0, intermediateSize, intermediateSize, 0, 0, finalSize, finalSize);
-          
-          console.log(`🔄 Multi-step downscale: ${canvas.width}px → ${intermediateSize}px → ${finalSize}px`);
-        } else {
-          // Direct downscale for smaller ratios
-          outputCtx.drawImage(tempCanvas, 0, 0, canvas.width, canvas.height, 0, 0, finalSize, finalSize);
-          console.log(`🔄 Direct downscale: ${canvas.width}px → ${finalSize}px`);
-        }
-
-        // Convert to WebP with EXPERIMENTAL MAXIMUM quality
-        const estimatedFrameSize = targetFileSize / totalFrames;
-        
-        // EXPERIMENT: Try maximum WebP quality to test if graininess is from WebP compression
-        const webpQuality = 0.99; // MAXIMUM WebP quality for testing
-        
-        console.log(`🔬 EXPERIMENTAL Frame capture: ${highResSize}px → ${finalSize}px, WebP quality: ${webpQuality} (MAXIMUM for testing), budget: ${estimatedFrameSize.toFixed(0)} bytes/frame`);
-        
-        outputCanvas.toBlob((blob) => {
+        canvas.toBlob((blob) => {
           if (!blob) {
             // If WebP fails, try PNG as fallback which definitely supports alpha
             console.log('⚠️ WebP capture failed, trying PNG with alpha...');
-            outputCanvas.toBlob((pngBlob) => {
+            canvas.toBlob((pngBlob) => {
               if (!pngBlob) {
                 resolve(new Blob());
                 return;
@@ -258,6 +197,7 @@ export class CoinExporter {
             return;
           }
 
+          console.log(`✅ Direct WebP capture: ${blob.size} bytes, quality: ${webpQuality}`);
           resolve(blob);
         }, 'image/webp', webpQuality);
         
@@ -274,6 +214,40 @@ export class CoinExporter {
         }
       }
     });
+  }
+
+  // 🔬 EXPERIMENTAL: Download frames as ZIP for quality inspection
+  private async downloadFramesAsZip(frames: Blob[]): Promise<void> {
+    try {
+      const files: Record<string, Uint8Array> = {};
+      
+      for (let i = 0; i < frames.length; i++) {
+        const frameNumber = String(i).padStart(4, '0');
+        const frameBuffer = await frames[i].arrayBuffer();
+        const uint8Array = new Uint8Array(frameBuffer);
+        
+        // Detect format and set appropriate extension
+        let extension = 'webp'; // Default to WebP
+        if (uint8Array.length >= 8 && 
+            uint8Array[0] === 0x89 && uint8Array[1] === 0x50 && 
+            uint8Array[2] === 0x4E && uint8Array[3] === 0x47) {
+          extension = 'png';
+        }
+        
+        files[`frame_${frameNumber}.${extension}`] = uint8Array;
+      }
+
+      // Create ZIP using fflate
+      const zipped = zipSync(files, { level: 6 });
+      const zipBlob = new Blob([zipped], { type: 'application/zip' });
+      
+      // Auto-download the ZIP
+      this.downloadBlob(zipBlob, `frames_direct_render_${Date.now()}.zip`);
+      
+      console.log(`📦 Frames ZIP downloaded: ${frames.length} frames, ${(zipBlob.size/1024).toFixed(1)}KB`);
+    } catch (error) {
+      console.error('❌ Frame ZIP creation failed:', error);
+    }
   }
 
   async exportAsZip(settings: ExportSettings): Promise<Blob> {
