@@ -649,3 +649,55 @@ const getTelegramUserId = (initData: string): number => {
   const user = JSON.parse(params.get('user') || '{}');
   return user.id;
 };
+
+// Send WebM file via Telegram chat
+export const sendWebMFile = async (
+  blob: Blob,
+  initData: string,
+  filename: string = 'coinmoji.webm'
+) => {
+  console.log('📤 Sending WebM file via Telegram:', { 
+    blobSize: blob.size, 
+    filename,
+    initDataLength: initData.length 
+  });
+
+  // Convert blob to base64
+  const base64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const base64Data = result.split(',')[1];
+      resolve(base64Data);
+    };
+    reader.onerror = () => reject(new Error('Failed to convert WebM to base64'));
+    reader.readAsDataURL(blob);
+  });
+
+  const userId = getTelegramUserId(initData);
+  console.log('👤 Sending to user ID:', userId);
+
+  try {
+    console.log('📡 Sending file via Telegram API...');
+    const response = await fetch('/.netlify/functions/send-file', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain',
+        'X-Telegram-InitData': initData,
+      },
+      body: base64,
+    });
+
+    const result = await response.json();
+    console.log('📡 File send response:', result);
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || `Failed to send file: ${response.status}`);
+    }
+
+    return { success: true, telegram_response: result.telegram_response };
+  } catch (error) {
+    console.error('❌ Error sending WebM file:', error);
+    throw error;
+  }
+};

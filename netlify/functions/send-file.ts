@@ -56,14 +56,20 @@ const handler: Handler = async (event) => {
     }
     console.log('✅ Telegram WebApp data verified');
 
-    // Get user ID from query parameters
-    const userId = event.queryStringParameters?.user_id;
-    console.log('👤 User ID:', userId);
-    if (!userId) {
-      console.error('❌ Missing user_id parameter');
+    // Extract user ID from initData
+    const getUserIdFromInitData = (initData: string): string => {
+      const params = new URLSearchParams(initData);
+      const user = JSON.parse(params.get('user') || '{}');
+      return String(user.id);
+    };
+
+    const userId = getUserIdFromInitData(initData);
+    console.log('👤 User ID from initData:', userId);
+    if (!userId || userId === 'undefined') {
+      console.error('❌ Could not extract user ID from initData');
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: 'Missing user_id parameter' }),
+        body: JSON.stringify({ error: 'Could not extract user ID from initData' }),
       };
     }
 

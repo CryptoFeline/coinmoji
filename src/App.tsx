@@ -1,9 +1,9 @@
 import React, { useState, useRef } from 'react';
 import { TelegramProvider, useTelegram } from './providers/TelegramProvider';
-// import NotInTelegram from './components/NotInTelegram'; // Temporarily disabled for testing
+import NotInTelegram from './components/NotInTelegram';
 import CoinEditor, { CoinEditorRef } from './components/CoinEditor';
 import SettingsPanel, { CoinSettings } from './components/SettingsPanel';
-import { CoinExporter, createCustomEmoji } from './utils/exporter';
+import { CoinExporter, createCustomEmoji, sendWebMFile } from './utils/exporter';
 
 const AppContent: React.FC = () => {
   const { isInTelegram, initData, isLoading } = useTelegram();
@@ -40,11 +40,9 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // TEMPORARY: Allow testing outside Telegram for production deployment testing
-  // TODO: Change back to: if (!isInTelegram) { return <NotInTelegram />; }
+  // Show non-Telegram page if not in Telegram environment
   if (!isInTelegram) {
-    console.log('⚠️ TESTING MODE: Running outside Telegram with mock initData');
-    // Mock initData for testing - this will fail emoji creation but allow WebM download testing
+    return <NotInTelegram />;
   }
 
   const handleExport = async () => {
@@ -85,16 +83,32 @@ const AppContent: React.FC = () => {
         fps: 30
       });
       
-      // Export as WebM for download (enable auto-download)
-      await exporter.exportAsWebM({
+      // Export as WebM for download
+      const webmBlob = await exporter.exportAsWebM({
         fps: 30,
         duration: targetDuration, // Always 3 seconds
         size: 100,
         rotationSpeed: rotationSpeed // Pass the actual rotation speed to match live animation
-      }, true); // Enable auto-download for download button
+      }, false); // Don't auto-download, we'll handle it based on environment
       
-      // No need for manual download since autoDownload=true handles it
-      alert('WebM created and downloaded! Check if it has proper transparency and animation.');
+      // Send via Telegram if in Telegram, otherwise download directly
+      if (isInTelegram && initData) {
+        console.log('📱 Sending WebM file via Telegram...');
+        try {
+          await sendWebMFile(webmBlob, initData, 'coinmoji.webm');
+          alert('✅ Your Coinmoji WebM has been sent to this chat! You can save and share it from there.');
+        } catch (telegramError) {
+          console.warn('⚠️ Telegram send failed, falling back to direct download:', telegramError);
+          // Fallback to direct download
+          exporter.downloadBlob(webmBlob, 'coinmoji-fallback.webm');
+          alert('⚠️ Could not send via Telegram, but your WebM has been downloaded instead!');
+        }
+      } else {
+        // Direct download for non-Telegram environment
+        console.log('💾 Direct download for non-Telegram environment');
+        exporter.downloadBlob(webmBlob, 'coinmoji.webm');
+        alert('✅ WebM downloaded! Check your downloads folder.');
+      }
       
     } catch (error) {
       console.error('Export failed:', error);

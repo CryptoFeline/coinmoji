@@ -155,7 +155,7 @@ const handler: Handler = async (event) => {
       body: JSON.stringify({
         user_id,
         name: stickerSetName,
-        title: set_title,
+        title: `@${set_title}`,
         sticker_type: 'custom_emoji',
         stickers: [inputSticker],
       }),
@@ -203,10 +203,38 @@ const handler: Handler = async (event) => {
 
     if (result.ok) {
       console.log('✅ SUCCESS: Emoji set created successfully!');
-      console.log('📱 To use your emoji:');
-      console.log(`   1. Click this link: https://t.me/addemoji/${stickerSetName}`);
-      console.log('   2. Tap "Add Stickers" in Telegram');
-      console.log('   3. Your emoji will now be available in the emoji picker');
+      
+      // Send success message to user
+      console.log('📤 Sending success message to user...');
+      const emojiLink = `https://t.me/addemoji/${stickerSetName}`;
+      const successMessage = `🎉 <b>Your coin emoji is ready!</b>
+
+<a href="${emojiLink}">Your Coinmoji</a>
+
+<i>Once added, you can use your custom emoji in any chat!</i> 🚀`;
+      
+      try {
+        const messageResponse = await fetch(`${process.env.NETLIFY_SITE_URL || 'https://coinmoji.netlify.app'}/.netlify/functions/send-message`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id,
+            message: successMessage
+          })
+        });
+        
+        const messageResult = await messageResponse.json();
+        console.log('📤 Message send result:', messageResult);
+        
+        if (messageResult.success) {
+          console.log('✅ Success message sent to user');
+        } else {
+          console.warn('⚠️ Failed to send success message:', messageResult);
+        }
+      } catch (messageError) {
+        console.error('❌ Error sending success message:', messageError);
+        // Don't fail the main request if message sending fails
+      }
     }
 
     return {
