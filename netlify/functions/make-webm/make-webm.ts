@@ -137,12 +137,12 @@ export const handler: Handler = async (event) => {
       const targetFileSize = request.targetFileSize || 60 * 1024; // Default 60KB
       const qualityMode = request.qualityMode || 'balanced';
       
-      // Calculate optimal CRF based on target size and frame count
+      // Calculate optimal CRF based on target size and frame count - more aggressive quality
       const bytesPerFrame = targetFileSize / request.frames.length;
       const crfByQuality = {
-        high: bytesPerFrame > 2000 ? 18 : bytesPerFrame > 1000 ? 22 : 25,   // 18-25 CRF for high quality
-        balanced: bytesPerFrame > 2000 ? 25 : bytesPerFrame > 1000 ? 28 : 30, // 25-30 CRF for balanced
-        compact: bytesPerFrame > 1000 ? 30 : 33                             // 30-33 CRF for compact
+        high: bytesPerFrame > 2000 ? 15 : bytesPerFrame > 1500 ? 18 : bytesPerFrame > 1000 ? 22 : 25,   // 15-25 CRF for high quality
+        balanced: bytesPerFrame > 2000 ? 22 : bytesPerFrame > 1500 ? 25 : bytesPerFrame > 1000 ? 28 : 30, // 22-30 CRF for balanced
+        compact: bytesPerFrame > 1000 ? 30 : 33                                                          // 30-33 CRF for compact
       };
       
       const crf = crfByQuality[qualityMode];

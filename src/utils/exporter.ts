@@ -167,8 +167,12 @@ export class CoinExporter {
     return new Promise((resolve) => {
       try {
         const canvas = renderer.domElement;
+        const highResSize = Math.max(canvas.width, canvas.height);
         
-        // Create a temporary canvas with explicit alpha support
+        // Final output size for Telegram emoji standard
+        const finalSize = 100;
+        
+        // Create a temporary canvas for high-res capture
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = canvas.width;
         tempCanvas.height = canvas.height;
@@ -181,20 +185,45 @@ export class CoinExporter {
         // Clear with transparent background
         tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
         
-        // Draw the rendered frame - this should preserve alpha from WebGL
+        // Draw the rendered frame - this preserves alpha from WebGL
         tempCtx.drawImage(canvas, 0, 0);
 
-        // Convert to WebP with dynamic quality based on target size
-        const estimatedFrameSize = targetFileSize / totalFrames;
-        const webpQuality = estimatedFrameSize > 2000 ? 0.98 : // High quality if we have size budget
-                           estimatedFrameSize > 1000 ? 0.95 : // Good quality for medium budget
-                           0.90; // Balanced quality for tight budget
+        // Create final output canvas at 100px for Telegram emoji standard
+        const outputCanvas = document.createElement('canvas');
+        outputCanvas.width = finalSize;
+        outputCanvas.height = finalSize;
         
-        tempCanvas.toBlob((blob) => {
+        const outputCtx = outputCanvas.getContext('2d', { 
+          alpha: true,
+          willReadFrequently: false 
+        })!;
+        
+        // Enable high-quality downscaling
+        outputCtx.imageSmoothingEnabled = true;
+        outputCtx.imageSmoothingQuality = 'high';
+        
+        // Clear output canvas with transparent background
+        outputCtx.clearRect(0, 0, finalSize, finalSize);
+        
+        // Downscale from high-res capture to final 100px with high-quality smoothing
+        outputCtx.drawImage(tempCanvas, 0, 0, canvas.width, canvas.height, 0, 0, finalSize, finalSize);
+
+        // Convert to WebP with dynamic quality based on target size and available budget
+        const estimatedFrameSize = targetFileSize / totalFrames;
+        
+        // More aggressive quality scaling - use the full 64KB budget better
+        const webpQuality = estimatedFrameSize > 2500 ? 0.98 :  // High quality if we have good size budget
+                           estimatedFrameSize > 1500 ? 0.95 :   // Very good quality for medium budget  
+                           estimatedFrameSize > 1000 ? 0.90 :   // Good quality for normal budget
+                           0.85;                                 // Balanced quality for tight budget
+        
+        console.log(`🎨 Frame capture: ${highResSize}px → ${finalSize}px, quality: ${webpQuality}, budget: ${estimatedFrameSize.toFixed(0)} bytes/frame`);
+        
+        outputCanvas.toBlob((blob) => {
           if (!blob) {
             // If WebP fails, try PNG as fallback which definitely supports alpha
             console.log('⚠️ WebP capture failed, trying PNG with alpha...');
-            tempCanvas.toBlob((pngBlob) => {
+            outputCanvas.toBlob((pngBlob) => {
               if (!pngBlob) {
                 resolve(new Blob());
                 return;
