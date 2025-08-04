@@ -356,21 +356,96 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     geometry.setAttribute('uv', new THREE.BufferAttribute(uvArray, 2));
   };
 
-  // ---- Simple GIF loading (static image only - animation removed) ----
+  // ---- GIF Animation Support with Canvas-based Frame Rendering ----
   const gifUrlToVideoTexture = async (url: string): Promise<THREE.Texture> => {
-    // Simplified: Load GIF as static image texture
-    console.warn('GIF animation support removed. Loading as static image.');
+    console.log('🎞️ Loading animated GIF texture:', url);
+    
     return new Promise((resolve, reject) => {
-      const loader = new THREE.TextureLoader();
-      loader.load(
-        url,
-        (texture) => {
+      const img = document.createElement('img');
+      img.crossOrigin = 'anonymous';
+      img.style.display = 'none';
+      
+      // Create canvas for animation frames
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d')!;
+      
+      // Container to keep img in DOM (required for some GIF libraries)
+      const holder = document.createElement('div');
+      holder.style.position = 'absolute';
+      holder.style.left = '-9999px';
+      holder.style.top = '-9999px';
+      holder.appendChild(img);
+      (mountRef.current || document.body).appendChild(holder);
+      
+      img.onload = () => {
+        try {
+          // Set canvas size based on image
+          canvas.width = img.naturalWidth || img.width;
+          canvas.height = img.naturalHeight || img.height;
+          
+          // Initial draw
+          ctx.drawImage(img, 0, 0);
+          
+          // Create texture
+          const texture = new THREE.CanvasTexture(canvas);
           texture.colorSpace = THREE.SRGBColorSpace;
+          texture.flipY = true;
+          if (sceneRef.current) {
+            texture.anisotropy = sceneRef.current.renderer.capabilities.getMaxAnisotropy();
+          }
+          
+          // Animation timing variables (controlled by main animation loop)
+          let lastUpdateTime = 0;
+          
+          // Speed mapping for GIF animation
+          const getFrameDelay = () => {
+            const speedMap = {
+              slow: 200,    // 200ms per frame (5 fps)
+              medium: 100,  // 100ms per frame (10 fps)  
+              fast: 50      // 50ms per frame (20 fps)
+            };
+            return speedMap[currentSettings.gifAnimationSpeed];
+          };
+          
+          // Store cleanup function
+          texture.userData.dispose = () => {
+            if (holder.parentNode) {
+              holder.parentNode.removeChild(holder);
+            }
+          };
+          
+          // Store update function called by main animation loop
+          texture.userData.update = () => {
+            const now = performance.now();
+            const frameDelay = getFrameDelay();
+            
+            if (now - lastUpdateTime >= frameDelay) {
+              // Clear canvas and redraw current frame
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              ctx.drawImage(img, 0, 0);
+              
+              // Mark texture as needing update
+              texture.needsUpdate = true;
+              
+              lastUpdateTime = now;
+            }
+          };
+          
+          console.log('✅ Animated GIF texture created successfully');
           resolve(texture);
-        },
-        undefined,
-        (error) => reject(error)
-      );
+          
+        } catch (error) {
+          console.error('Failed to create animated GIF texture:', error);
+          reject(error);
+        }
+      };
+      
+      img.onerror = () => {
+        console.error('Failed to load GIF image');
+        reject(new Error('Failed to load GIF'));
+      };
+      
+      img.src = url;
     });
   };
 
