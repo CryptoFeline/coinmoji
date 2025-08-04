@@ -66,6 +66,8 @@ interface MakeWebMRequest {
   frames: string[];          // base64 encoded WebP frames
   framerate: number;         // fps
   duration: number;          // total duration in seconds
+  targetFileSize?: number;   // target file size in bytes (default: 60KB)
+  qualityMode?: 'high' | 'balanced' | 'compact'; // quality preference
 }
 
 export const handler: Handler = async (event) => {
@@ -102,10 +104,12 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    console.log('🎬 Native FFmpeg WebM creation:', {
+    console.log('🎬 OPTIMIZED Native FFmpeg WebM creation:', {
       frames: request.frames.length,
       framerate: request.framerate,
       duration: request.duration,
+      targetFileSize: request.targetFileSize ? `${(request.targetFileSize / 1024).toFixed(1)}KB` : '60KB (default)',
+      qualityMode: request.qualityMode || 'balanced',
       ffmpegPath,
       workingDir: process.cwd(),
       functionDir: __dirname
@@ -129,63 +133,146 @@ export const handler: Handler = async (event) => {
 
       console.log(`✅ Written ${request.frames.length} WebP frames`);
 
-      // Prepare FFmpeg arguments for VP9 with alpha
+      // Dynamic VP9 settings based on quality mode and target size
+      const targetFileSize = request.targetFileSize || 60 * 1024; // Default 60KB
+      const qualityMode = request.qualityMode || 'balanced';
+      
+      // Calculate optimal CRF based on target size and frame count
+      const bytesPerFrame = targetFileSize / request.frames.length;
+      const crfByQuality = {
+        high: bytesPerFrame > 2000 ? 18 : bytesPerFrame > 1000 ? 22 : 25,   // 18-25 CRF for high quality
+        balanced: bytesPerFrame > 2000 ? 25 : bytesPerFrame > 1000 ? 28 : 30, // 25-30 CRF for balanced
+        compact: bytesPerFrame > 1000 ? 30 : 33                             // 30-33 CRF for compact
+      };
+      
+      const crf = crfByQuality[qualityMode];
+      
+      // Bitrate targeting for size control
+      const targetBitrate = Math.floor((targetFileSize * 8) / request.duration / 1000); // kbps
+      const maxBitrate = Math.floor(targetBitrate * 1.5); // Allow 50% overhead
+      
+      console.log('🎯 Dynamic VP9 settings:', {
+        crf,
+        targetBitrate: `${targetBitrate}kbps`,
+        maxBitrate: `${maxBitrate}kbps`,
+        bytesPerFrame: `${bytesPerFrame.toFixed(0)} bytes/frame`,
+        qualityMode
+      });
+
+      // Prepare OPTIMIZED FFmpeg arguments for VP9 with alpha
       const outputPath = join(tmpDir, 'out.webm');
       const args = [
         '-framerate', String(request.framerate),
         '-i', join(tmpDir, 'f%04d.webp'),
         '-pix_fmt', 'yuva420p',      // VP9 with alpha channel
         '-c:v', 'libvpx-vp9',        // VP9 codec
-        '-b:v', '0',                 // CRF mode
-        '-crf', '30',                // Good quality (0-63, lower = better)
+        '-crf', String(crf),         // Dynamic quality based on target size
+        '-b:v', `${targetBitrate}k`, // Target bitrate for size control
+        '-maxrate', `${maxBitrate}k`, // Maximum bitrate
+        '-bufsize', `${targetBitrate * 2}k`, // Buffer size for rate control
         '-auto-alt-ref', '0',        // Preserve alpha channel
-        '-lag-in-frames', '0',       // Reduce memory usage
-        '-deadline', 'good',         // Good quality/speed balance
-        '-cpu-used', '2',            // Balanced encoding speed
+        '-lag-in-frames', qualityMode === 'high' ? '5' : '0', // Lookahead for quality
+        '-deadline', qualityMode === 'high' ? 'best' : 'good', // Quality vs speed
+        '-cpu-used', qualityMode === 'high' ? '0' : '2', // Encoding speed vs quality
         '-row-mt', '1',              // Safe multi-threading
         '-threads', '1',             // Single thread for predictable memory
         '-tile-columns', '0',        // Disable tiling
         '-frame-parallel', '0',      // Disable frame parallelism for alpha
-        '-y',                        // Overwrite output
-        outputPath
+        '-g', String(request.frames.length), // Keyframe interval = full loop
+        '-pass', '1',                // Two-pass encoding for better quality
+        '-f', 'null',                // First pass output to null
+        '/dev/null'                  // Linux null device
       ];
 
-      console.log('🔧 Starting FFmpeg with args:', args.join(' '));
+      console.log('🔧 Starting OPTIMIZED two-pass FFmpeg encoding...');
+      console.log('🔧 Pass 1 args:', args.join(' '));
 
-      // Spawn FFmpeg process
+      // PASS 1: Analysis
       await new Promise<void>((resolve, reject) => {
         const ffmpegProcess = spawn(ffmpegPath, args, {
-          stdio: ['ignore', 'pipe', 'pipe'] // capture stdout/stderr
+          stdio: ['ignore', 'pipe', 'pipe']
         });
 
-        let stdout = '';
         let stderr = '';
-
-        ffmpegProcess.stdout?.on('data', (data) => {
-          stdout += data.toString();
-        });
 
         ffmpegProcess.stderr?.on('data', (data) => {
           stderr += data.toString();
-          // Log FFmpeg progress
           if (data.toString().includes('frame=')) {
-            console.log('📊 FFmpeg progress:', data.toString().trim());
+            console.log('📊 FFmpeg Pass 1 progress:', data.toString().trim());
           }
         });
 
         ffmpegProcess.on('close', (code) => {
           if (code === 0) {
-            console.log('✅ FFmpeg completed successfully');
+            console.log('✅ FFmpeg Pass 1 completed');
             resolve();
           } else {
-            console.error('❌ FFmpeg failed with code:', code);
+            console.error('❌ FFmpeg Pass 1 failed with code:', code);
             console.error('FFmpeg stderr:', stderr);
-            reject(new Error(`FFmpeg exit code ${code}: ${stderr}`));
+            reject(new Error(`FFmpeg Pass 1 exit code ${code}: ${stderr}`));
           }
         });
 
         ffmpegProcess.on('error', (error) => {
-          console.error('❌ FFmpeg spawn error:', error);
+          console.error('❌ FFmpeg Pass 1 spawn error:', error);
+          reject(error);
+        });
+      });
+
+      // PASS 2: Final encoding
+      const pass2Args = [
+        '-framerate', String(request.framerate),
+        '-i', join(tmpDir, 'f%04d.webp'),
+        '-pix_fmt', 'yuva420p',
+        '-c:v', 'libvpx-vp9',
+        '-crf', String(crf),
+        '-b:v', `${targetBitrate}k`,
+        '-maxrate', `${maxBitrate}k`,
+        '-bufsize', `${targetBitrate * 2}k`,
+        '-auto-alt-ref', '0',
+        '-lag-in-frames', qualityMode === 'high' ? '5' : '0',
+        '-deadline', qualityMode === 'high' ? 'best' : 'good',
+        '-cpu-used', qualityMode === 'high' ? '0' : '2',
+        '-row-mt', '1',
+        '-threads', '1',
+        '-tile-columns', '0',
+        '-frame-parallel', '0',
+        '-g', String(request.frames.length),
+        '-pass', '2',                // Second pass
+        '-y',                        // Overwrite output
+        outputPath
+      ];
+
+      console.log('🔧 Pass 2 args:', pass2Args.join(' '));
+
+      // Spawn FFmpeg process for Pass 2
+      await new Promise<void>((resolve, reject) => {
+        const ffmpegProcess = spawn(ffmpegPath, pass2Args, {
+          stdio: ['ignore', 'pipe', 'pipe']
+        });
+
+        let stderr = '';
+
+        ffmpegProcess.stderr?.on('data', (data) => {
+          stderr += data.toString();
+          if (data.toString().includes('frame=')) {
+            console.log('📊 FFmpeg Pass 2 progress:', data.toString().trim());
+          }
+        });
+
+        ffmpegProcess.on('close', (code) => {
+          if (code === 0) {
+            console.log('✅ FFmpeg Pass 2 completed');
+            resolve();
+          } else {
+            console.error('❌ FFmpeg Pass 2 failed with code:', code);
+            console.error('FFmpeg stderr:', stderr);
+            reject(new Error(`FFmpeg Pass 2 exit code ${code}: ${stderr}`));
+          }
+        });
+
+        ffmpegProcess.on('error', (error) => {
+          console.error('❌ FFmpeg Pass 2 spawn error:', error);
           reject(error);
         });
       });

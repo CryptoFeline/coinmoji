@@ -6,6 +6,8 @@ export interface ExportSettings {
   duration: number; // in seconds
   size: number; // output size (100 for emoji)
   rotationSpeed?: number; // radians per frame at 60fps (optional, defaults to medium speed)
+  targetFileSize?: number; // Target file size in bytes (default: 60KB for 64KB limit with safety margin)
+  qualityMode?: 'high' | 'balanced' | 'compact'; // Quality vs size preference
 }
 
 export class CoinExporter {
@@ -23,23 +25,37 @@ export class CoinExporter {
   }
 
   async exportFrames(settings: ExportSettings): Promise<Blob[]> {
-    const { fps, duration, size } = settings;
-    const totalFrames = Math.floor(fps * duration);
+    const { fps, duration, size, targetFileSize = 60 * 1024, qualityMode = 'balanced' } = settings;
     
-    // Limit frames more aggressively to prevent stack overflow
-    // Max 30 frames but keep the SAME DURATION for proper timing
-    const maxFrames = 30;
-    const actualFrames = Math.min(totalFrames, maxFrames);
+    // Dynamic frame count based on quality mode and target size
+    const maxFramesByQuality = {
+      high: Math.min(60, Math.floor(fps * duration)), // Up to 60 frames for high quality
+      balanced: Math.min(45, Math.floor(fps * duration)), // Up to 45 frames for balanced
+      compact: Math.min(30, Math.floor(fps * duration))  // Up to 30 frames for compact
+    };
+    
+    const actualFrames = maxFramesByQuality[qualityMode];
+    
+    // Dynamic capture resolution based on quality mode and target size
+    const captureResolution = {
+      high: targetFileSize > 50 * 1024 ? 768 : 512,    // Higher res if we have size budget
+      balanced: 512,                                     // Standard resolution 
+      compact: 384                                       // Lower res for smaller files
+    };
+    
+    const captureSize = captureResolution[qualityMode];
     
     const frames: Blob[] = [];
 
-    console.log('📹 Starting frame export:', { 
+    console.log('📹 Starting OPTIMIZED frame export:', { 
       fps, 
       duration, 
       size, 
-      requestedFrames: totalFrames, 
       actualFrames,
-      maxAllowed: maxFrames
+      captureSize,
+      targetFileSize: `${(targetFileSize / 1024).toFixed(1)}KB`,
+      qualityMode,
+      estimatedFrameSize: `${(targetFileSize / actualFrames / 1024).toFixed(1)}KB per frame`
     });
 
     // Store original rotation
@@ -52,31 +68,35 @@ export class CoinExporter {
       this.scene.background = null;
       
       // Create OFFSCREEN renderer for export (doesn't affect live view!)
-      const captureSize = 512; // High resolution for better quality
-      console.log('🎨 Creating offscreen renderer...');
+      console.log('🎨 Creating OPTIMIZED offscreen renderer...');
       
       const offscreenRenderer = new THREE.WebGLRenderer({
         antialias: true,
         alpha: true,
         preserveDrawingBuffer: true,
-        premultipliedAlpha: false // CRITICAL for transparency
+        premultipliedAlpha: false, // CRITICAL for transparency
+        powerPreference: 'high-performance' // Use dedicated GPU if available
       });
       offscreenRenderer.setSize(captureSize, captureSize);
       offscreenRenderer.setClearColor(0x000000, 0); // Completely transparent background
       offscreenRenderer.outputColorSpace = THREE.SRGBColorSpace;
+      offscreenRenderer.setPixelRatio(1); // Force 1:1 for consistent quality
       
-      // Ensure renderer actually uses alpha
+      // Optimize renderer settings for quality
       offscreenRenderer.shadowMap.enabled = false; // Disable shadows that can interfere
       offscreenRenderer.autoClear = true;
+      offscreenRenderer.sortObjects = true; // Better transparency sorting
 
       // Create dedicated camera for export with perfect coin framing
       const exportCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
       exportCamera.position.set(0, 0, 2.8); // Position for proper coin framing
       exportCamera.lookAt(0, 0, 0);
 
-      console.log('🎯 Created offscreen renderer:', { 
-        size: captureSize, 
+      console.log('🎯 Created OPTIMIZED offscreen renderer:', { 
+        captureSize, 
         transparent: true,
+        qualityMode,
+        estimatedQuality: qualityMode === 'high' ? 'Maximum' : qualityMode === 'balanced' ? 'High' : 'Good',
         cameraPosition: exportCamera.position.toArray()
       });
 
@@ -98,7 +118,7 @@ export class CoinExporter {
           offscreenRenderer.render(this.scene, exportCamera);
 
           // Capture frame with transparency preservation
-          const blob = await this.captureFrameFromRenderer(offscreenRenderer);
+          const blob = await this.captureFrameFromRenderer(offscreenRenderer, targetFileSize, actualFrames);
           
           if (!blob || blob.size === 0) {
             const error = `Frame ${i} capture failed - empty blob`;
@@ -139,7 +159,11 @@ export class CoinExporter {
     }
   }
 
-  private captureFrameFromRenderer(renderer: THREE.WebGLRenderer): Promise<Blob> {
+  private captureFrameFromRenderer(
+    renderer: THREE.WebGLRenderer, 
+    targetFileSize: number, 
+    totalFrames: number
+  ): Promise<Blob> {
     return new Promise((resolve) => {
       try {
         const canvas = renderer.domElement;
@@ -160,7 +184,12 @@ export class CoinExporter {
         // Draw the rendered frame - this should preserve alpha from WebGL
         tempCtx.drawImage(canvas, 0, 0);
 
-        // Convert to WebP with alpha preservation and higher quality
+        // Convert to WebP with dynamic quality based on target size
+        const estimatedFrameSize = targetFileSize / totalFrames;
+        const webpQuality = estimatedFrameSize > 2000 ? 0.98 : // High quality if we have size budget
+                           estimatedFrameSize > 1000 ? 0.95 : // Good quality for medium budget
+                           0.90; // Balanced quality for tight budget
+        
         tempCanvas.toBlob((blob) => {
           if (!blob) {
             // If WebP fails, try PNG as fallback which definitely supports alpha
@@ -176,9 +205,8 @@ export class CoinExporter {
             return;
           }
 
-          console.log('✅ WebP alpha capture successful:', { size: blob.size });
           resolve(blob);
-        }, 'image/webp', 0.95); // Higher quality for better alpha preservation
+        }, 'image/webp', webpQuality);
         
       } catch (error) {
         console.error('Frame capture error:', error);

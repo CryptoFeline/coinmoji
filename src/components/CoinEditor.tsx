@@ -82,13 +82,26 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
   useImperativeHandle(ref, () => ({
     exportFrames: async (settings: any) => {
       if (!sceneRef.current) return [];
+      
+      // Enhanced settings with quality optimization
+      const enhancedSettings = {
+        fps: settings.fps || 30,
+        duration: settings.duration || 3,
+        size: settings.size || 100,
+        targetFileSize: 60 * 1024, // 60KB target (safety margin under 64KB limit)
+        qualityMode: 'balanced' as const, // Start with balanced, can be made configurable
+        ...settings
+      };
+      
+      console.log('🎬 Starting export with OPTIMIZED settings:', enhancedSettings);
+      
       const exporter = new CoinExporter(
         sceneRef.current.scene,
         sceneRef.current.camera,
         sceneRef.current.renderer,
         sceneRef.current.turntable
       );
-      return await exporter.exportFrames(settings);
+      return await exporter.exportFrames(enhancedSettings);
     },
     getScene: () => sceneRef.current?.scene || null,
     getCamera: () => sceneRef.current?.camera || null,
