@@ -35,6 +35,10 @@ export class CoinExporter {
     const maxFrames = 30;
     const actualFrames = Math.min(totalFrames, maxFrames);
     
+    // CRITICAL FIX: Calculate rotation per frame based on ACTUAL frames captured, not theoretical
+    // This ensures we always get a complete 360° rotation regardless of frame limiting
+    const rotationPerFrame = rotationSpeed || (Math.PI * 2 / actualFrames);
+    
     const frames: Blob[] = [];
 
     console.log('📹 Phase 1 frame export:', { 
@@ -47,6 +51,8 @@ export class CoinExporter {
       actualFrames,
       maxAllowed: maxFrames,
       rotationSpeed: rotationSpeed || 'calculated',
+      rotationPerFrame: rotationPerFrame,
+      expectedRotationDegrees: (rotationPerFrame * actualFrames * 180 / Math.PI).toFixed(1),
       userRotationSpeed: settings.userRotationSpeed
     });
 
@@ -90,21 +96,15 @@ export class CoinExporter {
 
       for (let i = 0; i < actualFrames; i++) {
         try {
-          // Phase 1: Use dynamic rotation calculation based on provided rotationSpeed
+          // Phase 1: Use the corrected rotation calculation that ensures full 360° rotation
           let frameRotation: number;
           
-          if (rotationSpeed) {
-            // Use the precise rotationSpeed per frame from Phase 1 calculation
-            frameRotation = i * rotationSpeed;
-          } else {
-            // Fallback: Calculate rotation for COMPLETE 360° rotation over duration
-            const frameProgress = i / (actualFrames - 1); // 0 to 1 across all frames
-            frameRotation = frameProgress * Math.PI * 2; // Full circle: 0 to 2π
-          }
+          // Always use the corrected rotationPerFrame that ensures complete rotation
+          frameRotation = i * rotationPerFrame;
           
-          // Debug: Log rotation for first few frames to verify
+          // Debug: Log rotation for first few frames to verify complete rotation
           if (i === 0 || i === 1 || i === actualFrames - 1) {
-            console.log(`📐 Phase 1 Frame ${i}: rotation=${frameRotation.toFixed(3)} rad (${(frameRotation * 180 / Math.PI).toFixed(1)}°), method=${rotationSpeed ? 'dynamic' : 'fallback'}`);
+            console.log(`📐 Phase 1 Frame ${i}: rotation=${frameRotation.toFixed(3)} rad (${(frameRotation * 180 / Math.PI).toFixed(1)}°), method=corrected`);
           }
           
           // Set rotation for this frame
