@@ -140,28 +140,28 @@ export const handler: Handler = async (event) => {
       const targetFileSize = request.targetFileSize || 60 * 1024; // Default 60KB
       const qualityMode = request.qualityMode || 'balanced';
       
-      // Calculate optimal CRF for VP9 - FORCE MAXIMUM QUALITY regardless of budget
+      // Calculate optimal CRF for VP9 - BALANCED for 64KB target
       const bytesPerFrame = targetFileSize / request.frames.length;
       
-      // EXPERIMENT: Try absolute maximum quality CRF=1 to see if graininess is from CRF
-      const crf = qualityMode === 'high' ? 1 :           // ABSOLUTE MAXIMUM quality
-                  qualityMode === 'balanced' ? 5 :       // Still very high quality  
-                  10;                                     // High quality for compact
+      // 🎯 BALANCED QUALITY: We eliminated downscaling artifacts, now optimize for 64KB
+      const crf = qualityMode === 'high' ? 15 :           // High quality within budget
+                  qualityMode === 'balanced' ? 18 :       // Balanced quality for 64KB target  
+                  22;                                      // Compact quality
       
-      console.log(`🔬 EXPERIMENTAL: Using CRF=${crf} for maximum quality test (bytes per frame: ${bytesPerFrame.toFixed(0)})`);
+      console.log(`🎯 BALANCED CRF=${crf} for 64KB target (bytes per frame: ${bytesPerFrame.toFixed(0)})`);
       
-      // Bitrate targeting - EXTREMELY AGGRESSIVE for maximum quality test
+      // Bitrate targeting - OPTIMIZED for 64KB limit
       const baseBitrate = Math.floor((targetFileSize * 8) / request.duration / 1000);
-      const targetBitrate = Math.floor(baseBitrate * 2.5); // VERY AGGRESSIVE bitrate
-      const maxBitrate = Math.floor(targetBitrate * 3.0); // Allow massive peaks for quality
+      const targetBitrate = Math.floor(baseBitrate * 1.2); // Conservative bitrate for size control
+      const maxBitrate = Math.floor(targetBitrate * 2.0); // Allow peaks for quality
       
-      console.log('🎯 EXPERIMENTAL VP9 settings (CRF=1 MAXIMUM QUALITY TEST):', {
+      console.log('🎯 OPTIMIZED VP9 settings for 64KB target:', {
         crf,
         targetBitrate: `${targetBitrate}kbps`,
         maxBitrate: `${maxBitrate}kbps`,
         bytesPerFrame: `${bytesPerFrame.toFixed(0)} bytes/frame`,
         qualityMode,
-        experimentalMode: 'CRF=1 quality test',
+        targetSize: '64KB',
         avgWebPFrameSize: `${(avgWebPFrameSize/1024).toFixed(2)}KB`
       });
 
