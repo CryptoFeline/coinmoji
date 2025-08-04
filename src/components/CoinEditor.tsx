@@ -88,7 +88,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
         fps: settings.fps || 30,
         duration: settings.duration || 3,
         size: settings.size || 100,
-        targetFileSize: 58 * 1024, // 58KB target (more aggressive use of 64KB limit)
+        targetFileSize: 63 * 1024, // 63KB target (more aggressive use of 64KB limit)
         qualityMode: 'high' as const, // Use high quality for better results
         ...settings
       };

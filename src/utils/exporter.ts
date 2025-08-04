@@ -198,26 +198,54 @@ export class CoinExporter {
           willReadFrequently: false 
         })!;
         
-        // Enable high-quality downscaling
+        // Enable high-quality downscaling with multiple passes
         outputCtx.imageSmoothingEnabled = true;
         outputCtx.imageSmoothingQuality = 'high';
         
         // Clear output canvas with transparent background
         outputCtx.clearRect(0, 0, finalSize, finalSize);
         
-        // Downscale from high-res capture to final 100px with high-quality smoothing
-        outputCtx.drawImage(tempCanvas, 0, 0, canvas.width, canvas.height, 0, 0, finalSize, finalSize);
+        // Multi-step downscaling for better quality (avoid large jumps)
+        if (canvas.width > finalSize * 2) {
+          // For large downscales, use intermediate step
+          const intermediateSize = Math.floor(canvas.width / 2);
+          const intermediateCanvas = document.createElement('canvas');
+          intermediateCanvas.width = intermediateSize;
+          intermediateCanvas.height = intermediateSize;
+          
+          const intermediateCtx = intermediateCanvas.getContext('2d', { 
+            alpha: true,
+            willReadFrequently: false 
+          })!;
+          
+          intermediateCtx.imageSmoothingEnabled = true;
+          intermediateCtx.imageSmoothingQuality = 'high';
+          intermediateCtx.clearRect(0, 0, intermediateSize, intermediateSize);
+          
+          // First downscale: original → intermediate
+          intermediateCtx.drawImage(tempCanvas, 0, 0, canvas.width, canvas.height, 0, 0, intermediateSize, intermediateSize);
+          
+          // Second downscale: intermediate → final
+          outputCtx.drawImage(intermediateCanvas, 0, 0, intermediateSize, intermediateSize, 0, 0, finalSize, finalSize);
+          
+          console.log(`🔄 Multi-step downscale: ${canvas.width}px → ${intermediateSize}px → ${finalSize}px`);
+        } else {
+          // Direct downscale for smaller ratios
+          outputCtx.drawImage(tempCanvas, 0, 0, canvas.width, canvas.height, 0, 0, finalSize, finalSize);
+          console.log(`🔄 Direct downscale: ${canvas.width}px → ${finalSize}px`);
+        }
 
-        // Convert to WebP with dynamic quality based on target size and available budget
+        // Convert to WebP with CONSERVATIVE quality optimized for VP9 encoding
         const estimatedFrameSize = targetFileSize / totalFrames;
         
-        // More aggressive quality scaling - use the full 64KB budget better
-        const webpQuality = estimatedFrameSize > 2500 ? 0.98 :  // High quality if we have good size budget
-                           estimatedFrameSize > 1500 ? 0.95 :   // Very good quality for medium budget  
-                           estimatedFrameSize > 1000 ? 0.90 :   // Good quality for normal budget
-                           0.85;                                 // Balanced quality for tight budget
+        // MUCH more conservative WebP quality - let VP9 handle the quality
+        // WebP is just intermediate format, VP9 does the real compression
+        const webpQuality = estimatedFrameSize > 2000 ? 0.75 :  // Conservative quality
+                           estimatedFrameSize > 1500 ? 0.70 :   // Balanced quality
+                           estimatedFrameSize > 1000 ? 0.65 :   // Efficient quality
+                           0.60;                                 // Compact quality
         
-        console.log(`🎨 Frame capture: ${highResSize}px → ${finalSize}px, quality: ${webpQuality}, budget: ${estimatedFrameSize.toFixed(0)} bytes/frame`);
+        console.log(`🎨 Frame capture: ${highResSize}px → ${finalSize}px, WebP quality: ${webpQuality} (conservative for VP9), budget: ${estimatedFrameSize.toFixed(0)} bytes/frame`);
         
         outputCanvas.toBlob((blob) => {
           if (!blob) {

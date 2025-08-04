@@ -137,26 +137,30 @@ export const handler: Handler = async (event) => {
       const targetFileSize = request.targetFileSize || 60 * 1024; // Default 60KB
       const qualityMode = request.qualityMode || 'balanced';
       
-      // Calculate optimal CRF based on target size and frame count - more aggressive quality
+      // Calculate optimal CRF for VP9 with ALPHA channel - different from standard video
       const bytesPerFrame = targetFileSize / request.frames.length;
       const crfByQuality = {
-        high: bytesPerFrame > 2000 ? 15 : bytesPerFrame > 1500 ? 18 : bytesPerFrame > 1000 ? 22 : 25,   // 15-25 CRF for high quality
-        balanced: bytesPerFrame > 2000 ? 22 : bytesPerFrame > 1500 ? 25 : bytesPerFrame > 1000 ? 28 : 30, // 22-30 CRF for balanced
-        compact: bytesPerFrame > 1000 ? 30 : 33                                                          // 30-33 CRF for compact
+        // Alpha VP9 needs HIGHER CRF values to avoid artifacts
+        high: bytesPerFrame > 2000 ? 20 : bytesPerFrame > 1500 ? 23 : bytesPerFrame > 1000 ? 26 : 30,   // 20-30 CRF for alpha
+        balanced: bytesPerFrame > 2000 ? 26 : bytesPerFrame > 1500 ? 30 : bytesPerFrame > 1000 ? 33 : 35, // 26-35 CRF for alpha
+        compact: bytesPerFrame > 1000 ? 35 : 40                                                          // 35-40 CRF for alpha
       };
       
       const crf = crfByQuality[qualityMode];
       
-      // Bitrate targeting for size control
-      const targetBitrate = Math.floor((targetFileSize * 8) / request.duration / 1000); // kbps
-      const maxBitrate = Math.floor(targetBitrate * 1.5); // Allow 50% overhead
+      // Bitrate targeting optimized for alpha content
+      const alphaBitrateFactor = 1.3; // Alpha channels need ~30% more bitrate
+      const baseBitrate = Math.floor((targetFileSize * 8) / request.duration / 1000);
+      const targetBitrate = Math.floor(baseBitrate / alphaBitrateFactor); // Reduce to account for alpha overhead
+      const maxBitrate = Math.floor(targetBitrate * 1.8); // Higher overhead for alpha content
       
-      console.log('🎯 Dynamic VP9 settings:', {
+      console.log('🎯 Dynamic VP9 settings (ALPHA-OPTIMIZED):', {
         crf,
         targetBitrate: `${targetBitrate}kbps`,
         maxBitrate: `${maxBitrate}kbps`,
         bytesPerFrame: `${bytesPerFrame.toFixed(0)} bytes/frame`,
-        qualityMode
+        qualityMode,
+        alphaOptimized: true
       });
 
       // Prepare OPTIMIZED FFmpeg arguments for VP9 with alpha
@@ -172,12 +176,15 @@ export const handler: Handler = async (event) => {
         '-maxrate', `${maxBitrate}k`, // Maximum bitrate
         '-bufsize', `${targetBitrate * 2}k`, // Buffer size for rate control
         '-auto-alt-ref', '0',        // Preserve alpha channel
-        '-lag-in-frames', qualityMode === 'high' ? '5' : '0', // Lookahead for quality
-        '-deadline', qualityMode === 'high' ? 'best' : 'good', // Quality vs speed
-        '-cpu-used', qualityMode === 'high' ? '0' : '2', // Encoding speed vs quality
+        '-lag-in-frames', '0',       // No lookahead for alpha transparency
+        '-deadline', 'good',         // Good quality vs speed balance  
+        '-cpu-used', '1',            // Slower encoding for better quality
         '-row-mt', '1',              // Safe multi-threading
         '-threads', '1',             // Single thread for predictable memory
-        '-tile-columns', '0',        // Disable tiling
+        '-tile-columns', '0',        // Disable tiling for small content
+        '-frame-parallel', '0',      // Disable frame parallelism for alpha
+        '-aq-mode', '2',             // Adaptive quantization for better quality
+        '-tune-content', 'default',  // Default tuning for mixed content
         '-frame-parallel', '0',      // Disable frame parallelism for alpha
         '-g', String(request.frames.length), // Keyframe interval = full loop
         '-pass', '1',                // Two-pass encoding for better quality
@@ -232,12 +239,15 @@ export const handler: Handler = async (event) => {
         '-maxrate', `${maxBitrate}k`,
         '-bufsize', `${targetBitrate * 2}k`,
         '-auto-alt-ref', '0',
-        '-lag-in-frames', qualityMode === 'high' ? '5' : '0',
-        '-deadline', qualityMode === 'high' ? 'best' : 'good',
-        '-cpu-used', qualityMode === 'high' ? '0' : '2',
+        '-lag-in-frames', '0',       // No lookahead for alpha transparency
+        '-deadline', 'good',         // Good quality vs speed balance
+        '-cpu-used', '1',            // Slower encoding for better quality
         '-row-mt', '1',
         '-threads', '1',
         '-tile-columns', '0',
+        '-frame-parallel', '0',      // Disable frame parallelism for alpha
+        '-aq-mode', '2',             // Adaptive quantization for better quality
+        '-tune-content', 'default',  // Default tuning for mixed content
         '-frame-parallel', '0',
         '-g', String(request.frames.length),
         '-pass', '2',                // Second pass
