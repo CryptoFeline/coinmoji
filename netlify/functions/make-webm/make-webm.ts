@@ -136,40 +136,32 @@ export const handler: Handler = async (event) => {
       const avgWebPFrameSize = totalWebPSize / request.frames.length;
       console.log(`✅ Written ${request.frames.length} WebP frames, total: ${(totalWebPSize/1024).toFixed(1)}KB, avg: ${(avgWebPFrameSize/1024).toFixed(2)}KB per frame`);
 
-      // 🎯 SMART CRF SELECTION: Choose optimal CRF based on input complexity for sub-64KB output
-      // Now that we've eliminated downscaling artifacts, focus on intelligent compression
-      const targetFileSize = request.targetFileSize || 64 * 1024; // Use full 64KB limit
+      // Dynamic VP9 settings based on quality mode and target size
+      const targetFileSize = request.targetFileSize || 60 * 1024; // Default 60KB
       const qualityMode = request.qualityMode || 'balanced';
       
-      console.log(`🎯 SMART COMPRESSION: Targeting ${(targetFileSize/1024).toFixed(0)}KB with intelligent CRF selection`);
+      // Calculate optimal CRF for VP9 - FORCE MAXIMUM QUALITY regardless of budget
+      const bytesPerFrame = targetFileSize / request.frames.length;
       
-      // Estimate complexity from WebP frame sizes and choose appropriate CRF
-      const estimatedComplexity = avgWebPFrameSize / 1024; // KB per frame
+      // EXPERIMENT: Try absolute maximum quality CRF=1 to see if graininess is from CRF
+      const crf = qualityMode === 'high' ? 1 :           // ABSOLUTE MAXIMUM quality
+                  qualityMode === 'balanced' ? 5 :       // Still very high quality  
+                  10;                                     // High quality for compact
       
-      let finalCrf: number;
-      if (estimatedComplexity > 3.0) {
-        finalCrf = 18; // High complexity content (animations, detailed textures)
-      } else if (estimatedComplexity > 2.0) {
-        finalCrf = 15; // Medium complexity content
-      } else if (estimatedComplexity > 1.5) {
-        finalCrf = 12; // Low-medium complexity
-      } else {
-        finalCrf = 10; // Simple content, can use lower CRF for better quality
-      }
+      console.log(`🔬 EXPERIMENTAL: Using CRF=${crf} for maximum quality test (bytes per frame: ${bytesPerFrame.toFixed(0)})`);
       
-      console.log(`🧠 INTELLIGENT CRF: ${finalCrf} (based on ${estimatedComplexity.toFixed(1)}KB avg frame complexity)`);
-      
-      // Calculate conservative bitrate for reliable size control
+      // Bitrate targeting - EXTREMELY AGGRESSIVE for maximum quality test
       const baseBitrate = Math.floor((targetFileSize * 8) / request.duration / 1000);
-      const targetBitrate = Math.floor(baseBitrate * 1.2); // Conservative 20% overhead
-      const maxBitrate = Math.floor(targetBitrate * 1.8); // Reasonable peaks
+      const targetBitrate = Math.floor(baseBitrate * 2.5); // VERY AGGRESSIVE bitrate
+      const maxBitrate = Math.floor(targetBitrate * 3.0); // Allow massive peaks for quality
       
-      console.log('🎯 SMART VP9 settings for sub-64KB output:', {
-        finalCrf,
+      console.log('🎯 EXPERIMENTAL VP9 settings (CRF=1 MAXIMUM QUALITY TEST):', {
+        crf,
         targetBitrate: `${targetBitrate}kbps`,
         maxBitrate: `${maxBitrate}kbps`,
-        estimatedComplexity: `${estimatedComplexity.toFixed(1)}KB/frame`,
-        targetSize: `${(targetFileSize/1024).toFixed(0)}KB`,
+        bytesPerFrame: `${bytesPerFrame.toFixed(0)} bytes/frame`,
+        qualityMode,
+        experimentalMode: 'CRF=1 quality test',
         avgWebPFrameSize: `${(avgWebPFrameSize/1024).toFixed(2)}KB`
       });
 
@@ -181,7 +173,7 @@ export const handler: Handler = async (event) => {
         '-i', join(tmpDir, 'f%04d.webp'),
         '-pix_fmt', 'yuva420p',      // VP9 with alpha channel
         '-c:v', 'libvpx-vp9',        // VP9 codec
-        '-crf', String(finalCrf),    // Use optimal CRF from stepping
+        '-crf', String(crf),         // Dynamic quality based on target size
         '-b:v', `${targetBitrate}k`, // Target bitrate for size control
         '-maxrate', `${maxBitrate}k`, // Maximum bitrate
         '-bufsize', `${targetBitrate * 2}k`, // Buffer size for rate control
@@ -243,7 +235,7 @@ export const handler: Handler = async (event) => {
         '-i', join(tmpDir, 'f%04d.webp'),
         '-pix_fmt', 'yuva420p',
         '-c:v', 'libvpx-vp9',
-        '-crf', String(finalCrf),
+        '-crf', String(crf),
         '-b:v', `${targetBitrate}k`,
         '-maxrate', `${maxBitrate}k`,
         '-bufsize', `${targetBitrate * 2}k`,
