@@ -1,6 +1,6 @@
 import { Handler } from '@netlify/functions';
 import puppeteer from 'puppeteer-core';
-import chromium from '@sparticuz/chromium';
+import chromium from 'chrome-aws-lambda';
 
 interface RenderFramesRequest {
   settings: {
@@ -46,17 +46,13 @@ export const handler: Handler = async (event) => {
 
     console.log('🚀 Launching serverless Chrome...');
 
-    // Launch headless Chrome with serverless-optimized settings
+    // Launch headless Chrome with chrome-aws-lambda
     browser = await puppeteer.launch({
-      args: [
-        ...chromium.args,
-        '--hide-scrollbars',
-        '--disable-web-security',
-        '--disable-features=VizDisplayCompositor',
-      ],
-      defaultViewport: { width: 400, height: 400 },
-      executablePath: await chromium.executablePath(),
-      headless: true,
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath,
+      headless: chromium.headless,
+      ignoreHTTPSErrors: true,
     });
 
     console.log('✅ Chrome launched successfully');
