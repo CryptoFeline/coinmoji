@@ -489,7 +489,7 @@ var gifuct = (() => {
   });
 
   // node_modules/gifuct-js/lib/index.js
-  var require_index = __commonJS({
+  var require_lib2 = __commonJS({
     "node_modules/gifuct-js/lib/index.js"(exports) {
       Object.defineProperty(exports, "__esModule", {
         value: true
@@ -570,5 +570,5 @@ var gifuct = (() => {
       exports.decompressFrames = decompressFrames;
     }
   });
-  return require_index();
+  return require_lib2();
 })();

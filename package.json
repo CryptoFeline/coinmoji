@@ -20,6 +20,7 @@
     "@types/three": "^0.158.0",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.16",
+    "esbuild": "^0.21.5",
     "fflate": "^0.8.1",
     "framer-motion": "^10.16.16",
     "gifuct-js": "^2.1.2",
