@@ -3,29 +3,25 @@
   command = "npm ci && ./scripts/bundle-ffmpeg.sh && npm run build"
   functions = "netlify/functions"
 
-# Add Netlify Chromium plugin for server-side rendering
-[[plugins]]
-package = "netlify-plugin-chromium"
-
 [functions]
   node_bundler = "esbuild"
   # Default timeout for all functions
   "*" = { timeout = 60 }
 
-# render-frames function needs Chromium for server-side rendering
+# render-frames function needs @sparticuz/chromium for server-side rendering
 [functions."render-frames"]
   timeout = 60
-  external_node_modules = ["chromium"]
-  included_files = ["node_modules/chromium/lib/chromium/**"]
+  external_node_modules = ["@sparticuz/chromium"]
+  included_files = ["node_modules/@sparticuz/chromium/bin/**"]
 
 # make-webm function already has bundled FFmpeg binary
 [functions."make-webm"]
   timeout = 60
 
 [functions.environment]
-  # Upgrade to Node.js 20 for better Puppeteer support
-  NODE_VERSION = "20"
-  AWS_LAMBDA_JS_RUNTIME = "nodejs20.x"
+  # Pin to Node.js 22 runtime to match build environment
+  NODE_VERSION = "22"
+  AWS_LAMBDA_JS_RUNTIME = "nodejs22.x"
 
 [[redirects]]
   from = "/api/*"

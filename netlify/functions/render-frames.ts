@@ -1,6 +1,6 @@
 import { Handler } from '@netlify/functions';
 import puppeteer from 'puppeteer-core';
-import { path as chromiumPath } from 'chromium';
+import chromium from '@sparticuz/chromium';
 
 interface RenderFramesRequest {
   settings: {
@@ -44,36 +44,20 @@ export const handler: Handler = async (event) => {
       exportSettings: request.exportSettings
     });
 
-    console.log('🚀 Launching Chrome via chromium package...');
+    console.log('🚀 Launching Chrome via @sparticuz/chromium...');
     console.log('🔍 Environment check:', {
       NODE_ENV: process.env.NODE_ENV,
       AWS_LAMBDA_JS_RUNTIME: process.env.AWS_LAMBDA_JS_RUNTIME,
-      chromiumPath: chromiumPath || 'missing'
+      chromeExecutable: 'from @sparticuz/chromium'
     });
 
-    // Use chromium package path directly (bundled with function)
-    if (!chromiumPath) {
-      throw new Error('Chromium path not available from chromium package');
-    }
+    console.log('✅ Using @sparticuz/chromium for serverless Chrome');
 
-    console.log('✅ Using chromium package executable at:', chromiumPath);
-
-    // Launch Chrome with chromium package executable
+    // Launch Chrome with @sparticuz/chromium
     browser = await puppeteer.launch({
-      executablePath: chromiumPath,
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--disable-web-security',
-        '--disable-features=VizDisplayCompositor',
-        '--disable-background-timer-throttling',
-        '--disable-renderer-backgrounding',
-        '--disable-backgrounding-occluded-windows',
-        '--window-size=400,400'
-      ]
+      executablePath: await chromium.executablePath(),
+      args: chromium.args,
+      headless: 'shell'
     });
 
     console.log('✅ Chrome launched successfully');
