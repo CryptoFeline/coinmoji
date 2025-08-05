@@ -14,6 +14,7 @@ interface RenderFramesRequest {
     overlayUrl?: string;
     dualOverlay?: boolean;
     overlayUrl2?: string;
+    gifAnimationSpeed: 'slow' | 'medium' | 'fast';
     lightColor: string;
     lightStrength: 'low' | 'medium' | 'high';
   };
@@ -194,36 +195,129 @@ export const handler: Handler = async (event) => {
       directionalLight.position.set(2, 2, 2);
       scene.add(directionalLight);
 
-      // Add overlay support if provided
+      // Add overlay support with animated GIF handling
+      let overlayTexture: THREE.Texture | null = null;
+      let gifAnimationState: any = null;
+      
       if (settings.overlayUrl) {
         console.log('🖼️ Loading overlay texture:', settings.overlayUrl);
         
         try {
-          const textureLoader = new THREE.TextureLoader();
-          const overlayTexture = await new Promise<THREE.Texture>((resolve, reject) => {
-            textureLoader.load(
-              settings.overlayUrl!,
-              resolve,
-              undefined,
-              reject
-            );
-          });
+          const isGif = /\.gif$/i.test(settings.overlayUrl);
           
-          // Create overlay material
-          const overlayMaterial = new THREE.MeshBasicMaterial({
-            map: overlayTexture,
-            transparent: true,
-            alphaTest: 0.1,
-            side: THREE.DoubleSide
-          });
+          if (isGif) {
+            console.log('🎞️ Processing animated GIF overlay...');
+            
+            // Load gifuct-js dynamically for server-side GIF parsing
+            const { parseGIF, decompressFrames } = await import('gifuct-js');
+            
+            // Fetch and parse GIF
+            const response = await fetch(settings.overlayUrl);
+            const buffer = await response.arrayBuffer();
+            const gif = parseGIF(buffer);
+            const frames = decompressFrames(gif, true);
+            
+            console.log('🎯 GIF parsed on server:', { 
+              frameCount: frames.length,
+              width: gif.lsd.width,
+              height: gif.lsd.height
+            });
+            
+            // Create canvas for GIF frames
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d')!;
+            canvas.width = gif.lsd.width;
+            canvas.height = gif.lsd.height;
+            
+            overlayTexture = new THREE.CanvasTexture(canvas);
+            overlayTexture.colorSpace = THREE.SRGBColorSpace;
+            overlayTexture.flipY = true;
+            
+            // Frame-rate-based speed mapping (identical to client)
+            const getFrameInterval = () => {
+              const intervalMap = {
+                slow: 4,      // Change frame every 4 renders (15fps effective)
+                medium: 2,    // Change frame every 2 renders (30fps effective)  
+                fast: 1       // Change frame every render (60fps effective)
+              };
+              return intervalMap[settings.gifAnimationSpeed];
+            };
+            
+            // GIF animation state
+            gifAnimationState = {
+              frames,
+              currentFrame: 0,
+              frameCounter: 0,
+              frameInterval: getFrameInterval(),
+              canvas,
+              ctx
+            };
+            
+            // Helper to draw frame to canvas (identical to client)
+            const drawFrame = (frameIndex: number) => {
+              const frame = frames[frameIndex];
+              const imageData = new ImageData(
+                new Uint8ClampedArray(frame.patch),
+                frame.dims.width,
+                frame.dims.height
+              );
+              
+              // Clear canvas (handle disposal method)
+              if (frame.disposalType === 2) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+              }
+              
+              // Create temporary canvas for the frame
+              const tempCanvas = document.createElement('canvas');
+              const tempCtx = tempCanvas.getContext('2d')!;
+              tempCanvas.width = frame.dims.width;
+              tempCanvas.height = frame.dims.height;
+              tempCtx.putImageData(imageData, 0, 0);
+              
+              // Draw frame at correct position
+              ctx.drawImage(
+                tempCanvas,
+                frame.dims.left,
+                frame.dims.top,
+                frame.dims.width,
+                frame.dims.height
+              );
+            };
+            
+            // Draw initial frame
+            drawFrame(0);
+            
+            console.log('✅ Animated GIF overlay loaded and ready');
+          } else {
+            // Static image loading (unchanged)
+            const textureLoader = new THREE.TextureLoader();
+            overlayTexture = await new Promise<THREE.Texture>((resolve, reject) => {
+              textureLoader.load(
+                settings.overlayUrl!,
+                resolve,
+                undefined,
+                reject
+              );
+            });
+            console.log('✅ Static overlay texture loaded');
+          }
           
-          // Add overlay to front face
-          const overlayGeometry = new THREE.PlaneGeometry(1.8, 1.8);
-          const overlay = new THREE.Mesh(overlayGeometry, overlayMaterial);
-          overlay.position.z = 0.06; // Slightly in front of coin face
-          coinGroup.add(overlay);
+          // Create overlay material and mesh
+          if (overlayTexture) {
+            const overlayMaterial = new THREE.MeshBasicMaterial({
+              map: overlayTexture,
+              transparent: true,
+              alphaTest: 0.1,
+              side: THREE.DoubleSide
+            });
+            
+            // Add overlay to front face
+            const overlayGeometry = new THREE.PlaneGeometry(1.8, 1.8);
+            const overlay = new THREE.Mesh(overlayGeometry, overlayMaterial);
+            overlay.position.z = 0.06; // Slightly in front of coin face
+            coinGroup.add(overlay);
+          }
           
-          console.log('✅ Overlay texture loaded and applied');
         } catch (overlayError) {
           console.warn('⚠️ Failed to load overlay texture:', overlayError);
         }
@@ -236,6 +330,54 @@ export const handler: Handler = async (event) => {
       const { exportSettings } = renderRequest;
       
       for (let i = 0; i < exportSettings.frames; i++) {
+        // Update animated GIF texture if present (identical to client)
+        if (gifAnimationState && gifAnimationState.frames.length > 1) {
+          gifAnimationState.frameCounter++;
+          
+          // Only advance frame when we hit the interval
+          if (gifAnimationState.frameCounter >= gifAnimationState.frameInterval) {
+            // Advance to next frame
+            gifAnimationState.currentFrame = (gifAnimationState.currentFrame + 1) % gifAnimationState.frames.length;
+            
+            // Draw new frame (identical to client logic)
+            const frame = gifAnimationState.frames[gifAnimationState.currentFrame];
+            const imageData = new ImageData(
+              new Uint8ClampedArray(frame.patch),
+              frame.dims.width,
+              frame.dims.height
+            );
+            
+            // Clear canvas (handle disposal method)
+            if (frame.disposalType === 2) {
+              gifAnimationState.ctx.clearRect(0, 0, gifAnimationState.canvas.width, gifAnimationState.canvas.height);
+            }
+            
+            // Create temporary canvas for the frame
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d')!;
+            tempCanvas.width = frame.dims.width;
+            tempCanvas.height = frame.dims.height;
+            tempCtx.putImageData(imageData, 0, 0);
+            
+            // Draw frame at correct position
+            gifAnimationState.ctx.drawImage(
+              tempCanvas,
+              frame.dims.left,
+              frame.dims.top,
+              frame.dims.width,
+              frame.dims.height
+            );
+            
+            // Mark texture as needing update
+            if (overlayTexture) {
+              overlayTexture.needsUpdate = true;
+            }
+            
+            // Reset counter
+            gifAnimationState.frameCounter = 0;
+          }
+        }
+        
         // Identical rotation calculation to client
         const frameProgress = i / (exportSettings.frames - 1);
         const totalRotation = frameProgress * Math.PI * 2;

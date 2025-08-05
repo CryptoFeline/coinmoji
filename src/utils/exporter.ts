@@ -369,6 +369,7 @@ export class CoinExporter {
       overlayUrl: '',
       dualOverlay: false,
       overlayUrl2: '',
+      gifAnimationSpeed: 'medium' as const,
       lightColor: '#ffffff',
       lightStrength: 'medium' as const,
     };
