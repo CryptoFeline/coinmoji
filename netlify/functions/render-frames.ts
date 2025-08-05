@@ -129,28 +129,34 @@ export const handler: Handler = async (event) => {
 
       console.log('🎯 Created identical Three.js setup');
 
-      // Create coin geometry (identical to client)
+      // Create coin geometry (IDENTICAL to CoinEditor.tsx)
+      const R = 1.0;
+      const T = 0.35;
+      const bulge = 0.10;
+      const radialSegments = 128;
+      const capSegments = 32;
+      
       const coinGroup = new THREE.Group();
       const turntable = new THREE.Group();
       
-      // Coin geometry
-      const rimGeometry = new THREE.CylinderGeometry(1, 1, 0.1, 64);
-      const faceGeometry = new THREE.SphereGeometry(1, 64, 32, 0, Math.PI * 2, 0, Math.PI / 2);
+      // Rim material (identical to client)
+      const rimMat = new THREE.MeshStandardMaterial({
+        color: 0xb87333,
+        metalness: 1,
+        roughness: 0.34,
+        envMapIntensity: 1
+      });
+      const faceMat = rimMat.clone();
       
-      // Materials based on settings
-      let material;
+      // Apply user's material settings
       const { settings } = renderRequest;
       
       if (settings.fillMode === 'solid') {
-        material = new THREE.MeshStandardMaterial({
-          color: settings.bodyColor,
-          metalness: settings.metallic ? 0.8 : 0.1,
-          roughness: settings.metallic ? 0.2 : 0.7,
-          transparent: true,
-          side: THREE.DoubleSide
-        });
+        faceMat.color.set(settings.bodyColor);
+        faceMat.metalness = settings.metallic ? 0.8 : 0.1;
+        faceMat.roughness = settings.metallic ? 0.2 : 0.7;
       } else {
-        // Gradient material implementation
+        // Gradient material implementation (identical to client)
         const canvas = document.createElement('canvas');
         canvas.width = 256;
         canvas.height = 256;
@@ -164,26 +170,38 @@ export const handler: Handler = async (event) => {
         ctx.fillRect(0, 0, 256, 256);
         
         const texture = new THREE.CanvasTexture(canvas);
-        
-        material = new THREE.MeshStandardMaterial({
-          map: texture,
-          metalness: settings.metallic ? 0.8 : 0.1,
-          roughness: settings.metallic ? 0.2 : 0.7,
-          transparent: true,
-          side: THREE.DoubleSide
-        });
+        faceMat.map = texture;
+        faceMat.metalness = settings.metallic ? 0.8 : 0.1;
+        faceMat.roughness = settings.metallic ? 0.2 : 0.7;
       }
-
-      // Create coin meshes
-      const rim = new THREE.Mesh(rimGeometry, material);
-      const frontFace = new THREE.Mesh(faceGeometry, material);
-      const backFace = new THREE.Mesh(faceGeometry, material);
       
-      frontFace.position.z = 0.05;
-      backFace.position.z = -0.05;
-      backFace.rotation.x = Math.PI;
+      // Coin geometry (IDENTICAL to CoinEditor.tsx)
+      const cylinderGeometry = new THREE.CylinderGeometry(R, R, T, radialSegments, 1, true);
+      const cylinder = new THREE.Mesh(cylinderGeometry, rimMat);
       
-      coinGroup.add(rim, frontFace, backFace);
+      // Face creation function (IDENTICAL to CoinEditor.tsx)
+      const createFace = (isTop) => {
+        const geometry = new THREE.SphereGeometry(
+          R,
+          radialSegments,
+          capSegments,
+          0,
+          Math.PI * 2,
+          isTop ? 0 : Math.PI / 2,
+          Math.PI / 2
+        );
+        geometry.scale(1, bulge / R, 1);
+        geometry.translate(0, isTop ? T / 2 : -T / 2, 0);
+        return new THREE.Mesh(geometry, faceMat);
+      };
+      
+      const topFace = createFace(true);
+      const bottomFace = createFace(false);
+      
+      // Assemble coin (identical to client)
+      coinGroup.add(cylinder);
+      coinGroup.add(topFace);
+      coinGroup.add(bottomFace);
       turntable.add(coinGroup);
       scene.add(turntable);
 
@@ -229,9 +247,10 @@ export const handler: Handler = async (event) => {
             canvas.width = gif.lsd.width;
             canvas.height = gif.lsd.height;
             
-            overlayTexture = new THREE.CanvasTexture(canvas);
-            overlayTexture.colorSpace = THREE.SRGBColorSpace;
-            overlayTexture.flipY = true;
+            const canvasTexture = new THREE.CanvasTexture(canvas);
+            canvasTexture.colorSpace = THREE.SRGBColorSpace;
+            canvasTexture.flipY = true;
+            overlayTexture = canvasTexture;
             
             // Frame-rate-based speed mapping (identical to client)
             const getFrameInterval = () => {
@@ -302,19 +321,29 @@ export const handler: Handler = async (event) => {
             console.log('✅ Static overlay texture loaded');
           }
           
-          // Create overlay material and mesh
+          // Create overlay material and mesh (IDENTICAL to client)
           if (overlayTexture) {
             const overlayMaterial = new THREE.MeshBasicMaterial({
               map: overlayTexture,
               transparent: true,
               alphaTest: 0.1,
-              side: THREE.DoubleSide
+              side: THREE.FrontSide
             });
             
-            // Add overlay to front face
-            const overlayGeometry = new THREE.PlaneGeometry(1.8, 1.8);
+            // Create overlay geometry that matches the coin face EXACTLY
+            const overlayGeometry = new THREE.SphereGeometry(
+              R * 1.01, // Slightly larger than coin face (identical to client)
+              radialSegments,
+              capSegments,
+              0,
+              Math.PI * 2,
+              0,
+              Math.PI / 2
+            );
+            overlayGeometry.scale(1, bulge / R, 1);
+            overlayGeometry.translate(0, T / 2, 0);
+            
             const overlay = new THREE.Mesh(overlayGeometry, overlayMaterial);
-            overlay.position.z = 0.06; // Slightly in front of coin face
             coinGroup.add(overlay);
           }
           
