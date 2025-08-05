@@ -77,6 +77,9 @@ export const handler: Handler = async (event) => {
 
     console.log('🎨 Injecting Three.js and creating scene...');
 
+    // Set page timeout to prevent hanging
+    page.setDefaultTimeout(20000); // 20 second timeout for all operations
+
     // Inject Three.js and create identical scene
     const framesBase64 = await page.evaluate(async (renderRequest) => {
       // Create script element to load Three.js
@@ -84,11 +87,11 @@ export const handler: Handler = async (event) => {
       script.src = 'https://unpkg.com/three@0.158.0/build/three.min.js';
       document.head.appendChild(script);
       
-      // Wait for Three.js to load with timeout
+      // Wait for Three.js to load with shorter timeout for serverless
       await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
-          reject(new Error('Three.js loading timeout'));
-        }, 10000); // 10 second timeout
+          reject(new Error('Three.js loading timeout (5s limit for serverless)'));
+        }, 5000); // Reduced to 5 seconds for faster failure
         
         script.onload = () => {
           clearTimeout(timeout);
@@ -237,8 +240,8 @@ export const handler: Handler = async (event) => {
       turntable.add(coinGroup);
       scene.add(turntable);
 
-      // Add IDENTICAL lighting and environment to CoinEditor.tsx
-      console.log('💡 Setting up identical lighting and environment...');
+      // Add IDENTICAL lighting to CoinEditor.tsx (SIMPLIFIED for serverless reliability)
+      console.log('💡 Setting up simplified lighting for serverless stability...');
       
       // Hemisphere + Directional lights (exact match to CoinEditor.tsx)
       const hemiLight = new THREE.HemisphereLight(0xffffff, 0x222233, 0.45);
@@ -248,22 +251,16 @@ export const handler: Handler = async (event) => {
       dirLight.position.set(3, 5, 2);
       scene.add(dirLight);
       
-      // Environment map (identical to CoinEditor.tsx for realistic reflections)
-      console.log('🌍 Loading environment map for metallic reflections...');
-      const loader = new THREE.CubeTextureLoader();
-      const envMap = await new Promise((resolve, reject) => {
-        loader.load([
-          'https://threejs.org/examples/textures/cube/Bridge2/posx.jpg',
-          'https://threejs.org/examples/textures/cube/Bridge2/negx.jpg',
-          'https://threejs.org/examples/textures/cube/Bridge2/posy.jpg',
-          'https://threejs.org/examples/textures/cube/Bridge2/negy.jpg',
-          'https://threejs.org/examples/textures/cube/Bridge2/posz.jpg',
-          'https://threejs.org/examples/textures/cube/Bridge2/negz.jpg'
-        ], resolve, undefined, reject);
-      });
-      scene.environment = envMap;
+      // SIMPLIFIED: Skip environment map loading to prevent Chrome timeout
+      // Instead, use a basic solid color environment for minimal reflections
+      console.log('🌍 Using simplified environment for serverless stability...');
+      scene.environment = null; // No HDR environment to avoid network timeout
       
-      console.log('✅ Environment map loaded - metallic reflections ready');
+      // Add basic ambient light to compensate for missing environment reflections
+      const ambientLight = new THREE.AmbientLight(0x404040, 0.2);
+      scene.add(ambientLight);
+      
+      console.log('✅ Simplified lighting applied - ready for reliable rendering');
 
       // Apply user lighting settings (EXACT match to CoinEditor.tsx)
       console.log('💡 Applying user lighting settings...');
