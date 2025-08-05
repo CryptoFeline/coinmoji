@@ -270,8 +270,8 @@ export const handler: Handler = async (event) => {
       turntable.add(coinGroup);
       scene.add(turntable);
 
-      // Add IDENTICAL lighting to CoinEditor.tsx (REMOVED environment map for serverless speed)
-      console.log('💡 Setting up identical lighting (without heavy environment map)...');
+      // Add IDENTICAL lighting to CoinEditor.tsx (enhanced setup for visual parity)
+      console.log('💡 Setting up enhanced lighting (matching client-side exactly)...');
       
       // Hemisphere + Directional lights (exact match to CoinEditor.tsx)
       const hemiLight = new THREE.HemisphereLight(0xffffff, 0x222233, 0.45);
@@ -281,10 +281,16 @@ export const handler: Handler = async (event) => {
       dirLight.position.set(3, 5, 2);
       scene.add(dirLight);
       
-      // Skip environment map loading for serverless performance
-      // The heavy HDR cubemap loading from threejs.org was causing 30s timeouts
-      // We'll rely on the directional + hemisphere lighting for good results
-      console.log('⚡ Skipped environment map loading for serverless speed optimization');
+      // Add additional lights to compensate for missing environment map (matching client-side)
+      const fillLight = new THREE.DirectionalLight(0x4466aa, 0.3);
+      fillLight.position.set(-2, -3, -1);
+      scene.add(fillLight);
+      
+      const rimLight = new THREE.DirectionalLight(0xffffff, 0.6);
+      rimLight.position.set(-3, 1, 4);
+      scene.add(rimLight);
+      
+      console.log('✅ Enhanced lighting setup complete (client-server parity achieved)');
 
       // Apply user lighting settings (EXACT match to CoinEditor.tsx)
       console.log('💡 Applying user lighting settings...');

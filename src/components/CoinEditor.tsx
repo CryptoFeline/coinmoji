@@ -37,7 +37,7 @@ export interface CoinEditorRef {
 const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '', settings: externalSettings }, ref) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [loadingProgress] = useState(100); // No environment map loading needed
   
   // Refs to track current settings for animation loop
   const rotationSpeedRef = useRef<'slow' | 'medium' | 'fast'>('medium');
@@ -148,36 +148,27 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
 
     mountRef.current.appendChild(renderer.domElement);
 
-    // Lighting
+    // Lighting setup (IDENTICAL to server-side for perfect visual parity)
     const hemiLight = new THREE.HemisphereLight(0xffffff, 0x222233, 0.45);
     scene.add(hemiLight);
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
     dirLight.position.set(3, 5, 2);
     scene.add(dirLight);
 
-    // Environment map with loading progress
-    const loader = new THREE.CubeTextureLoader();
-    const envMap = loader.load([
-      'https://threejs.org/examples/textures/cube/Bridge2/posx.jpg',
-      'https://threejs.org/examples/textures/cube/Bridge2/negx.jpg',
-      'https://threejs.org/examples/textures/cube/Bridge2/posy.jpg',
-      'https://threejs.org/examples/textures/cube/Bridge2/negy.jpg',
-      'https://threejs.org/examples/textures/cube/Bridge2/posz.jpg',
-      'https://threejs.org/examples/textures/cube/Bridge2/negz.jpg'
-    ], 
-    () => {
-      setLoadingProgress(100);
-      setTimeout(() => setIsLoading(false), 500);
-    },
-    (progress) => {
-      setLoadingProgress((progress.loaded / progress.total) * 100);
-    },
-    (error) => {
-      console.error('Error loading environment map:', error);
-      setIsLoading(false);
-    }
-    );
-    scene.environment = envMap;
+    // Add additional lights to compensate for missing environment map
+    const fillLight = new THREE.DirectionalLight(0x4466aa, 0.3);
+    fillLight.position.set(-2, -3, -1);
+    scene.add(fillLight);
+    
+    const rimLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    rimLight.position.set(-3, 1, 4);
+    scene.add(rimLight);
+
+    // Skip environment map for performance and visual parity with server-side
+    console.log('⚡ Using enhanced lighting setup for optimal performance and server parity');
+    
+    // Set loading complete immediately since no async resources are loaded
+    setTimeout(() => setIsLoading(false), 100);
 
     // Coin parameters
     const R = 1.0;
@@ -830,7 +821,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           topMaterial.needsUpdate = true;
           sceneRef.current!.overlayTop.visible = true;
           
-          // Bottom face handling - special case for video textures
+          // Bottom face handling - special case for animated textures
           if (texture instanceof THREE.VideoTexture) {
             // For video textures, we can't clone them safely, so we reuse the same video element
             // but create a new VideoTexture with corrected orientation
@@ -847,8 +838,24 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
               bottomTexture.userData.dispose = (texture as any).userData.dispose;
             }
             botMaterial.map = bottomTexture;
+          } else if (texture instanceof THREE.CanvasTexture) {
+            // For CanvasTextures (like animated GIFs), share the same canvas but create new texture
+            const bottomTexture = new THREE.CanvasTexture((texture as any).image);
+            bottomTexture.colorSpace = THREE.SRGBColorSpace;
+            bottomTexture.flipY = true;
+            bottomTexture.wrapS = THREE.RepeatWrapping;
+            bottomTexture.repeat.x = -1; // Horizontal flip to fix mirroring
+            bottomTexture.needsUpdate = true;
+            // CRITICAL: Copy the animation update function for GIF animations
+            if ((texture as any).userData?.update) {
+              bottomTexture.userData = { update: (texture as any).userData.update };
+            }
+            if ((texture as any).userData?.dispose) {
+              bottomTexture.userData.dispose = (texture as any).userData.dispose;
+            }
+            botMaterial.map = bottomTexture;
           } else {
-            // For non-video textures, clone and fix orientation
+            // For static textures, clone and fix orientation
             const bottomTexture = texture.clone();
             bottomTexture.flipY = true;
             bottomTexture.wrapS = THREE.RepeatWrapping;
