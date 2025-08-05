@@ -850,7 +850,9 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           } else {
             // For non-video textures, clone as before
             const bottomTexture = texture.clone();
-            bottomTexture.flipY = false;
+            bottomTexture.flipY = true;
+            // we also need to flip on X
+            bottomTexture.wrapS = THREE.RepeatWrapping;
             bottomTexture.needsUpdate = true;
             botMaterial.map = bottomTexture;
           }
