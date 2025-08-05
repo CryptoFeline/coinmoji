@@ -122,7 +122,7 @@ export const handler: Handler = async (event) => {
       camera.position.set(0, 0, 2.8);
       camera.lookAt(0, 0, 0);
 
-      // Create identical renderer
+      // Create identical renderer (ENHANCED to match client quality)
       const renderer = new THREE.WebGLRenderer({
         antialias: true,
         alpha: true,
@@ -133,7 +133,7 @@ export const handler: Handler = async (event) => {
       renderer.setSize(100, 100); // Direct 100px rendering
       renderer.setClearColor(0x000000, 0);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
-      renderer.setPixelRatio(1);
+      renderer.setPixelRatio(2); // IMPROVED: Use higher pixel ratio for quality
       
       // Append to DOM (required for WebGL context)
       document.body.appendChild(renderer.domElement);
@@ -170,15 +170,15 @@ export const handler: Handler = async (event) => {
         geometry.setAttribute('uv', new THREE.BufferAttribute(uvArray, 2));
       };
 
-      // Create coin geometry (OPTIMIZED for serverless performance)
+            // Create coin geometry (RESTORED to exact client complexity)
       const { settings } = renderRequest;
       
-      // Coin parameters (reduced complexity for server-side speed)
+      // Coin parameters (IDENTICAL to CoinEditor.tsx for exact visual match)
       const R = 1.0;
       const T = 0.35;
       const bulge = 0.10;
-      const radialSegments = 64; // Reduced from 128 for faster processing
-      const capSegments = 16;    // Reduced from 32 for faster processing
+      const radialSegments = 128; // RESTORED from 64 - exact match to client
+      const capSegments = 32;     // RESTORED from 16 - exact match to client
 
       // Materials (identical to CoinEditor.tsx)
       const rimMat = new THREE.MeshStandardMaterial({
@@ -243,8 +243,11 @@ export const handler: Handler = async (event) => {
       turntable.add(coinGroup);
       scene.add(turntable);
 
-      // Add IDENTICAL lighting to CoinEditor.tsx (REMOVED environment map for serverless speed)
-      console.log('💡 Setting up identical lighting (without heavy environment map)...');
+      // Add ENHANCED lighting to match CoinEditor.tsx visual quality
+      console.log('💡 Setting up enhanced lighting with synthetic environment...');
+      
+      // Add IDENTICAL lighting to CoinEditor.tsx with lightweight environment simulation
+      console.log('💡 Setting up identical lighting with environment simulation...');
       
       // Hemisphere + Directional lights (exact match to CoinEditor.tsx)
       const hemiLight = new THREE.HemisphereLight(0xffffff, 0x222233, 0.45);
@@ -254,19 +257,39 @@ export const handler: Handler = async (event) => {
       dirLight.position.set(3, 5, 2);
       scene.add(dirLight);
       
-      // Skip environment map loading for serverless performance
-      // The heavy HDR cubemap loading from threejs.org was causing 30s timeouts
-      // We'll rely on the directional + hemisphere lighting for good results
-      console.log('⚡ Skipped environment map loading for serverless speed optimization');
+      // Create lightweight environment map alternative for metallic reflections
+      // Instead of 6 HDR images, use a procedural gradient cubemap
+      console.log('🌍 Creating lightweight environment simulation...');
+      const envSize = 64; // Small texture for performance
+      const envCanvas = document.createElement('canvas');
+      envCanvas.width = envSize;
+      envCanvas.height = envSize;
+      const envCtx = envCanvas.getContext('2d')!;
+      
+      // Create simple gradient that simulates HDR environment
+      const gradient = envCtx.createLinearGradient(0, 0, envSize, envSize);
+      gradient.addColorStop(0, '#87CEEB'); // Sky blue
+      gradient.addColorStop(0.5, '#F0F8FF'); // Alice blue  
+      gradient.addColorStop(1, '#B0C4DE'); // Light steel blue
+      
+      envCtx.fillStyle = gradient;
+      envCtx.fillRect(0, 0, envSize, envSize);
+      
+      // Create cubemap from gradient
+      const envTexture = new THREE.CanvasTexture(envCanvas);
+      envTexture.mapping = THREE.EquirectangularReflectionMapping;
+      scene.environment = envTexture;
+      
+      console.log('✅ Lightweight environment simulation created for metallic reflections');
 
       // Apply user lighting settings (EXACT match to CoinEditor.tsx)
       console.log('💡 Applying user lighting settings...');
       
-      // Light strength mapping (identical to CoinEditor.tsx)
+      // Light strength mapping (FIXED: exact match to CoinEditor.tsx)
       const lightStrengthMap = {
-        low: { hemi: 0.3, dir: 0.5 },
-        medium: { hemi: 0.45, dir: 0.8 },
-        strong: { hemi: 1.2, dir: 3.0 }
+        low: { hemi: 0.3, dir: 0.6 },     // CORRECTED from 0.5
+        medium: { hemi: 0.8, dir: 1.3 },  // CORRECTED from 0.45, 0.8
+        strong: { hemi: 1.2, dir: 3.0 }   // UNCHANGED
       };
       
       const strength = lightStrengthMap[settings.lightStrength];
