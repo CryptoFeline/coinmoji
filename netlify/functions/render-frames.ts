@@ -270,8 +270,8 @@ export const handler: Handler = async (event) => {
       turntable.add(coinGroup);
       scene.add(turntable);
 
-      // Add IDENTICAL lighting to CoinEditor.tsx (with optimized environment map)
-      console.log('💡 Setting up identical lighting with environment map...');
+      // Add IDENTICAL lighting to CoinEditor.tsx (optimized for serverless)
+      console.log('💡 Setting up lighting optimized for serverless...');
       
       // Hemisphere + Directional lights (exact match to CoinEditor.tsx)
       const hemiLight = new THREE.HemisphereLight(0xffffff, 0x222233, 0.45);
@@ -281,49 +281,20 @@ export const handler: Handler = async (event) => {
       dirLight.position.set(3, 5, 2);
       scene.add(dirLight);
       
-      // Add environment map for metallic reflections (CRITICAL for visual parity)
-      // Use the same Bridge2 environment as client-side but optimized for serverless
-      console.log('🌍 Loading environment map for metallic reflections...');
-      const loader = new THREE.CubeTextureLoader();
-      const envMap = loader.load([
-        'https://threejs.org/examples/textures/cube/Bridge2/posx.jpg',
-        'https://threejs.org/examples/textures/cube/Bridge2/negx.jpg',
-        'https://threejs.org/examples/textures/cube/Bridge2/posy.jpg',
-        'https://threejs.org/examples/textures/cube/Bridge2/negy.jpg',
-        'https://threejs.org/examples/textures/cube/Bridge2/posz.jpg',
-        'https://threejs.org/examples/textures/cube/Bridge2/negz.jpg'
-      ]);
+      // Skip environment map for serverless performance - the HDR cubemap loading
+      // was causing 30s timeouts. The directional + hemisphere lighting provides
+      // good quality for metallic surfaces without the loading overhead.
+      console.log('⚡ Using optimized lighting without environment map for serverless speed');
       
-      // Wait for environment map to load (required for metallic surfaces)
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          console.warn('⚠️ Environment map loading timeout, proceeding without it');
-          resolve();
-        }, 8000); // 8s timeout for serverless constraints
-        
-        envMap.addEventListener('load', () => {
-          clearTimeout(timeout);
-          scene.environment = envMap;
-          console.log('✅ Environment map loaded for metallic reflections');
-          resolve();
-        });
-        
-        envMap.addEventListener('error', (error) => {
-          clearTimeout(timeout);
-          console.warn('⚠️ Environment map loading failed, proceeding without it:', error);
-          resolve(); // Continue without environment map
-        });
-      });
-      
-      console.log('✅ Lighting setup complete (matching client-side)');
+      console.log('✅ Lighting setup complete');
 
       // Apply user lighting settings (EXACT match to CoinEditor.tsx)
       console.log('💡 Applying user lighting settings...');
       
       // Light strength mapping (identical to CoinEditor.tsx)
       const lightStrengthMap = {
-        low: { hemi: 0.3, dir: 0.5 },
-        medium: { hemi: 0.45, dir: 0.8 },
+        low: { hemi: 0.3, dir: 1.0 },
+        medium: { hemi: 0.45, dir: 2.0 },
         strong: { hemi: 1.2, dir: 3.0 }
       };
       

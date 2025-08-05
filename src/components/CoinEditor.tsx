@@ -287,6 +287,11 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           if (typeof map.userData?.update === 'function') {
             map.userData.update();
           }
+        } else if (map.userData?.update) {
+          // Handle cloned textures that have update function but are no longer CanvasTexture
+          if (typeof map.userData.update === 'function') {
+            map.userData.update();
+          }
         }
       };
       
@@ -857,7 +862,14 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
             
             // CRITICAL: Copy animation update function for GIF textures
             if (texture.userData?.update) {
-              bottomTexture.userData = { update: texture.userData.update };
+              bottomTexture.userData = { 
+                update: () => {
+                  // Call the original update function
+                  texture.userData.update();
+                  // Also mark this texture as needing update
+                  bottomTexture.needsUpdate = true;
+                }
+              };
             }
             
             botMaterial.map = bottomTexture;
