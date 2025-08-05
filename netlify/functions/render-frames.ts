@@ -329,8 +329,14 @@ export const handler: Handler = async (event) => {
       faceMat.roughness = settings.metallic ? 0.34 : 0.7;
       console.log('⚡ Applied metallic settings:', settings.metallic);
 
-      // Process overlays directly from settings URLs (FIXED: GIF processing)
+      // Process overlays directly from settings URLs (ENHANCED: Better GIF processing)
       console.log('🎨 Processing overlay URLs directly from settings...');
+      console.log('🔍 Overlay URL check:', {
+        overlayUrl: settings.overlayUrl,
+        isGif: settings.overlayUrl?.toLowerCase().includes('.gif'),
+        overlayUrl2: settings.overlayUrl2,
+        isGif2: settings.overlayUrl2?.toLowerCase().includes('.gif')
+      });
       
       // Load gifuct-js ONCE in browser context (outside processGIF)
       if (settings.overlayUrl?.toLowerCase().includes('.gif') || settings.overlayUrl2?.toLowerCase().includes('.gif')) {
@@ -340,10 +346,27 @@ export const handler: Handler = async (event) => {
         document.head.appendChild(script);
         
         await new Promise((resolve, reject) => {
-          script.onload = resolve;
-          script.onerror = reject;
+          const timeout = setTimeout(() => {
+            reject(new Error('gifuct-js loading timeout'));
+          }, 10000);
+          
+          script.onload = () => {
+            clearTimeout(timeout);
+            console.log('✅ gifuct-js loaded successfully');
+            resolve(undefined);
+          };
+          script.onerror = () => {
+            clearTimeout(timeout);
+            reject(new Error('gifuct-js loading failed'));
+          };
         });
-        console.log('✅ gifuct-js loaded successfully');
+        
+        // Verify gifuct is available
+        if (!(window as any).gifuct) {
+          console.error('❌ gifuct-js loaded but not accessible');
+          throw new Error('gifuct-js library not available');
+        }
+        console.log('✅ gifuct-js verified and ready');
       }
       
       // Helper function to fetch and process GIF (FIXED: no nested page.evaluate)
@@ -377,15 +400,17 @@ export const handler: Handler = async (event) => {
 
       let gifAnimationState: any = null;
       
-      // Apply front overlay (FIXED: use overlayUrl directly)
+      // Apply front overlay (ENHANCED: Better GIF processing)
       if (settings.overlayUrl) {
-        console.log('� Applying front overlay');
+        console.log('🎨 Applying front overlay from URL:', settings.overlayUrl);
         
         let overlayTexture: THREE.Texture | null = null;
         
         if (settings.overlayUrl.toLowerCase().includes('.gif')) {
+          console.log('🎞️ Processing GIF overlay...');
           // Process GIF
           const gifData = await processGIF(settings.overlayUrl);
+          console.log('🎞️ GIF processing result:', gifData ? 'SUCCESS' : 'FAILED');
           if (gifData && gifData.frames.length > 0) {
             const canvas = document.createElement('canvas');
             canvas.width = gifData.width;
@@ -412,6 +437,7 @@ export const handler: Handler = async (event) => {
               return intervalMap[settings.gifAnimationSpeed] || 2;
             };
             
+            console.log('🎨 Setting up GIF animation state...');
             gifAnimationState = {
               type: 'front',
               frames: gifData.frames,
@@ -422,6 +448,11 @@ export const handler: Handler = async (event) => {
               ctx,
               texture: texture
             };
+            console.log('✅ GIF animation state created:', {
+              frameCount: gifData.frames.length,
+              frameInterval: getFrameInterval(),
+              animationSpeed: settings.gifAnimationSpeed
+            });
           }
         } else {
           // Process static image
@@ -526,14 +557,20 @@ export const handler: Handler = async (event) => {
           break;
         }
         
-        // Update animated GIF texture if present (optimized)
+        // Update animated GIF texture if present (with enhanced logging)
         if (gifAnimationState && gifAnimationState.frames.length > 1) {
           gifAnimationState.frameCounter++;
           
           // Only advance frame when we hit the interval
           if (gifAnimationState.frameCounter >= gifAnimationState.frameInterval) {
             // Advance to next frame
+            const oldFrame = gifAnimationState.currentFrame;
             gifAnimationState.currentFrame = (gifAnimationState.currentFrame + 1) % gifAnimationState.frames.length;
+            
+            // Log GIF frame changes for first few frames
+            if (i < 5) {
+              console.log(`🎞️ GIF frame update ${i}: ${oldFrame} -> ${gifAnimationState.currentFrame}`);
+            }
             
             // Draw new frame (optimized)
             const frame = gifAnimationState.frames[gifAnimationState.currentFrame];
