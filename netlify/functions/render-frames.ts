@@ -228,81 +228,181 @@ export const handler: Handler = async (event) => {
       turntable.add(coinGroup);
       scene.add(turntable);
 
-      // Add identical lighting
-      const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
-      scene.add(ambientLight);
+      // Add IDENTICAL lighting and environment to CoinEditor.tsx
+      console.log('💡 Setting up identical lighting and environment...');
       
-      const directionalLight = new THREE.DirectionalLight(settings.lightColor || '#ffffff', 1);
-      directionalLight.position.set(2, 2, 2);
-      scene.add(directionalLight);
+      // Hemisphere + Directional lights (exact match to CoinEditor.tsx)
+      const hemiLight = new THREE.HemisphereLight(0xffffff, 0x222233, 0.45);
+      scene.add(hemiLight);
+      
+      const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      dirLight.position.set(3, 5, 2);
+      scene.add(dirLight);
+      
+      // Environment map (identical to CoinEditor.tsx for realistic reflections)
+      console.log('🌍 Loading environment map for metallic reflections...');
+      const loader = new THREE.CubeTextureLoader();
+      const envMap = await new Promise((resolve, reject) => {
+        loader.load([
+          'https://threejs.org/examples/textures/cube/Bridge2/posx.jpg',
+          'https://threejs.org/examples/textures/cube/Bridge2/negx.jpg',
+          'https://threejs.org/examples/textures/cube/Bridge2/posy.jpg',
+          'https://threejs.org/examples/textures/cube/Bridge2/negy.jpg',
+          'https://threejs.org/examples/textures/cube/Bridge2/posz.jpg',
+          'https://threejs.org/examples/textures/cube/Bridge2/negz.jpg'
+        ], resolve, undefined, reject);
+      });
+      scene.environment = envMap;
+      
+      console.log('✅ Environment map loaded - metallic reflections ready');
 
-      // Apply overlays using CoinEditor.tsx approach with proper overlay meshes
+      // Apply user lighting settings (EXACT match to CoinEditor.tsx)
+      console.log('💡 Applying user lighting settings...');
+      
+      // Light strength mapping (identical to CoinEditor.tsx)
+      const lightStrengthMap = {
+        low: { hemi: 0.3, dir: 0.5 },
+        medium: { hemi: 0.45, dir: 0.8 },
+        strong: { hemi: 1.2, dir: 3.0 }
+      };
+      
+      const strength = lightStrengthMap[settings.lightStrength];
+      hemiLight.intensity = strength.hemi;
+      dirLight.intensity = strength.dir;
+      
+      hemiLight.color.set(settings.lightColor);
+      dirLight.color.set(settings.lightColor);
+      
+      console.log('✅ Applied lighting:', {
+        color: settings.lightColor,
+        strength: settings.lightStrength,
+        hemiIntensity: strength.hemi,
+        dirIntensity: strength.dir
+      });
+
+      // Apply material settings (EXACT match to CoinEditor.tsx)
+      console.log('🎨 Applying user material settings...');
+      if (settings.fillMode === 'solid') {
+        rimMat.color.set(settings.bodyColor);
+        faceMat.color.set(settings.bodyColor);
+        console.log('🎯 Applied solid color:', settings.bodyColor);
+      } else {
+        // Create gradient texture (identical to CoinEditor.tsx)
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 256;
+        const ctx = canvas.getContext('2d')!;
+        
+        const gradient = ctx.createLinearGradient(0, 0, 256, 256);
+        gradient.addColorStop(0, settings.gradientStart || '#00eaff');
+        gradient.addColorStop(1, settings.gradientEnd || '#ee00ff');
+        
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, 256, 256);
+        
+        const texture = new THREE.CanvasTexture(canvas);
+        rimMat.map = texture;
+        faceMat.map = texture;
+        rimMat.color.set('#ffffff'); // Base white for texture
+        faceMat.color.set('#ffffff');
+        console.log('🌈 Applied gradient texture:', settings.gradientStart, '->', settings.gradientEnd);
+      }
+
+      // Update metallic properties (identical to CoinEditor.tsx)
+      rimMat.metalness = settings.metallic ? 1 : 0.1;
+      rimMat.roughness = settings.metallic ? 0.34 : 0.7;
+      faceMat.metalness = settings.metallic ? 1 : 0.1;
+      faceMat.roughness = settings.metallic ? 0.34 : 0.7;
+      console.log('⚡ Applied metallic settings:', settings.metallic);
+
+      // Process overlays directly from settings URLs (FIX: use overlayUrl, not overlayFront)
+      console.log('🎨 Processing overlay URLs directly from settings...');
+      
+      // Helper function to fetch and process GIF
+      const processGIF = async (url: string) => {
+        try {
+          console.log('🎞️ Fetching GIF:', url);
+          const response = await fetch(url);
+          const buffer = await response.arrayBuffer();
+          
+          // Parse GIF (we need to import gifuct-js in the page context)
+          const gifData = await page.evaluate(async (buffer) => {
+            // Load gifuct-js in browser context
+            const script = document.createElement('script');
+            script.src = 'https://cdn.skypack.dev/gifuct-js';
+            document.head.appendChild(script);
+            
+            await new Promise((resolve, reject) => {
+              script.onload = resolve;
+              script.onerror = reject;
+            });
+            
+            const { parseGIF, decompressFrames } = (window as any).gifuct;
+            const gif = parseGIF(buffer);
+            const frames = decompressFrames(gif, true);
+            
+            return {
+              frames: frames.map(frame => ({
+                dims: frame.dims,
+                patch: Array.from(frame.patch) // Convert Uint8ClampedArray to regular array
+              })),
+              width: gif.lsd.width,
+              height: gif.lsd.height
+            };
+          }, Array.from(new Uint8Array(buffer)));
+          
+          console.log('✅ GIF processed:', { frameCount: gifData.frames.length, size: `${gifData.width}x${gifData.height}` });
+          return gifData;
+        } catch (error) {
+          console.warn('⚠️ Failed to process GIF:', error);
+          return null;
+        }
+      };
+
       let gifAnimationState: any = null;
       
-      // Apply front overlay (identical to CoinEditor.tsx)
-      if (settings.overlayFront?.content) {
+      // Apply front overlay (FIXED: use overlayUrl directly)
+      if (settings.overlayUrl) {
         console.log('� Applying front overlay');
         
         let overlayTexture: THREE.Texture | null = null;
         
-        if (settings.overlayFront.type === 'image') {
-          const img = document.createElement('img');
-          img.src = settings.overlayFront.content;
-          await new Promise(resolve => {
-            img.onload = resolve;
-            img.onerror = resolve;
-          });
-          const texture = new THREE.Texture(img);
-          texture.needsUpdate = true;
-          overlayTexture = texture;
-        } else if (settings.overlayFront.type === 'gif') {
-          // Use the processed GIF frames
-          const gif = renderRequest.overlayFrontGif;
-          if (gif && gif.frames.length > 0) {
+        if (settings.overlayUrl.toLowerCase().includes('.gif')) {
+          // Process GIF
+          const gifData = await processGIF(settings.overlayUrl);
+          if (gifData && gifData.frames.length > 0) {
             const canvas = document.createElement('canvas');
-            canvas.width = gif.frames[0].dims.width;
-            canvas.height = gif.frames[0].dims.height;
+            canvas.width = gifData.width;
+            canvas.height = gifData.height;
             const ctx = canvas.getContext('2d')!;
             
-            const imageData = ctx.createImageData(canvas.width, canvas.height);
-            imageData.data.set(gif.frames[0].patch);
-            ctx.putImageData(imageData, 0, 0);
+            // Draw first frame
+            const frame = gifData.frames[0];
+            const imageData = ctx.createImageData(frame.dims.width, frame.dims.height);
+            imageData.data.set(new Uint8ClampedArray(frame.patch));
+            ctx.putImageData(imageData, frame.dims.left, frame.dims.top);
             
             const texture = new THREE.CanvasTexture(canvas);
             texture.needsUpdate = true;
             overlayTexture = texture;
             
-            // Set up GIF animation state for front overlay
+            // Set up GIF animation state
             gifAnimationState = {
               type: 'front',
-              frames: gif.frames,
+              frames: gifData.frames,
               currentFrame: 0,
               frameCounter: 0,
-              frameInterval: 2, // Medium speed default
+              frameInterval: 2,
               canvas,
               ctx,
               texture: texture
             };
           }
-        }
-        
-        if (overlayTexture) {
-          overlayTexture.flipY = false;
-          overlayTop.material.map = overlayTexture;
-          overlayTop.material.opacity = 1;
-          overlayTop.material.needsUpdate = true;
-        }
-      }
-
-      // Apply back overlay (identical to CoinEditor.tsx)
-      if (settings.overlayBack?.content) {
-        console.log('🎨 Applying back overlay');
-        
-        let overlayTexture: THREE.Texture | null = null;
-        
-        if (settings.overlayBack.type === 'image') {
+        } else {
+          // Process static image
           const img = document.createElement('img');
-          img.src = settings.overlayBack.content;
+          img.crossOrigin = 'anonymous';
+          img.src = settings.overlayUrl;
           await new Promise(resolve => {
             img.onload = resolve;
             img.onerror = resolve;
@@ -310,23 +410,67 @@ export const handler: Handler = async (event) => {
           const texture = new THREE.Texture(img);
           texture.needsUpdate = true;
           overlayTexture = texture;
-        } else if (settings.overlayBack.type === 'gif') {
-          // Use the processed GIF frames
-          const gif = renderRequest.overlayBackGif;
-          if (gif && gif.frames.length > 0) {
+        }
+        
+        if (overlayTexture) {
+          overlayTexture.flipY = false;
+          
+          if (settings.dualOverlay) {
+            // Apply only to top face in dual mode
+            overlayTop.material.map = overlayTexture;
+            overlayTop.material.opacity = 1;
+            overlayTop.material.needsUpdate = true;
+          } else {
+            // Apply to both faces in single mode
+            overlayTop.material.map = overlayTexture;
+            overlayTop.material.opacity = 1;
+            overlayTop.material.needsUpdate = true;
+            
+            overlayBot.material.map = overlayTexture;
+            overlayBot.material.opacity = 1;
+            overlayBot.material.needsUpdate = true;
+          }
+          console.log('✅ Front overlay applied');
+        }
+      }
+
+      // Apply back overlay (from overlayUrl2) in dual overlay mode
+      if (settings.dualOverlay && settings.overlayUrl2) {
+        console.log('🎨 Applying back overlay from URL2:', settings.overlayUrl2);
+        
+        let overlayTexture: THREE.Texture | null = null;
+        
+        if (settings.overlayUrl2.toLowerCase().includes('.gif')) {
+          // Process GIF
+          const gifData = await processGIF(settings.overlayUrl2);
+          if (gifData && gifData.frames.length > 0) {
             const canvas = document.createElement('canvas');
-            canvas.width = gif.frames[0].dims.width;
-            canvas.height = gif.frames[0].dims.height;
+            canvas.width = gifData.width;
+            canvas.height = gifData.height;
             const ctx = canvas.getContext('2d')!;
             
-            const imageData = ctx.createImageData(canvas.width, canvas.height);
-            imageData.data.set(gif.frames[0].patch);
-            ctx.putImageData(imageData, 0, 0);
+            // Draw first frame
+            const frame = gifData.frames[0];
+            const imageData = ctx.createImageData(frame.dims.width, frame.dims.height);
+            imageData.data.set(new Uint8ClampedArray(frame.patch));
+            ctx.putImageData(imageData, frame.dims.left, frame.dims.top);
             
             const texture = new THREE.CanvasTexture(canvas);
             texture.needsUpdate = true;
             overlayTexture = texture;
           }
+        } else {
+          // Process static image
+          const img = document.createElement('img');
+          img.crossOrigin = 'anonymous';
+          img.src = settings.overlayUrl2;
+          await new Promise(resolve => {
+            img.onload = resolve;
+            img.onerror = resolve;
+          });
+          const texture = new THREE.Texture(img);
+          texture.needsUpdate = true;
+          overlayTexture = texture;
         }
         
         if (overlayTexture) {
@@ -334,6 +478,7 @@ export const handler: Handler = async (event) => {
           overlayBot.material.map = overlayTexture;
           overlayBot.material.opacity = 1;
           overlayBot.material.needsUpdate = true;
+          console.log('✅ Back overlay applied');
         }
       }
 
