@@ -164,6 +164,10 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     rimLight.position.set(-3, 1, 4);
     scene.add(rimLight);
 
+    // Add stronger broad ambient light to brighten overall appearance
+    const broadLight = new THREE.AmbientLight(0xffffff, 0.4);
+    scene.add(broadLight);
+
     // Skip environment map for performance and visual parity with server-side
     console.log('⚡ Using enhanced lighting setup for optimal performance and server parity');
     
@@ -281,7 +285,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
         }
       };
       
-      // Update overlay textures
+      // Update overlay textures (both top and bottom for GIF animations)
       if (sceneRef.current.overlayTop.material) {
         updateAnimatedTexture(sceneRef.current.overlayTop.material as THREE.MeshStandardMaterial);
       }
@@ -839,20 +843,15 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
             }
             botMaterial.map = bottomTexture;
           } else if (texture instanceof THREE.CanvasTexture) {
-            // For CanvasTextures (like animated GIFs), share the same canvas but create new texture
+            // For CanvasTextures (like animated GIFs), share the same canvas AND animation state
             const bottomTexture = new THREE.CanvasTexture((texture as any).image);
             bottomTexture.colorSpace = THREE.SRGBColorSpace;
             bottomTexture.flipY = true;
             bottomTexture.wrapS = THREE.RepeatWrapping;
             bottomTexture.repeat.x = -1; // Horizontal flip to fix mirroring
             bottomTexture.needsUpdate = true;
-            // CRITICAL: Copy the animation update function for GIF animations
-            if ((texture as any).userData?.update) {
-              bottomTexture.userData = { update: (texture as any).userData.update };
-            }
-            if ((texture as any).userData?.dispose) {
-              bottomTexture.userData.dispose = (texture as any).userData.dispose;
-            }
+            // CRITICAL: Share the EXACT SAME userData object for synchronized animation
+            bottomTexture.userData = (texture as any).userData;
             botMaterial.map = bottomTexture;
           } else {
             // For static textures, clone and fix orientation

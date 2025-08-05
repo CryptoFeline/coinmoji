@@ -290,6 +290,10 @@ export const handler: Handler = async (event) => {
       rimLight.position.set(-3, 1, 4);
       scene.add(rimLight);
       
+      // Add stronger broad ambient light to brighten overall appearance (matching client-side)
+      const broadLight = new THREE.AmbientLight(0xffffff, 0.4);
+      scene.add(broadLight);
+      
       console.log('✅ Enhanced lighting setup complete (client-server parity achieved)');
 
       // Apply user lighting settings (EXACT match to CoinEditor.tsx)

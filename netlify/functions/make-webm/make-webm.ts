@@ -143,25 +143,26 @@ export const handler: Handler = async (event) => {
       // Calculate optimal CRF for VP9 - BALANCED approach for size vs quality
       const bytesPerFrame = targetFileSize / request.frames.length;
       
-      // Adjusted CRF range 5-15 for better size control while maintaining quality
-      const crf = qualityMode === 'high' ? 5 :           // High quality but manageable size
-                  qualityMode === 'balanced' ? 10 :      // Balanced quality/size  
-                  15;                                     // Compact size priority
+      // Adjusted CRF range 15-25 for aggressive size control while maintaining acceptable quality
+      const crf = qualityMode === 'high' ? 15 :          // High quality but smaller size
+                  qualityMode === 'balanced' ? 20 :      // Balanced quality/size  
+                  25;                                     // Maximum compression for <64KB
       
-      console.log(`🔬 OPTIMIZED: Using CRF=${crf} for size-quality balance (bytes per frame: ${bytesPerFrame.toFixed(0)})`);
+      console.log(`🔬 OPTIMIZED: Using CRF=${crf} for aggressive size control (bytes per frame: ${bytesPerFrame.toFixed(0)})`);
       
-      // Bitrate targeting - More conservative for size control
+      // Bitrate targeting - More aggressive for size control
       const baseBitrate = Math.floor((targetFileSize * 8) / request.duration / 1000);
-      const targetBitrate = Math.floor(baseBitrate * 1.5); // Conservative bitrate multiplier
-      const maxBitrate = Math.floor(targetBitrate * 2.0); // Reasonable peak allowance
+      const targetBitrate = Math.floor(baseBitrate * 1.2); // More aggressive bitrate reduction
+      const maxBitrate = Math.floor(targetBitrate * 1.8); // Tighter peak control
       
-      console.log('🎯 OPTIMIZED VP9 settings (CRF 5-15 for size control):', {
+      console.log('🎯 OPTIMIZED VP9 settings (CRF 15-25 for <64KB target):', {
         crf,
         targetBitrate: `${targetBitrate}kbps`,
         maxBitrate: `${maxBitrate}kbps`,
         bytesPerFrame: `${bytesPerFrame.toFixed(0)} bytes/frame`,
         qualityMode,
-        sizeFocused: true,
+        aggressiveSizeControl: true,
+        targetSizeKB: targetFileSize / 1024,
         avgWebPFrameSize: `${(avgWebPFrameSize/1024).toFixed(2)}KB`
       });
 
