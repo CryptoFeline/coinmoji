@@ -103,40 +103,69 @@ export const handler: Handler = async (event) => {
         };
       });
 
-      // Load gifuct-js for proper GIF frame parsing (with fallback URLs)
+      // Load gifuct-js for proper GIF frame parsing (with robust fallback strategy)
       console.log('📦 Loading gifuct-js for GIF processing...');
-      const gifuctScript = document.createElement('script');
       
-      // Try multiple CDN sources for reliability
+      let gifuctLoaded = false;
+      
+      // Strategy: Multiple CDN sources with enhanced verification
       const gifuctUrls = [
         'https://unpkg.com/gifuct-js@2.1.2/dist/gifuct.js',
         'https://cdn.jsdelivr.net/npm/gifuct-js@2.1.2/dist/gifuct.js',
         'https://cdn.skypack.dev/gifuct-js@2.1.2'
       ];
       
-      let gifuctLoaded = false;
       for (const url of gifuctUrls) {
         if (gifuctLoaded) break;
         
         try {
+          console.log(`🔄 Trying gifuct-js from: ${url}`);
+          const gifuctScript = document.createElement('script');
           gifuctScript.src = url;
           document.head.appendChild(gifuctScript);
           
           await new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
               reject(new Error(`gifuct-js loading timeout from ${url}`));
-            }, 5000); // Increased timeout
+            }, 10000); // Increased timeout for serverless
             
             gifuctScript.onload = () => {
               clearTimeout(timeout);
-              gifuctLoaded = true;
-              console.log(`✅ gifuct-js loaded from ${url}`);
-              resolve(undefined);
+              
+              // Enhanced verification - check multiple possible global names
+              const possibleGlobals = [
+                (window as any).gifuct,
+                (window as any).parseGIF, 
+                (window as any).GifReader,
+                (window as any).gifuctJs
+              ];
+              
+              const availableGlobal = possibleGlobals.find(g => g !== undefined);
+              
+              if (availableGlobal) {
+                // Store in a consistent location
+                if (!(window as any).gifuct && (window as any).parseGIF) {
+                  (window as any).gifuct = { 
+                    parseGIF: (window as any).parseGIF,
+                    decompressFrames: (window as any).decompressFrames 
+                  };
+                }
+                gifuctLoaded = true;
+                console.log(`✅ gifuct-js loaded and verified from ${url}`);
+                resolve(undefined);
+              } else {
+                reject(new Error(`gifuct-js loaded but not accessible from ${url}`));
+              }
             };
+            
             gifuctScript.onerror = () => {
               clearTimeout(timeout);
               console.warn(`⚠️ Failed to load gifuct-js from ${url}`);
-              document.head.removeChild(gifuctScript);
+              try {
+                document.head.removeChild(gifuctScript);
+              } catch (e) {
+                // Ignore cleanup errors
+              }
               reject(new Error(`gifuct-js loading failed from ${url}`));
             };
           });
@@ -148,7 +177,7 @@ export const handler: Handler = async (event) => {
       }
       
       if (!gifuctLoaded) {
-        console.warn('⚠️ All gifuct-js CDNs failed, will fallback to static GIF processing');
+        console.error('❌ All gifuct-js loading strategies failed - GIF animations will not work properly');
       }
 
       const setupTime = Date.now() - setupStart;
@@ -366,8 +395,20 @@ export const handler: Handler = async (event) => {
       faceMat.roughness = settings.metallic ? 0.34 : 0.7;
       console.log('⚡ Applied metallic settings:', settings.metallic);
 
-      // Process overlays directly from settings URLs (FIX: use overlayUrl, not overlayFront)
-      console.log('🎨 Processing overlay URLs directly from settings...');
+      // Process overlays directly from settings URLs (FIXED: proper dual overlay logic)
+      console.log('🎨 Processing overlay URLs:', {
+        overlayUrl: settings.overlayUrl,
+        overlayUrl2: settings.overlayUrl2,
+        dualOverlay: settings.dualOverlay
+      });
+      
+      // IMPORTANT: Clear overlay materials first to prevent interference
+      overlayTop.material.map = null;
+      overlayTop.material.opacity = 0;
+      overlayTop.material.needsUpdate = true;
+      overlayBot.material.map = null;
+      overlayBot.material.opacity = 0;
+      overlayBot.material.needsUpdate = true;
       
       // Helper function to process GIF with gifuct-js (with graceful fallback)
       const processGIF = async (url: string) => {
@@ -417,10 +458,10 @@ export const handler: Handler = async (event) => {
           canvas.width = gif.lsd.width;
           canvas.height = gif.lsd.height;
           
-          // Create texture (identical to client-side)
+          // Create texture (MATCHING client-side: flipY = true for CanvasTexture)
           const texture = new THREE.CanvasTexture(canvas);
           texture.colorSpace = THREE.SRGBColorSpace;
-          texture.flipY = false; // Set to false for server-side consistency
+          texture.flipY = true; // FIXED: Match client-side flipY = true for GIF CanvasTextures
           
           // Animation state (identical to client-side)
           let currentFrame = 0;
@@ -511,7 +552,7 @@ export const handler: Handler = async (event) => {
           });
           const texture = new THREE.Texture(img);
           texture.needsUpdate = true;
-          texture.flipY = false;
+          texture.flipY = false; // FIXED: Match client-side flipY = false for static images
           console.log('✅ GIF processed as static image fallback');
           return { texture, isAnimated: false, frames: 1 };
         }
@@ -541,17 +582,24 @@ export const handler: Handler = async (event) => {
           });
           const texture = new THREE.Texture(img);
           texture.needsUpdate = true;
+          texture.flipY = false; // FIXED: Match client-side flipY = false for static images
           overlayTexture = texture;
         }
         
         if (overlayTexture) {
-          overlayTexture.flipY = false;
+          // Ensure correct flipY setting based on texture type (matching client-side)
+          if (overlayTexture instanceof THREE.CanvasTexture) {
+            overlayTexture.flipY = true; // FIXED: CanvasTexture should use flipY = true
+          } else {
+            overlayTexture.flipY = false; // FIXED: Regular Texture should use flipY = false
+          }
           
           if (settings.dualOverlay) {
-            // Apply only to top face in dual mode
+            // DUAL MODE: Apply first overlay ONLY to top face
             overlayTop.material.map = overlayTexture;
             overlayTop.material.opacity = 1;
             overlayTop.material.needsUpdate = true;
+            console.log('✅ Front overlay applied to TOP face only (dual mode)');
           } else {
             // Apply to both faces in single mode - top face gets original
             overlayTop.material.map = overlayTexture;
@@ -564,7 +612,7 @@ export const handler: Handler = async (event) => {
               // For animated GIFs, share the same canvas but create new texture with flip
               bottomTexture = new THREE.CanvasTexture(overlayTexture.image);
               bottomTexture.colorSpace = THREE.SRGBColorSpace;
-              bottomTexture.flipY = false;
+              bottomTexture.flipY = true; // FIXED: Match client-side flipY = true for CanvasTextures
               bottomTexture.wrapS = THREE.RepeatWrapping;
               bottomTexture.repeat.x = -1; // Horizontal flip to fix mirroring
               bottomTexture.needsUpdate = true;
@@ -575,7 +623,7 @@ export const handler: Handler = async (event) => {
             } else {
               // For static images, clone and flip
               bottomTexture = overlayTexture.clone();
-              bottomTexture.flipY = false;
+              bottomTexture.flipY = false; // FIXED: Match client-side flipY = false for static images
               bottomTexture.wrapS = THREE.RepeatWrapping;
               bottomTexture.repeat.x = -1; // Horizontal flip to fix mirroring
               bottomTexture.needsUpdate = true;
@@ -584,8 +632,8 @@ export const handler: Handler = async (event) => {
             overlayBot.material.map = bottomTexture;
             overlayBot.material.opacity = 1;
             overlayBot.material.needsUpdate = true;
+            console.log('✅ Front overlay applied to BOTH faces (single mode)');
           }
-          console.log('✅ Front overlay applied');
         }
       }
 
@@ -613,11 +661,17 @@ export const handler: Handler = async (event) => {
           });
           const texture = new THREE.Texture(img);
           texture.needsUpdate = true;
+          texture.flipY = false; // FIXED: Match client-side flipY = false for static images
           overlayTexture = texture;
         }
         
         if (overlayTexture) {
-          overlayTexture.flipY = false;
+          // Ensure correct flipY setting based on texture type (matching client-side)
+          if (overlayTexture instanceof THREE.CanvasTexture) {
+            overlayTexture.flipY = true; // FIXED: CanvasTexture should use flipY = true
+          } else {
+            overlayTexture.flipY = false; // FIXED: Regular Texture should use flipY = false
+          }
           
           // Bottom face gets horizontally flipped version (matching client-side fix)
           let bottomTexture;
@@ -625,7 +679,7 @@ export const handler: Handler = async (event) => {
             // For animated GIFs, create new texture with flip
             bottomTexture = new THREE.CanvasTexture(overlayTexture.image);
             bottomTexture.colorSpace = THREE.SRGBColorSpace;
-            bottomTexture.flipY = false;
+            bottomTexture.flipY = true; // FIXED: Match client-side flipY = true for CanvasTextures
             bottomTexture.wrapS = THREE.RepeatWrapping;
             bottomTexture.repeat.x = -1; // Horizontal flip to fix mirroring
             bottomTexture.needsUpdate = true;
@@ -636,7 +690,7 @@ export const handler: Handler = async (event) => {
           } else {
             // For static images, clone and flip
             bottomTexture = overlayTexture.clone();
-            bottomTexture.flipY = false;
+            bottomTexture.flipY = false; // FIXED: Match client-side flipY = false for static images
             bottomTexture.wrapS = THREE.RepeatWrapping;
             bottomTexture.repeat.x = -1; // Horizontal flip to fix mirroring
             bottomTexture.needsUpdate = true;
@@ -645,7 +699,7 @@ export const handler: Handler = async (event) => {
           overlayBot.material.map = bottomTexture;
           overlayBot.material.opacity = 1;
           overlayBot.material.needsUpdate = true;
-          console.log('✅ Back overlay applied with horizontal flip');
+          console.log('✅ Back overlay applied to BOTTOM face with horizontal flip (dual mode)');
         }
       }
 
