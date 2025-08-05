@@ -54,31 +54,17 @@ export const handler: Handler = async (event) => {
 
     console.log('✅ Using @sparticuz/chromium for serverless Chrome');
 
-    // Launch Chrome with @sparticuz/chromium (optimized settings)
+    // Launch Chrome with @sparticuz/chromium
     browser = await puppeteer.launch({
       executablePath: await chromium.executablePath(),
-      args: [
-        ...chromium.args,
-        '--disable-dev-shm-usage',
-        '--disable-setuid-sandbox',
-        '--no-sandbox',
-        '--single-process',
-        '--disable-background-timer-throttling',
-        '--disable-renderer-backgrounding'
-      ],
-      headless: 'shell',
-      timeout: 10000 // 10 second launch timeout
+      args: chromium.args,
+      headless: 'shell'
     });
 
     console.log('✅ Chrome launched successfully');
 
     const page = await browser.newPage();
-    
-    // Set shorter timeouts for faster failure
-    page.setDefaultNavigationTimeout(15000);
-    page.setDefaultTimeout(15000);
-    
-    await page.setViewport({ width: 200, height: 200 }); // Smaller viewport for faster rendering
+    await page.setViewport({ width: 400, height: 400 });
 
     console.log('🎨 Injecting Three.js and creating scene...');
 
@@ -172,12 +158,12 @@ export const handler: Handler = async (event) => {
       // Create coin geometry (EXACT COPY from CoinEditor.tsx)
       const { settings } = renderRequest;
       
-      // Coin parameters (optimized for speed while maintaining quality)
+      // Coin parameters (identical to CoinEditor.tsx)
       const R = 1.0;
       const T = 0.35;
       const bulge = 0.10;
-      const radialSegments = 64; // Reduced from 128 for 2x speed gain
-      const capSegments = 16; // Reduced from 32 for 2x speed gain
+      const radialSegments = 128;
+      const capSegments = 32;
 
       // Materials (identical to CoinEditor.tsx)
       const rimMat = new THREE.MeshStandardMaterial({
@@ -329,100 +315,41 @@ export const handler: Handler = async (event) => {
       faceMat.roughness = settings.metallic ? 0.34 : 0.7;
       console.log('⚡ Applied metallic settings:', settings.metallic);
 
-      // Process overlays directly from settings URLs (ENHANCED: Better GIF processing)
+      // Process overlays directly from settings URLs (FIX: use overlayUrl, not overlayFront)
       console.log('🎨 Processing overlay URLs directly from settings...');
-      console.log('🔍 Overlay URL check:', {
-        overlayUrl: settings.overlayUrl,
-        isGif: settings.overlayUrl?.toLowerCase().includes('.gif'),
-        overlayUrl2: settings.overlayUrl2,
-        isGif2: settings.overlayUrl2?.toLowerCase().includes('.gif')
-      });
       
-      // Load gifuct-js ONCE in browser context (FIXED: Alternative loading method)
-      if (settings.overlayUrl?.toLowerCase().includes('.gif') || settings.overlayUrl2?.toLowerCase().includes('.gif')) {
-        console.log('📦 Loading gifuct-js library for GIF processing...');
-        
-        // Try multiple CDN sources for reliability
-        const scriptSources = [
-          'https://cdn.skypack.dev/gifuct-js',
-          'https://unpkg.com/gifuct-js@2.1.2/dist/gifuct.js',
-          'https://cdn.jsdelivr.net/npm/gifuct-js@2.1.2/dist/gifuct.js'
-        ];
-        
-        let loaded = false;
-        for (const src of scriptSources) {
-          try {
-            console.log(`📦 Trying to load gifuct-js from: ${src}`);
-            const script = document.createElement('script');
-            script.src = src;
-            document.head.appendChild(script);
-            
-            await new Promise((resolve, reject) => {
-              const timeout = setTimeout(() => {
-                reject(new Error('gifuct-js loading timeout'));
-              }, 15000); // Increased timeout
-              
-              script.onload = () => {
-                clearTimeout(timeout);
-                console.log(`✅ gifuct-js loaded successfully from: ${src}`);
-                resolve(undefined);
-              };
-              script.onerror = () => {
-                clearTimeout(timeout);
-                reject(new Error('gifuct-js loading failed'));
-              };
-            });
-            
-            // Verify gifuct is available
-            if ((window as any).gifuct) {
-              console.log('✅ gifuct-js verified and ready');
-              loaded = true;
-              break;
-            }
-          } catch (error) {
-            console.warn(`⚠️ Failed to load from ${src}:`, error);
-            continue;
-          }
-        }
-        
-        if (!loaded) {
-          console.error('❌ All gifuct-js CDN sources failed, skipping GIF processing');
-          // Don't throw error - continue without GIF processing
-        }
-      }
-      
-      // Helper function to fetch and process GIF (ENHANCED: Better error handling)
+      // Helper function to fetch and process GIF
       const processGIF = async (url: string) => {
         try {
           console.log('🎞️ Fetching GIF:', url);
-          
-          // Check if gifuct is available
-          if (!(window as any).gifuct) {
-            console.warn('⚠️ gifuct-js not available, skipping GIF processing');
-            return null;
-          }
-          
           const response = await fetch(url);
-          if (!response.ok) {
-            throw new Error(`Failed to fetch GIF: ${response.status} ${response.statusText}`);
-          }
-          
           const buffer = await response.arrayBuffer();
-          console.log('📥 GIF downloaded:', { size: buffer.byteLength });
           
-          // Parse GIF directly (gifuct-js already loaded above)
-          const { parseGIF, decompressFrames } = (window as any).gifuct;
-          const gif = parseGIF(buffer);
-          const frames = decompressFrames(gif, true);
-          
-          const gifData = {
-            frames: frames.map(frame => ({
-              dims: frame.dims,
-              patch: Array.from(frame.patch) // Convert Uint8ClampedArray to regular array
-            })),
-            width: gif.lsd.width,
-            height: gif.lsd.height
-          };
+          // Parse GIF (we need to import gifuct-js in the page context)
+          const gifData = await page.evaluate(async (buffer) => {
+            // Load gifuct-js in browser context
+            const script = document.createElement('script');
+            script.src = 'https://cdn.skypack.dev/gifuct-js';
+            document.head.appendChild(script);
+            
+            await new Promise((resolve, reject) => {
+              script.onload = resolve;
+              script.onerror = reject;
+            });
+            
+            const { parseGIF, decompressFrames } = (window as any).gifuct;
+            const gif = parseGIF(buffer);
+            const frames = decompressFrames(gif, true);
+            
+            return {
+              frames: frames.map(frame => ({
+                dims: frame.dims,
+                patch: Array.from(frame.patch) // Convert Uint8ClampedArray to regular array
+              })),
+              width: gif.lsd.width,
+              height: gif.lsd.height
+            };
+          }, Array.from(new Uint8Array(buffer)));
           
           console.log('✅ GIF processed:', { frameCount: gifData.frames.length, size: `${gifData.width}x${gifData.height}` });
           return gifData;
@@ -434,19 +361,16 @@ export const handler: Handler = async (event) => {
 
       let gifAnimationState: any = null;
       
-      // Apply front overlay (ENHANCED: Better GIF processing)
+      // Apply front overlay (FIXED: use overlayUrl directly)
       if (settings.overlayUrl) {
-        console.log('🎨 Applying front overlay from URL:', settings.overlayUrl);
+        console.log('� Applying front overlay');
         
         let overlayTexture: THREE.Texture | null = null;
         
         if (settings.overlayUrl.toLowerCase().includes('.gif')) {
-          console.log('🎞️ Processing GIF overlay...');
           // Process GIF
           const gifData = await processGIF(settings.overlayUrl);
-          console.log('🎞️ GIF processing result:', gifData ? 'SUCCESS' : 'FAILED');
           if (gifData && gifData.frames.length > 0) {
-            console.log('🎨 Creating canvas for GIF animation...');
             const canvas = document.createElement('canvas');
             canvas.width = gifData.width;
             canvas.height = gifData.height;
@@ -462,45 +386,17 @@ export const handler: Handler = async (event) => {
             texture.needsUpdate = true;
             overlayTexture = texture;
             
-            // Set up GIF animation state (FIXED: use gifAnimationSpeed)
-            const getFrameInterval = () => {
-              const intervalMap = {
-                slow: 4,      // Change frame every 4 renders (15fps effective)
-                medium: 2,    // Change frame every 2 renders (30fps effective)  
-                fast: 1       // Change frame every render (60fps effective)
-              };
-              return intervalMap[settings.gifAnimationSpeed] || 2;
-            };
-            
-            console.log('🎨 Setting up GIF animation state...');
+            // Set up GIF animation state
             gifAnimationState = {
               type: 'front',
               frames: gifData.frames,
               currentFrame: 0,
               frameCounter: 0,
-              frameInterval: getFrameInterval(),
+              frameInterval: 2,
               canvas,
               ctx,
               texture: texture
             };
-            console.log('✅ GIF animation state created:', {
-              frameCount: gifData.frames.length,
-              frameInterval: getFrameInterval(),
-              animationSpeed: settings.gifAnimationSpeed
-            });
-          } else {
-            console.warn('⚠️ GIF processing failed or no frames, applying as static image');
-            // Fallback: try to load as static image
-            const img = document.createElement('img');
-            img.crossOrigin = 'anonymous';
-            img.src = settings.overlayUrl;
-            await new Promise(resolve => {
-              img.onload = resolve;
-              img.onerror = resolve;
-            });
-            const texture = new THREE.Texture(img);
-            texture.needsUpdate = true;
-            overlayTexture = texture;
           }
         } else {
           // Process static image
@@ -588,56 +484,55 @@ export const handler: Handler = async (event) => {
 
       console.log('🪙 Created identical coin geometry and materials');
 
-      // Capture frames with optimized performance
+      // Capture frames with identical rotation
       const frames: string[] = [];
       const { exportSettings } = renderRequest;
-      const startTime = Date.now();
-      
-      console.log(`🎬 Starting optimized frame capture: ${exportSettings.frames} frames...`);
-      
-      // Track total performance
-      const totalStartTime = Date.now();
       
       for (let i = 0; i < exportSettings.frames; i++) {
-        // Check timeout (max 22 seconds to leave 8s buffer for response)
-        if (Date.now() - startTime > 22000) {
-          console.warn(`⏰ Timeout approaching at 22s, stopping at frame ${i}/${exportSettings.frames}`);
-          break;
-        }
-        
-        // Update animated GIF texture if present (with enhanced logging)
+        // Update animated GIF texture if present (identical to client)
         if (gifAnimationState && gifAnimationState.frames.length > 1) {
           gifAnimationState.frameCounter++;
           
           // Only advance frame when we hit the interval
           if (gifAnimationState.frameCounter >= gifAnimationState.frameInterval) {
             // Advance to next frame
-            const oldFrame = gifAnimationState.currentFrame;
             gifAnimationState.currentFrame = (gifAnimationState.currentFrame + 1) % gifAnimationState.frames.length;
             
-            // Log GIF frame changes for first few frames
-            if (i < 5) {
-              console.log(`🎞️ GIF frame update ${i}: ${oldFrame} -> ${gifAnimationState.currentFrame}`);
-            }
-            
-            // Draw new frame (optimized)
+            // Draw new frame (identical to client logic)
             const frame = gifAnimationState.frames[gifAnimationState.currentFrame];
-            
-            // Clear canvas if disposal method requires it
-            if (frame.disposalType === 2) {
-              gifAnimationState.ctx.clearRect(0, 0, gifAnimationState.canvas.width, gifAnimationState.canvas.height);
-            }
-            
-            // Create and draw frame data directly
             const imageData = new ImageData(
               new Uint8ClampedArray(frame.patch),
               frame.dims.width,
               frame.dims.height
             );
-            gifAnimationState.ctx.putImageData(imageData, frame.dims.left, frame.dims.top);
+            
+            // Clear canvas (handle disposal method)
+            if (frame.disposalType === 2) {
+              gifAnimationState.ctx.clearRect(0, 0, gifAnimationState.canvas.width, gifAnimationState.canvas.height);
+            }
+            
+            // Create temporary canvas for the frame
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d')!;
+            tempCanvas.width = frame.dims.width;
+            tempCanvas.height = frame.dims.height;
+            tempCtx.putImageData(imageData, 0, 0);
+            
+            // Draw frame at correct position
+            gifAnimationState.ctx.drawImage(
+              tempCanvas,
+              frame.dims.left,
+              frame.dims.top,
+              frame.dims.width,
+              frame.dims.height
+            );
             
             // Mark texture as needing update
-            gifAnimationState.texture.needsUpdate = true;
+            if (gifAnimationState.texture) {
+              gifAnimationState.texture.needsUpdate = true;
+            }
+            
+            // Reset counter
             gifAnimationState.frameCounter = 0;
           }
         }
@@ -650,21 +545,17 @@ export const handler: Handler = async (event) => {
         // Render frame
         renderer.render(scene, camera);
 
-        // Capture as WebP with balanced quality for speed
-        const dataURL = renderer.domElement.toDataURL('image/webp', 0.85);
+        // Capture as WebP with maximum quality
+        const dataURL = renderer.domElement.toDataURL('image/webp', 0.99);
         const base64 = dataURL.split(',')[1];
         frames.push(base64);
 
-        // Progress logging (every 20 frames for reduced overhead)
-        if (i === 0 || i === exportSettings.frames - 1 || i % 20 === 0) {
-          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-          console.log(`📸 Frame ${i + 1}/${exportSettings.frames} (${elapsed}s elapsed)`);
+        if (i === 0 || i === exportSettings.frames - 1 || i % 10 === 0) {
+          console.log(`📸 Captured server frame ${i + 1}/${exportSettings.frames}`);
         }
       }
 
-      const totalTime = Date.now() - totalStartTime;
-      const avgFps = frames.length / (totalTime / 1000);
-      console.log(`✅ Server-side frame capture complete: ${frames.length} frames in ${totalTime}ms (${avgFps.toFixed(1)} fps)`);
+      console.log(`✅ Server-side frame capture complete: ${frames.length} frames`);
       return frames;
 
     }, request);

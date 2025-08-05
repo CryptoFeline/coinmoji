@@ -35,9 +35,9 @@ export class CoinExporter {
   async exportFrames(settings: ExportSettings): Promise<Blob[]> {
     const { fps, duration, size, targetFileSize = 60 * 1024, qualityMode = 'balanced' } = settings;
     
-    // Dynamic frame count based on quality mode and target size (optimized for server-side)
+    // Dynamic frame count based on quality mode and target size
     const maxFramesByQuality = {
-      high: Math.min(60, Math.floor(fps * duration)), // Up to 60 frames for high quality (20fps × 3s)
+      high: Math.min(60, Math.floor(fps * duration)), // Up to 60 frames for high quality
       balanced: Math.min(45, Math.floor(fps * duration)), // Up to 45 frames for balanced
       compact: Math.min(30, Math.floor(fps * duration))  // Up to 30 frames for compact
     };
@@ -342,10 +342,10 @@ export class CoinExporter {
       return webmBlob;
       
     } catch (error) {
-      console.error('❌ Server-side rendering failed:', error);
+      console.error('❌ Server-side rendering failed, falling back to client-side:', error);
       
-      // No fallback - server-side is required for quality consistency
-      throw new Error(`Server-side rendering failed: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`);
+      // Fallback to original client-side method
+      return this.exportAsWebMClientSide(settings, autoDownload);
     }
   }
 
@@ -416,8 +416,7 @@ export class CoinExporter {
     return result.frames;
   }
 
-  // DEPRECATED: Client-side method kept for reference but not used
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  // Fallback to original client-side method (renamed)
   private async exportAsWebMClientSide(settings: ExportSettings, autoDownload: boolean = false): Promise<Blob> {
     console.log('🎬 Creating 100×100 WebM via serverless function (memory-optimized)...');
     

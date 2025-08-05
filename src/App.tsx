@@ -80,12 +80,12 @@ const AppContent: React.FC = () => {
         targetDuration,
         rotationAmount: `${(rotationAmount / (2 * Math.PI)).toFixed(2)} full rotations`,
         radiansAmount: rotationAmount.toFixed(3),
-        fps: 20 // Optimized for 60 frames in 3 seconds (server-side rendering)
+        fps: 30
       });
       
       // Export as WebM for download
       const webmBlob = await exporter.exportAsWebM({
-        fps: 20, // Optimized for server-side rendering (60 frames total)
+        fps: 30,
         duration: targetDuration, // Always 3 seconds
         size: 100,
         rotationSpeed: rotationSpeed // Pass the actual rotation speed to match live animation
@@ -151,12 +151,12 @@ const AppContent: React.FC = () => {
         rotationSpeed: coinSettings.rotationSpeed,
         speedValue: rotationSpeed,
         timeForFullRotation: timeForFullRotation,
-        fps: 20 // Optimized for server-side rendering
+        fps: 30
       });
       
       // Export as WebM for Telegram emoji (no auto-download)
       const webmBlob = await exporter.exportAsWebM({
-        fps: 20, // Optimized for server-side rendering (60 frames total)
+        fps: 30,
         duration: Math.max(1, Math.min(3, timeForFullRotation)), // Clamp between 1-3 seconds
         size: 100,
         rotationSpeed: rotationSpeed // Pass the actual rotation speed to match live animation

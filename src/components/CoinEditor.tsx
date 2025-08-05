@@ -83,9 +83,9 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     exportFrames: async (settings: any) => {
       if (!sceneRef.current) return [];
       
-      // Enhanced settings with quality optimization (server-side rendering)
+      // Enhanced settings with quality optimization
       const enhancedSettings = {
-        fps: settings.fps || 20, // Optimized for server-side rendering (60 frames)
+        fps: settings.fps || 30,
         duration: settings.duration || 3,
         size: settings.size || 100,
         targetFileSize: 62 * 1024, // 62KB target (96% of 64KB limit - maximize quality)
