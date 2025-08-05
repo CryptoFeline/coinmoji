@@ -51,13 +51,57 @@ export const handler: Handler = async (event) => {
       NETLIFY: process.env.NETLIFY
     });
 
-    // Use Netlify's Chromium plugin (Pattern A)
-    const chromePath = process.env.CHROME_PATH;
-    if (!chromePath) {
-      throw new Error('CHROME_PATH not found. Ensure netlify-plugin-chromium is installed.');
+    // Try multiple Chrome paths (Netlify plugin can put Chrome in different locations)
+    const possibleChromePaths = [
+      process.env.CHROME_PATH,                    // Plugin-set environment variable
+      '/opt/chromium/chrome',                     // Runtime plugin location
+      '/opt/chrome/chrome',                       // Alternative location
+      '/usr/bin/google-chrome',                   // System Chrome
+      '/usr/bin/google-chrome-stable',            // System Chrome stable
+      '/usr/bin/chromium-browser',                // System Chromium
+      '/usr/bin/chromium'                         // System Chromium alt
+    ].filter(Boolean);
+
+    let chromePath: string | null = null;
+    
+    // Find the first available Chrome executable
+    for (const path of possibleChromePaths) {
+      try {
+        const fs = await import('fs');
+        if (path && fs.existsSync(path)) {
+          chromePath = path;
+          console.log('✅ Found Chrome at:', path);
+          break;
+        } else {
+          console.log('⚠️ Chrome not found at:', path);
+        }
+      } catch (e) {
+        console.log('❌ Error checking path:', path, e.message);
+      }
     }
 
-    console.log('✅ Using Netlify Chromium plugin at:', chromePath);
+    if (!chromePath) {
+      // List available files for debugging
+      try {
+        const fs = await import('fs');
+        console.log('🔍 Debug: Checking /opt directory contents...');
+        if (fs.existsSync('/opt')) {
+          const optContents = fs.readdirSync('/opt');
+          console.log('/opt contents:', optContents);
+          
+          if (optContents.includes('chromium')) {
+            const chromiumContents = fs.readdirSync('/opt/chromium');
+            console.log('/opt/chromium contents:', chromiumContents);
+          }
+        }
+      } catch (debugError) {
+        console.log('Debug error:', debugError.message);
+      }
+      
+      throw new Error(`Chrome executable not found. Checked paths: ${possibleChromePaths.join(', ')}`);
+    }
+
+    console.log('✅ Using Chrome executable at:', chromePath);
 
     // Launch Chrome with Netlify plugin executable
     browser = await puppeteer.launch({
