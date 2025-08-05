@@ -854,6 +854,12 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
             bottomTexture.wrapS = THREE.RepeatWrapping;
             bottomTexture.repeat.x = -1; // Horizontal flip to fix mirroring
             bottomTexture.needsUpdate = true;
+            
+            // CRITICAL: Copy animation update function for GIF textures
+            if (texture.userData?.update) {
+              bottomTexture.userData = { update: texture.userData.update };
+            }
+            
             botMaterial.map = bottomTexture;
           }
           botMaterial.opacity = 1;

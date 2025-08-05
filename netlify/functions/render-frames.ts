@@ -270,8 +270,8 @@ export const handler: Handler = async (event) => {
       turntable.add(coinGroup);
       scene.add(turntable);
 
-      // Add IDENTICAL lighting to CoinEditor.tsx (REMOVED environment map for serverless speed)
-      console.log('💡 Setting up identical lighting (without heavy environment map)...');
+      // Add IDENTICAL lighting to CoinEditor.tsx (with optimized environment map)
+      console.log('💡 Setting up identical lighting with environment map...');
       
       // Hemisphere + Directional lights (exact match to CoinEditor.tsx)
       const hemiLight = new THREE.HemisphereLight(0xffffff, 0x222233, 0.45);
@@ -281,10 +281,41 @@ export const handler: Handler = async (event) => {
       dirLight.position.set(3, 5, 2);
       scene.add(dirLight);
       
-      // Skip environment map loading for serverless performance
-      // The heavy HDR cubemap loading from threejs.org was causing 30s timeouts
-      // We'll rely on the directional + hemisphere lighting for good results
-      console.log('⚡ Skipped environment map loading for serverless speed optimization');
+      // Add environment map for metallic reflections (CRITICAL for visual parity)
+      // Use the same Bridge2 environment as client-side but optimized for serverless
+      console.log('🌍 Loading environment map for metallic reflections...');
+      const loader = new THREE.CubeTextureLoader();
+      const envMap = loader.load([
+        'https://threejs.org/examples/textures/cube/Bridge2/posx.jpg',
+        'https://threejs.org/examples/textures/cube/Bridge2/negx.jpg',
+        'https://threejs.org/examples/textures/cube/Bridge2/posy.jpg',
+        'https://threejs.org/examples/textures/cube/Bridge2/negy.jpg',
+        'https://threejs.org/examples/textures/cube/Bridge2/posz.jpg',
+        'https://threejs.org/examples/textures/cube/Bridge2/negz.jpg'
+      ]);
+      
+      // Wait for environment map to load (required for metallic surfaces)
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          console.warn('⚠️ Environment map loading timeout, proceeding without it');
+          resolve();
+        }, 8000); // 8s timeout for serverless constraints
+        
+        envMap.addEventListener('load', () => {
+          clearTimeout(timeout);
+          scene.environment = envMap;
+          console.log('✅ Environment map loaded for metallic reflections');
+          resolve();
+        });
+        
+        envMap.addEventListener('error', (error) => {
+          clearTimeout(timeout);
+          console.warn('⚠️ Environment map loading failed, proceeding without it:', error);
+          resolve(); // Continue without environment map
+        });
+      });
+      
+      console.log('✅ Lighting setup complete (matching client-side)');
 
       // Apply user lighting settings (EXACT match to CoinEditor.tsx)
       console.log('💡 Applying user lighting settings...');
@@ -545,6 +576,11 @@ export const handler: Handler = async (event) => {
               bottomTexture.wrapS = THREE.RepeatWrapping;
               bottomTexture.repeat.x = -1; // Horizontal flip to fix mirroring
               bottomTexture.needsUpdate = true;
+              
+              // CRITICAL: Copy animation update function for GIF textures (even static Texture can have userData.update)
+              if (overlayTexture.userData?.update) {
+                bottomTexture.userData = { update: overlayTexture.userData.update };
+              }
             }
             
             overlayBot.material.map = bottomTexture;
@@ -584,17 +620,18 @@ export const handler: Handler = async (event) => {
         }
         
         if (overlayTexture) {
-          // Ensure correct flipY setting based on texture type (matching client-side)
-          if (overlayTexture instanceof THREE.CanvasTexture) {
-            overlayTexture.flipY = true; // FIXED: CanvasTexture should use flipY = true
-          } else {
-            overlayTexture.flipY = false; // FIXED: Regular Texture should use flipY = false
-          }
-          
           // DUAL MODE: Apply second overlay to bottom face (matching client-side logic exactly)
-          // Client-side only applies horizontal flip for VideoTextures, not CanvasTextures
-          overlayBot.material.map = overlayTexture;
-          console.log('✅ Back overlay applied to BOTTOM face without flip (dual mode - matches client-side)');
+          if (overlayTexture instanceof THREE.CanvasTexture) {
+            // For animated GIFs (CanvasTexture), apply directly with existing flipY = true
+            overlayBot.material.map = overlayTexture;
+            console.log('✅ Back overlay (GIF) applied to BOTTOM face - no flip (dual mode)');
+          } else {
+            // For static images (Regular Texture), apply directly with flipY = true 
+            // (client-side sets flipY = true in applyOverlay for both faces in dual mode)
+            overlayTexture.flipY = true;
+            overlayBot.material.map = overlayTexture;
+            console.log('✅ Back overlay (static) applied to BOTTOM face with flipY=true (dual mode)');
+          }
           
           overlayBot.material.opacity = 1;
           overlayBot.material.needsUpdate = true;
