@@ -196,7 +196,7 @@ export const handler: Handler = async (event) => {
 
       // Create identical camera (FIXED: match client-side position)
       const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
-      camera.position.set(0, 0, 7); // FIXED: Match client-side camera position
+      camera.position.set(0, 0, 2.8); // KEEP at 2.8
       camera.lookAt(0, 0, 0);
 
       // Create identical renderer with optimized resolution
@@ -550,7 +550,7 @@ export const handler: Handler = async (event) => {
           });
           const texture = new THREE.Texture(img);
           texture.needsUpdate = true;
-          texture.flipY = false; // FIXED: Match client-side flipY = false for static images
+          texture.flipY = true; // FIXED: Match client-side flipY = false for static images
           overlayTexture = texture;
         }
         
@@ -559,7 +559,7 @@ export const handler: Handler = async (event) => {
           if (overlayTexture instanceof THREE.CanvasTexture) {
             overlayTexture.flipY = true; // FIXED: CanvasTexture should use flipY = true
           } else {
-            overlayTexture.flipY = false; // FIXED: Regular Texture should use flipY = false
+            overlayTexture.flipY = true; // FIXED: Regular Texture should use flipY = false
           }
           
           if (settings.dualOverlay) {

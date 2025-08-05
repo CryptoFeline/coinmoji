@@ -133,7 +133,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       0.1,
       100
     );
-    camera.position.set(0, 0, 7);
+    camera.position.set(0, 0, 2.8);
     camera.lookAt(0, 0, 0);
 
     const renderer = new THREE.WebGLRenderer({ 
