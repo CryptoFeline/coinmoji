@@ -9,13 +9,18 @@ package = "netlify-plugin-chromium"
 
 [functions]
   node_bundler = "esbuild"
-  # Include chromium binary in function bundle
+  # Default timeout for all functions
+  "*" = { timeout = 60 }
+
+# render-frames function needs Chromium for server-side rendering
+[functions."render-frames"]
+  timeout = 60
   external_node_modules = ["chromium"]
   included_files = ["node_modules/chromium/lib/chromium/**"]
-  # Increase timeout for video processing and server-side rendering
-  "*" = { timeout = 60 }
-  # Increase size limit for functions with bundled FFmpeg binary
-  "make-webm" = { timeout = 60, size = 100000000 }
+
+# make-webm function already has bundled FFmpeg binary
+[functions."make-webm"]
+  timeout = 60
 
 [functions.environment]
   # Upgrade to Node.js 20 for better Puppeteer support

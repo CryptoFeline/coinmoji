@@ -6,6 +6,14 @@ echo "📦 Downloading FFmpeg static binary for function bundling..."
 # Create the function directory if it doesn't exist
 mkdir -p netlify/functions/make-webm
 
+# Check if FFmpeg binary already exists
+if [ -f "netlify/functions/make-webm/ffmpeg" ]; then
+    echo "✅ FFmpeg binary already exists, skipping download"
+    echo "📊 Existing binary size: $(du -h netlify/functions/make-webm/ffmpeg | cut -f1)"
+    echo "🎯 Using existing bundled FFmpeg"
+    exit 0
+fi
+
 # Download the FFmpeg binary
 echo "🌐 Downloading FFmpeg 6.0 Linux x64 static binary..."
 curl -L -o netlify/functions/make-webm/ffmpeg https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-linux-x64
