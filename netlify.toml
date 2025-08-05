@@ -8,11 +8,14 @@
   # Default timeout for all functions
   "*" = { timeout = 60 }
 
-# render-frames function needs @sparticuz/chromium for server-side rendering
+# render-frames function needs @sparticuz/chromium for server-side rendering + gifuct-js for GIF processing
 [functions."render-frames"]
   timeout = 60
-  external_node_modules = ["@sparticuz/chromium"]
-  included_files = ["node_modules/@sparticuz/chromium/bin/**"]
+  external_node_modules = ["@sparticuz/chromium", "gifuct-js"]
+  included_files = [
+    "node_modules/@sparticuz/chromium/bin/**",
+    "node_modules/gifuct-js/lib/**"
+  ]
 
 # make-webm function already has bundled FFmpeg binary
 [functions."make-webm"]

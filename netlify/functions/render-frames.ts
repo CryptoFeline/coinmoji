@@ -79,15 +79,17 @@ export const handler: Handler = async (event) => {
 
     console.log('🎨 Injecting Three.js and creating scene...');
 
-    // Read and inject gifuct-js locally to avoid CDN loading issues
-    const gifuctPath = path.join(__dirname, '../../node_modules/gifuct-js/lib/index.js');
+    // Read and inject gifuct-js using require.resolve() for proper bundled path resolution
+    console.log('📦 Resolving gifuct-js library path...');
     let gifuctCode = '';
     try {
+      // Use require.resolve() to locate the library within the bundled function
+      const gifuctPath = require.resolve('gifuct-js/lib/index.js');
       gifuctCode = fs.readFileSync(gifuctPath, 'utf8');
-      console.log('✅ gifuct-js file loaded locally');
+      console.log('✅ gifuct-js file loaded from resolved path:', gifuctPath);
     } catch (error) {
-      console.error('❌ Failed to load local gifuct-js file:', error);
-      throw new Error('gifuct-js local file not found');
+      console.error('❌ Failed to load gifuct-js via require.resolve():', error);
+      throw new Error('gifuct-js library resolution failed - ensure it\'s bundled in netlify.toml');
     }
 
     // Inject Three.js and create identical scene with local gifuct-js
