@@ -1,6 +1,8 @@
 import { Handler } from '@netlify/functions';
 import puppeteer from 'puppeteer-core';
 import chromium from '@sparticuz/chromium';
+import * as fs from 'fs';
+import * as path from 'path';
 
 interface RenderFramesRequest {
   settings: {
@@ -77,8 +79,19 @@ export const handler: Handler = async (event) => {
 
     console.log('🎨 Injecting Three.js and creating scene...');
 
-    // Inject Three.js and create identical scene
-    const framesBase64 = await page.evaluate(async (renderRequest) => {
+    // Read and inject gifuct-js locally to avoid CDN loading issues
+    const gifuctPath = path.join(__dirname, '../../node_modules/gifuct-js/lib/index.js');
+    let gifuctCode = '';
+    try {
+      gifuctCode = fs.readFileSync(gifuctPath, 'utf8');
+      console.log('✅ gifuct-js file loaded locally');
+    } catch (error) {
+      console.error('❌ Failed to load local gifuct-js file:', error);
+      throw new Error('gifuct-js local file not found');
+    }
+
+    // Inject Three.js and create identical scene with local gifuct-js
+    const framesBase64 = await page.evaluate(async (renderRequest, gifuctJsCode) => {
       console.log('⏱️ Starting Three.js setup with performance monitoring...');
       const setupStart = Date.now();
       
@@ -103,81 +116,33 @@ export const handler: Handler = async (event) => {
         };
       });
 
-      // Load gifuct-js for proper GIF frame parsing (with robust fallback strategy)
-      console.log('📦 Loading gifuct-js for GIF processing...');
+      // Inject gifuct-js locally (bundled with function)
+      console.log('📦 Injecting local gifuct-js for GIF processing...');
       
-      let gifuctLoaded = false;
-      
-      // Strategy: Multiple CDN sources with enhanced verification
-      const gifuctUrls = [
-        'https://unpkg.com/gifuct-js@2.1.2/dist/gifuct.js',
-        'https://cdn.jsdelivr.net/npm/gifuct-js@2.1.2/dist/gifuct.js',
-        'https://cdn.skypack.dev/gifuct-js@2.1.2'
-      ];
-      
-      for (const url of gifuctUrls) {
-        if (gifuctLoaded) break;
+      try {
+        // Create a script element and inject the local gifuct-js code
+        const gifuctScript = document.createElement('script');
+        gifuctScript.textContent = gifuctJsCode;
+        document.head.appendChild(gifuctScript);
         
-        try {
-          console.log(`🔄 Trying gifuct-js from: ${url}`);
-          const gifuctScript = document.createElement('script');
-          gifuctScript.src = url;
-          document.head.appendChild(gifuctScript);
-          
-          await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-              reject(new Error(`gifuct-js loading timeout from ${url}`));
-            }, 10000); // Increased timeout for serverless
-            
-            gifuctScript.onload = () => {
-              clearTimeout(timeout);
-              
-              // Enhanced verification - check multiple possible global names
-              const possibleGlobals = [
-                (window as any).gifuct,
-                (window as any).parseGIF, 
-                (window as any).GifReader,
-                (window as any).gifuctJs
-              ];
-              
-              const availableGlobal = possibleGlobals.find(g => g !== undefined);
-              
-              if (availableGlobal) {
-                // Store in a consistent location
-                if (!(window as any).gifuct && (window as any).parseGIF) {
-                  (window as any).gifuct = { 
-                    parseGIF: (window as any).parseGIF,
-                    decompressFrames: (window as any).decompressFrames 
-                  };
-                }
-                gifuctLoaded = true;
-                console.log(`✅ gifuct-js loaded and verified from ${url}`);
-                resolve(undefined);
-              } else {
-                reject(new Error(`gifuct-js loaded but not accessible from ${url}`));
-              }
-            };
-            
-            gifuctScript.onerror = () => {
-              clearTimeout(timeout);
-              console.warn(`⚠️ Failed to load gifuct-js from ${url}`);
-              try {
-                document.head.removeChild(gifuctScript);
-              } catch (e) {
-                // Ignore cleanup errors
-              }
-              reject(new Error(`gifuct-js loading failed from ${url}`));
-            };
-          });
-          break; // Success, exit loop
-        } catch (error) {
-          console.warn(`⚠️ Trying next CDN for gifuct-js:`, error);
-          continue; // Try next URL
+        // Verify gifuct-js is available
+        const gifuct = (window as any).gifuct || (window as any).parseGIF;
+        if (!gifuct) {
+          throw new Error('gifuct-js failed to initialize after local injection');
         }
-      }
-      
-      if (!gifuctLoaded) {
-        console.error('❌ All gifuct-js loading strategies failed - GIF animations will not work properly');
+        
+        // Ensure consistent global access
+        if (!(window as any).gifuct && (window as any).parseGIF) {
+          (window as any).gifuct = { 
+            parseGIF: (window as any).parseGIF,
+            decompressFrames: (window as any).decompressFrames 
+          };
+        }
+        
+        console.log('✅ gifuct-js successfully injected locally');
+      } catch (error) {
+        console.error('❌ Failed to inject local gifuct-js:', error);
+        throw new Error('Local gifuct-js injection failed');
       }
 
       const setupTime = Date.now() - setupStart;
@@ -686,26 +651,66 @@ export const handler: Handler = async (event) => {
         // Render frame
         renderer.render(scene, camera);
 
-        // Capture as WebP with quality optimization and downscaling
-        const dataURL = renderer.domElement.toDataURL('image/webp', 0.99);
+        // Capture as WebP blob (IDENTICAL to exporter.ts)
+        const frameBlob = await new Promise<Blob>((resolve) => {
+          const canvas = renderer.domElement;
+          
+          // Capture at 200px first (matching server-side renderer size)
+          canvas.toBlob((blob) => {
+            if (!blob) {
+              // PNG fallback for compatibility
+              canvas.toBlob((pngBlob) => {
+                resolve(pngBlob || new Blob());
+              }, 'image/png');
+              return;
+            }
+            resolve(blob);
+          }, 'image/webp', 0.99);
+        });
         
-        // Downscale from 200px to 100px for final output
+        // Downscale from 200px to 100px using canvas (same as before)
         const tempCanvas = document.createElement('canvas');
         const tempCtx = tempCanvas.getContext('2d')!;
         tempCanvas.width = 100;
         tempCanvas.height = 100;
         
+        // Load the WebP blob into an image
+        const frameUrl = URL.createObjectURL(frameBlob);
         const img = new Image();
-        img.src = dataURL;
+        img.src = frameUrl;
+        
         await new Promise(resolve => {
           img.onload = () => {
             tempCtx.drawImage(img, 0, 0, 100, 100);
+            URL.revokeObjectURL(frameUrl); // Clean up
             resolve(undefined);
           };
         });
         
-        const downscaledDataURL = tempCanvas.toDataURL('image/webp', 0.99);
-        const base64 = downscaledDataURL.split(',')[1];
+        // Convert downscaled canvas to WebP blob (IDENTICAL to exporter.ts)
+        const downscaledBlob = await new Promise<Blob>((resolve) => {
+          tempCanvas.toBlob((blob) => {
+            if (!blob) {
+              tempCanvas.toBlob((pngBlob) => {
+                resolve(pngBlob || new Blob());
+              }, 'image/png');
+              return;
+            }
+            resolve(blob);
+          }, 'image/webp', 0.99);
+        });
+        
+        // Convert blob to base64 for return (temporary until we can return blobs directly)
+        const base64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            const base64Data = result.split(',')[1];
+            resolve(base64Data);
+          };
+          reader.readAsDataURL(downscaledBlob);
+        });
+        
         frames.push(base64);
 
         if (i === 0 || i === exportSettings.frames - 1 || i % 10 === 0) {
@@ -718,7 +723,7 @@ export const handler: Handler = async (event) => {
       console.log(`✅ Server-side frame capture complete: ${frames.length} frames in ${totalTime}ms`);
       return frames;
 
-    }, request);
+    }, request, gifuctCode);
 
     console.log(`✅ Server-side rendering complete: ${framesBase64.length} frames captured`);
 
