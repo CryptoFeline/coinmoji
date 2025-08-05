@@ -77,21 +77,21 @@ export const handler: Handler = async (event) => {
 
     console.log('🎨 Injecting Three.js and creating scene...');
 
-    // Set page timeout to prevent hanging
-    page.setDefaultTimeout(20000); // 20 second timeout for all operations
-
     // Inject Three.js and create identical scene
     const framesBase64 = await page.evaluate(async (renderRequest) => {
+      console.log('⏱️ Starting Three.js setup with performance monitoring...');
+      const setupStart = Date.now();
+      
       // Create script element to load Three.js
       const script = document.createElement('script');
       script.src = 'https://unpkg.com/three@0.158.0/build/three.min.js';
       document.head.appendChild(script);
       
-      // Wait for Three.js to load with shorter timeout for serverless
+      // Wait for Three.js to load with reduced timeout
       await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
-          reject(new Error('Three.js loading timeout (5s limit for serverless)'));
-        }, 5000); // Reduced to 5 seconds for faster failure
+          reject(new Error('Three.js loading timeout after 5s'));
+        }, 5000); // Reduced from 10s to 5s timeout
         
         script.onload = () => {
           clearTimeout(timeout);
@@ -102,6 +102,9 @@ export const handler: Handler = async (event) => {
           reject(new Error('Three.js loading failed'));
         };
       });
+
+      const setupTime = Date.now() - setupStart;
+      console.log(`⚡ Three.js loaded in ${setupTime}ms`);
 
       const THREE = (window as any).THREE;
       if (!THREE) {
@@ -167,15 +170,15 @@ export const handler: Handler = async (event) => {
         geometry.setAttribute('uv', new THREE.BufferAttribute(uvArray, 2));
       };
 
-      // Create coin geometry (EXACT COPY from CoinEditor.tsx)
+      // Create coin geometry (OPTIMIZED for serverless performance)
       const { settings } = renderRequest;
       
-      // Coin parameters (identical to CoinEditor.tsx)
+      // Coin parameters (reduced complexity for server-side speed)
       const R = 1.0;
       const T = 0.35;
       const bulge = 0.10;
-      const radialSegments = 128;
-      const capSegments = 32;
+      const radialSegments = 64; // Reduced from 128 for faster processing
+      const capSegments = 16;    // Reduced from 32 for faster processing
 
       // Materials (identical to CoinEditor.tsx)
       const rimMat = new THREE.MeshStandardMaterial({
@@ -240,8 +243,8 @@ export const handler: Handler = async (event) => {
       turntable.add(coinGroup);
       scene.add(turntable);
 
-      // Add IDENTICAL lighting to CoinEditor.tsx (SIMPLIFIED for serverless reliability)
-      console.log('💡 Setting up simplified lighting for serverless stability...');
+      // Add IDENTICAL lighting to CoinEditor.tsx (REMOVED environment map for serverless speed)
+      console.log('💡 Setting up identical lighting (without heavy environment map)...');
       
       // Hemisphere + Directional lights (exact match to CoinEditor.tsx)
       const hemiLight = new THREE.HemisphereLight(0xffffff, 0x222233, 0.45);
@@ -251,16 +254,10 @@ export const handler: Handler = async (event) => {
       dirLight.position.set(3, 5, 2);
       scene.add(dirLight);
       
-      // SIMPLIFIED: Skip environment map loading to prevent Chrome timeout
-      // Instead, use a basic solid color environment for minimal reflections
-      console.log('🌍 Using simplified environment for serverless stability...');
-      scene.environment = null; // No HDR environment to avoid network timeout
-      
-      // Add basic ambient light to compensate for missing environment reflections
-      const ambientLight = new THREE.AmbientLight(0x404040, 0.2);
-      scene.add(ambientLight);
-      
-      console.log('✅ Simplified lighting applied - ready for reliable rendering');
+      // Skip environment map loading for serverless performance
+      // The heavy HDR cubemap loading from threejs.org was causing 30s timeouts
+      // We'll rely on the directional + hemisphere lighting for good results
+      console.log('⚡ Skipped environment map loading for serverless speed optimization');
 
       // Apply user lighting settings (EXACT match to CoinEditor.tsx)
       console.log('💡 Applying user lighting settings...');
