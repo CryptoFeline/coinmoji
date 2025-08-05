@@ -103,8 +103,29 @@ export const handler: Handler = async (event) => {
         };
       });
 
+      // Load gifuct-js for proper GIF frame parsing (matching client-side)
+      console.log('📦 Loading gifuct-js for GIF processing...');
+      const gifuctScript = document.createElement('script');
+      gifuctScript.src = 'https://unpkg.com/gifuct-js@2.1.2/dist/gifuct.js';
+      document.head.appendChild(gifuctScript);
+      
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('gifuct-js loading timeout'));
+        }, 3000);
+        
+        gifuctScript.onload = () => {
+          clearTimeout(timeout);
+          resolve(undefined);
+        };
+        gifuctScript.onerror = () => {
+          clearTimeout(timeout);
+          reject(new Error('gifuct-js loading failed'));
+        };
+      });
+
       const setupTime = Date.now() - setupStart;
-      console.log(`⚡ Three.js loaded in ${setupTime}ms`);
+      console.log(`⚡ Three.js and gifuct-js loaded in ${setupTime}ms`);
 
       const THREE = (window as any).THREE;
       if (!THREE) {
@@ -321,73 +342,123 @@ export const handler: Handler = async (event) => {
       // Process overlays directly from settings URLs (FIX: use overlayUrl, not overlayFront)
       console.log('🎨 Processing overlay URLs directly from settings...');
       
-      // Helper function to process GIF with proper animation support (matching client-side)
+      // Helper function to process GIF with gifuct-js (IDENTICAL to client-side)
       const processGIF = async (url: string) => {
         try {
-          console.log('🎞️ Processing animated GIF with frame extraction:', url);
+          console.log('🎞️ Processing animated GIF with gifuct-js (matching client):', url);
           
-          // Create video element to load GIF as animated content
-          const video = document.createElement('video');
-          video.crossOrigin = 'anonymous';
-          video.muted = true;
-          video.loop = true;
-          video.autoplay = true;
-          video.src = url;
+          // Fetch the GIF as a buffer (identical to client-side)
+          const response = await fetch(url);
+          const buffer = await response.arrayBuffer();
           
-          // Wait for video to load
-          await new Promise((resolve, reject) => {
-            video.onloadeddata = resolve;
-            video.onerror = reject;
-            setTimeout(() => reject(new Error('Video loading timeout')), 3000);
+          // Parse GIF using gifuct-js (identical to client-side)
+          const gifuct = (window as any).gifuct;
+          if (!gifuct) {
+            throw new Error('gifuct-js not loaded');
+          }
+          
+          const gif = gifuct.parseGIF(buffer);
+          const frames = gifuct.decompressFrames(gif, true);
+          
+          console.log('🎯 GIF parsed:', { 
+            frameCount: frames.length,
+            width: gif.lsd.width,
+            height: gif.lsd.height
           });
           
-          // Create canvas for frame extraction
+          if (frames.length === 0) {
+            throw new Error('No frames found in GIF');
+          }
+          
+          // Create canvas for rendering frames (identical to client-side)
           const canvas = document.createElement('canvas');
           const ctx = canvas.getContext('2d')!;
-          canvas.width = video.videoWidth || 256;
-          canvas.height = video.videoHeight || 256;
+          canvas.width = gif.lsd.width;
+          canvas.height = gif.lsd.height;
           
-          // Create texture from canvas
+          // Create texture (identical to client-side)
           const texture = new THREE.CanvasTexture(canvas);
-          texture.needsUpdate = true;
-          texture.flipY = false;
+          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.flipY = false; // Set to false for server-side consistency
           
-          // Animation state for GIF speed control (matching client-side)
+          // Animation state (identical to client-side)
+          let currentFrame = 0;
           let frameCounter = 0;
+          
+          // Frame-rate-based speed mapping (identical to client-side)
           const getFrameInterval = () => {
             const intervalMap = {
-              slow: 4,    // Change frame every 4 renders (slow)
-              medium: 2,  // Change frame every 2 renders (medium)  
-              fast: 1     // Change frame every render (fast)
+              slow: 4,    // Change frame every 4 renders (15fps effective)
+              medium: 2,  // Change frame every 2 renders (30fps effective)  
+              fast: 1     // Change frame every render (60fps effective)
             };
-            return intervalMap[renderRequest.settings.gifAnimationSpeed] || 2;
+            return intervalMap[renderRequest.settings.gifAnimationSpeed];
           };
           
-          // Update function that syncs with coin rotation
+          // Helper to draw frame to canvas (identical to client-side)
+          const drawFrame = (frameIndex: number) => {
+            const frame = frames[frameIndex];
+            const imageData = new ImageData(
+              new Uint8ClampedArray(frame.patch),
+              frame.dims.width,
+              frame.dims.height
+            );
+            
+            // Clear canvas (handle disposal method)
+            if (frame.disposalType === 2) {
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+            
+            // Create temporary canvas for the frame
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d')!;
+            tempCanvas.width = frame.dims.width;
+            tempCanvas.height = frame.dims.height;
+            tempCtx.putImageData(imageData, 0, 0);
+            
+            // Draw frame at correct position
+            ctx.drawImage(
+              tempCanvas,
+              frame.dims.left,
+              frame.dims.top,
+              frame.dims.width,
+              frame.dims.height
+            );
+          };
+          
+          // Draw initial frame (identical to client-side)
+          drawFrame(0);
+          
+          // Store update function called by main animation loop (identical to client-side)
           texture.userData = {
-            update: (frameIndex: number, totalFrames: number) => {
+            update: () => {
+              if (frames.length <= 1) return; // Static image
+              
               frameCounter++;
               const frameInterval = getFrameInterval();
               
+              // Only advance frame when we hit the interval
               if (frameCounter >= frameInterval) {
-                // Calculate GIF time based on frame progress
-                const progress = frameIndex / (totalFrames - 1);
-                const duration = video.duration || 3;
-                video.currentTime = (progress * duration) % duration;
+                // Advance to next frame
+                currentFrame = (currentFrame + 1) % frames.length;
                 
-                // Draw current video frame to canvas
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                // Draw new frame
+                drawFrame(currentFrame);
+                
+                // Mark texture as needing update
                 texture.needsUpdate = true;
+                
+                // Reset counter
                 frameCounter = 0;
               }
             }
           };
           
-          console.log('✅ Animated GIF texture created with frame sync');
-          return { texture, isAnimated: true, video };
+          console.log('✅ Animated GIF texture created with gifuct-js (matching client)');
+          return { texture, isAnimated: true, frames: frames.length };
           
         } catch (error) {
-          console.warn('⚠️ Failed to process GIF as video, falling back to static:', error);
+          console.warn('⚠️ Failed to process GIF with gifuct-js, falling back to static:', error);
           
           // Fallback to static image
           const img = document.createElement('img');
@@ -400,7 +471,7 @@ export const handler: Handler = async (event) => {
           const texture = new THREE.Texture(img);
           texture.needsUpdate = true;
           console.log('✅ GIF processed as static image fallback');
-          return { texture, isAnimated: false };
+          return { texture, isAnimated: false, frames: 1 };
         }
       };
 
@@ -411,11 +482,11 @@ export const handler: Handler = async (event) => {
         let overlayTexture: THREE.Texture | null = null;
         
         if (settings.overlayUrl.toLowerCase().includes('.gif')) {
-          // Process GIF (simplified to avoid timeouts)
+          // Process GIF with gifuct-js (identical to client-side)
           const gifResult = await processGIF(settings.overlayUrl);
           if (gifResult && gifResult.texture) {
             overlayTexture = gifResult.texture;
-            console.log('✅ GIF overlay applied as static image');
+            console.log('✅ Animated GIF overlay applied with gifuct-js');
           }
         } else {
           // Process static image
@@ -460,11 +531,11 @@ export const handler: Handler = async (event) => {
         let overlayTexture: THREE.Texture | null = null;
         
         if (settings.overlayUrl2.toLowerCase().includes('.gif')) {
-          // Process GIF (simplified to avoid timeouts)
+          // Process GIF with gifuct-js (identical to client-side)
           const gifResult = await processGIF(settings.overlayUrl2);
           if (gifResult && gifResult.texture) {
             overlayTexture = gifResult.texture;
-            console.log('✅ GIF overlay applied as static image');
+            console.log('✅ Animated GIF overlay applied with gifuct-js');
           }
         } else {
           // Process static image
@@ -513,12 +584,12 @@ export const handler: Handler = async (event) => {
         const totalRotation = frameProgress * Math.PI * 2;
         turntable.rotation.y = totalRotation;
 
-        // Update animated GIF textures (matching client-side animation loop)
+        // Update animated GIF textures (identical to client-side animation loop)
         if (overlayTop.material && overlayTop.material.map && overlayTop.material.map.userData?.update) {
-          overlayTop.material.map.userData.update(i, exportSettings.frames);
+          overlayTop.material.map.userData.update();
         }
         if (overlayBot.material && overlayBot.material.map && overlayBot.material.map.userData?.update) {
-          overlayBot.material.map.userData.update(i, exportSettings.frames);
+          overlayBot.material.map.userData.update();
         }
 
         // Render frame
