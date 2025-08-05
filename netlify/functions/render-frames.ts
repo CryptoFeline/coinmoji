@@ -129,17 +129,43 @@ export const handler: Handler = async (event) => {
 
       console.log('🎯 Created identical Three.js setup');
 
-      // Create coin geometry (IDENTICAL to CoinEditor.tsx)
+      // Planar UV mapping helper (identical to CoinEditor.tsx)
+      const planarMapUVs = (geometry) => {
+        geometry.computeBoundingBox();
+        const bb = geometry.boundingBox;
+        const r = Math.max(
+          Math.abs(bb.max.x),
+          Math.abs(bb.min.x),
+          Math.abs(bb.max.z),
+          Math.abs(bb.min.z)
+        );
+
+        const position = geometry.attributes.position;
+        const uvArray = new Float32Array(position.count * 2);
+
+        for (let i = 0; i < position.count; i++) {
+          const x = position.getX(i);
+          const z = position.getZ(i);
+          const u = 0.5 + (x / r) * 0.48;
+          const v = 1 - (0.5 + (z / r) * 0.48);
+          uvArray[i * 2] = u;
+          uvArray[i * 2 + 1] = v;
+        }
+
+        geometry.setAttribute('uv', new THREE.BufferAttribute(uvArray, 2));
+      };
+
+      // Create coin geometry (EXACT COPY from CoinEditor.tsx)
+      const { settings } = renderRequest;
+      
+      // Coin parameters (identical to CoinEditor.tsx)
       const R = 1.0;
       const T = 0.35;
       const bulge = 0.10;
       const radialSegments = 128;
       const capSegments = 32;
-      
-      const coinGroup = new THREE.Group();
-      const turntable = new THREE.Group();
-      
-      // Rim material (identical to client)
+
+      // Materials (identical to CoinEditor.tsx)
       const rimMat = new THREE.MeshStandardMaterial({
         color: 0xb87333,
         metalness: 1,
@@ -147,39 +173,12 @@ export const handler: Handler = async (event) => {
         envMapIntensity: 1
       });
       const faceMat = rimMat.clone();
-      
-      // Apply user's material settings
-      const { settings } = renderRequest;
-      
-      if (settings.fillMode === 'solid') {
-        faceMat.color.set(settings.bodyColor);
-        faceMat.metalness = settings.metallic ? 0.8 : 0.1;
-        faceMat.roughness = settings.metallic ? 0.2 : 0.7;
-      } else {
-        // Gradient material implementation (identical to client)
-        const canvas = document.createElement('canvas');
-        canvas.width = 256;
-        canvas.height = 256;
-        const ctx = canvas.getContext('2d')!;
-        
-        const gradient = ctx.createLinearGradient(0, 0, 256, 256);
-        gradient.addColorStop(0, settings.gradientStart || '#00eaff');
-        gradient.addColorStop(1, settings.gradientEnd || '#ee00ff');
-        
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, 256, 256);
-        
-        const texture = new THREE.CanvasTexture(canvas);
-        faceMat.map = texture;
-        faceMat.metalness = settings.metallic ? 0.8 : 0.1;
-        faceMat.roughness = settings.metallic ? 0.2 : 0.7;
-      }
-      
-      // Coin geometry (IDENTICAL to CoinEditor.tsx)
+
+      // Coin geometry (identical to CoinEditor.tsx)
       const cylinderGeometry = new THREE.CylinderGeometry(R, R, T, radialSegments, 1, true);
       const cylinder = new THREE.Mesh(cylinderGeometry, rimMat);
-      
-      // Face creation function (IDENTICAL to CoinEditor.tsx)
+
+      // Face creation function (identical to CoinEditor.tsx)
       const createFace = (isTop) => {
         const geometry = new THREE.SphereGeometry(
           R,
@@ -194,14 +193,38 @@ export const handler: Handler = async (event) => {
         geometry.translate(0, isTop ? T / 2 : -T / 2, 0);
         return new THREE.Mesh(geometry, faceMat);
       };
-      
+
       const topFace = createFace(true);
       const bottomFace = createFace(false);
-      
-      // Assemble coin (identical to client)
-      coinGroup.add(cylinder);
-      coinGroup.add(topFace);
-      coinGroup.add(bottomFace);
+
+      // Overlay creation (identical to CoinEditor.tsx)
+      const overlayMaterial = new THREE.MeshStandardMaterial({
+        transparent: true,
+        metalness: 0,
+        roughness: 0.5,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
+        opacity: 0
+      });
+
+      const createOverlay = (isTop) => {
+        const mesh = createFace(isTop);
+        mesh.material = overlayMaterial.clone();
+        planarMapUVs(mesh.geometry);
+        return mesh;
+      };
+
+      const overlayTop = createOverlay(true);
+      const overlayBot = createOverlay(false);
+
+      // Coin assembly (identical to CoinEditor.tsx)
+      const coinGroup = new THREE.Group();
+      coinGroup.add(cylinder, topFace, bottomFace, overlayTop, overlayBot);
+      coinGroup.rotation.x = Math.PI / 2; // Stand on edge
+
+      // Turntable (identical to CoinEditor.tsx)
+      const turntable = new THREE.Group();
       turntable.add(coinGroup);
       scene.add(turntable);
 
@@ -213,142 +236,104 @@ export const handler: Handler = async (event) => {
       directionalLight.position.set(2, 2, 2);
       scene.add(directionalLight);
 
-      // Add overlay support with animated GIF handling
-      let overlayTexture: THREE.Texture | null = null;
+      // Apply overlays using CoinEditor.tsx approach with proper overlay meshes
       let gifAnimationState: any = null;
       
-      if (settings.overlayUrl) {
-        console.log('🖼️ Loading overlay texture:', settings.overlayUrl);
+      // Apply front overlay (identical to CoinEditor.tsx)
+      if (settings.overlayFront?.content) {
+        console.log('� Applying front overlay');
         
-        try {
-          const isGif = /\.gif$/i.test(settings.overlayUrl);
-          
-          if (isGif) {
-            console.log('🎞️ Processing animated GIF overlay...');
-            
-            // Load gifuct-js dynamically for server-side GIF parsing
-            const { parseGIF, decompressFrames } = await import('gifuct-js');
-            
-            // Fetch and parse GIF
-            const response = await fetch(settings.overlayUrl);
-            const buffer = await response.arrayBuffer();
-            const gif = parseGIF(buffer);
-            const frames = decompressFrames(gif, true);
-            
-            console.log('🎯 GIF parsed on server:', { 
-              frameCount: frames.length,
-              width: gif.lsd.width,
-              height: gif.lsd.height
-            });
-            
-            // Create canvas for GIF frames
+        let overlayTexture: THREE.Texture | null = null;
+        
+        if (settings.overlayFront.type === 'image') {
+          const img = document.createElement('img');
+          img.src = settings.overlayFront.content;
+          await new Promise(resolve => {
+            img.onload = resolve;
+            img.onerror = resolve;
+          });
+          const texture = new THREE.Texture(img);
+          texture.needsUpdate = true;
+          overlayTexture = texture;
+        } else if (settings.overlayFront.type === 'gif') {
+          // Use the processed GIF frames
+          const gif = renderRequest.overlayFrontGif;
+          if (gif && gif.frames.length > 0) {
             const canvas = document.createElement('canvas');
+            canvas.width = gif.frames[0].dims.width;
+            canvas.height = gif.frames[0].dims.height;
             const ctx = canvas.getContext('2d')!;
-            canvas.width = gif.lsd.width;
-            canvas.height = gif.lsd.height;
             
-            const canvasTexture = new THREE.CanvasTexture(canvas);
-            canvasTexture.colorSpace = THREE.SRGBColorSpace;
-            canvasTexture.flipY = true;
-            overlayTexture = canvasTexture;
+            const imageData = ctx.createImageData(canvas.width, canvas.height);
+            imageData.data.set(gif.frames[0].patch);
+            ctx.putImageData(imageData, 0, 0);
             
-            // Frame-rate-based speed mapping (identical to client)
-            const getFrameInterval = () => {
-              const intervalMap = {
-                slow: 4,      // Change frame every 4 renders (15fps effective)
-                medium: 2,    // Change frame every 2 renders (30fps effective)  
-                fast: 1       // Change frame every render (60fps effective)
-              };
-              return intervalMap[settings.gifAnimationSpeed];
-            };
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.needsUpdate = true;
+            overlayTexture = texture;
             
-            // GIF animation state
+            // Set up GIF animation state for front overlay
             gifAnimationState = {
-              frames,
+              type: 'front',
+              frames: gif.frames,
               currentFrame: 0,
               frameCounter: 0,
-              frameInterval: getFrameInterval(),
+              frameInterval: 2, // Medium speed default
               canvas,
-              ctx
+              ctx,
+              texture: texture
             };
-            
-            // Helper to draw frame to canvas (identical to client)
-            const drawFrame = (frameIndex: number) => {
-              const frame = frames[frameIndex];
-              const imageData = new ImageData(
-                new Uint8ClampedArray(frame.patch),
-                frame.dims.width,
-                frame.dims.height
-              );
-              
-              // Clear canvas (handle disposal method)
-              if (frame.disposalType === 2) {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-              }
-              
-              // Create temporary canvas for the frame
-              const tempCanvas = document.createElement('canvas');
-              const tempCtx = tempCanvas.getContext('2d')!;
-              tempCanvas.width = frame.dims.width;
-              tempCanvas.height = frame.dims.height;
-              tempCtx.putImageData(imageData, 0, 0);
-              
-              // Draw frame at correct position
-              ctx.drawImage(
-                tempCanvas,
-                frame.dims.left,
-                frame.dims.top,
-                frame.dims.width,
-                frame.dims.height
-              );
-            };
-            
-            // Draw initial frame
-            drawFrame(0);
-            
-            console.log('✅ Animated GIF overlay loaded and ready');
-          } else {
-            // Static image loading (unchanged)
-            const textureLoader = new THREE.TextureLoader();
-            overlayTexture = await new Promise<THREE.Texture>((resolve, reject) => {
-              textureLoader.load(
-                settings.overlayUrl!,
-                resolve,
-                undefined,
-                reject
-              );
-            });
-            console.log('✅ Static overlay texture loaded');
           }
-          
-          // Create overlay material and mesh (IDENTICAL to client)
-          if (overlayTexture) {
-            const overlayMaterial = new THREE.MeshBasicMaterial({
-              map: overlayTexture,
-              transparent: true,
-              alphaTest: 0.1,
-              side: THREE.FrontSide
-            });
+        }
+        
+        if (overlayTexture) {
+          overlayTexture.flipY = false;
+          overlayTop.material.map = overlayTexture;
+          overlayTop.material.opacity = 1;
+          overlayTop.material.needsUpdate = true;
+        }
+      }
+
+      // Apply back overlay (identical to CoinEditor.tsx)
+      if (settings.overlayBack?.content) {
+        console.log('🎨 Applying back overlay');
+        
+        let overlayTexture: THREE.Texture | null = null;
+        
+        if (settings.overlayBack.type === 'image') {
+          const img = document.createElement('img');
+          img.src = settings.overlayBack.content;
+          await new Promise(resolve => {
+            img.onload = resolve;
+            img.onerror = resolve;
+          });
+          const texture = new THREE.Texture(img);
+          texture.needsUpdate = true;
+          overlayTexture = texture;
+        } else if (settings.overlayBack.type === 'gif') {
+          // Use the processed GIF frames
+          const gif = renderRequest.overlayBackGif;
+          if (gif && gif.frames.length > 0) {
+            const canvas = document.createElement('canvas');
+            canvas.width = gif.frames[0].dims.width;
+            canvas.height = gif.frames[0].dims.height;
+            const ctx = canvas.getContext('2d')!;
             
-            // Create overlay geometry that matches the coin face EXACTLY
-            const overlayGeometry = new THREE.SphereGeometry(
-              R * 1.01, // Slightly larger than coin face (identical to client)
-              radialSegments,
-              capSegments,
-              0,
-              Math.PI * 2,
-              0,
-              Math.PI / 2
-            );
-            overlayGeometry.scale(1, bulge / R, 1);
-            overlayGeometry.translate(0, T / 2, 0);
+            const imageData = ctx.createImageData(canvas.width, canvas.height);
+            imageData.data.set(gif.frames[0].patch);
+            ctx.putImageData(imageData, 0, 0);
             
-            const overlay = new THREE.Mesh(overlayGeometry, overlayMaterial);
-            coinGroup.add(overlay);
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.needsUpdate = true;
+            overlayTexture = texture;
           }
-          
-        } catch (overlayError) {
-          console.warn('⚠️ Failed to load overlay texture:', overlayError);
+        }
+        
+        if (overlayTexture) {
+          overlayTexture.flipY = false;
+          overlayBot.material.map = overlayTexture;
+          overlayBot.material.opacity = 1;
+          overlayBot.material.needsUpdate = true;
         }
       }
 
@@ -398,8 +383,8 @@ export const handler: Handler = async (event) => {
             );
             
             // Mark texture as needing update
-            if (overlayTexture) {
-              overlayTexture.needsUpdate = true;
+            if (gifAnimationState.texture) {
+              gifAnimationState.texture.needsUpdate = true;
             }
             
             // Reset counter

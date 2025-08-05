@@ -297,44 +297,52 @@ export class CoinExporter {
   }
 
   async exportAsWebM(settings: ExportSettings, autoDownload: boolean = false): Promise<Blob> {
-    console.log('🎬 Creating WebM via client-side frame capture + server-side encoding...');
+    console.log('🎬 Creating WebM via server-side Three.js rendering for perfect quality...');
     
     try {
-      // NEW APPROACH: Capture frames directly from CoinEditor, send to server for WebM creation
-      console.log('🚀 Using client-side frame capture (100% identical to preview)...');
+      // NEW APPROACH: Server-side Three.js rendering for perfect quality
+      console.log('🚀 Using server-side Three.js rendering (headless Chrome)...');
       
       // Get current coin settings from the scene
       const coinSettings = this.extractCoinSettings();
       
-      // Capture frames directly from the live CoinEditor scene
-      const clientFrames = await this.captureFramesFromCoinEditor(coinSettings, settings);
+      // Send settings to server for identical recreation
+      const serverFrames = await this.renderFramesOnServer(coinSettings, settings);
       
-      if (clientFrames.length === 0) {
-        throw new Error('No frames captured from CoinEditor');
+      if (serverFrames.length === 0) {
+        throw new Error('No frames rendered on server');
       }
       
-      console.log(`✅ Captured ${clientFrames.length} frames directly from CoinEditor (identical to preview)`);
+      console.log(`✅ Got ${serverFrames.length} perfect quality frames from server`);
       
-      // Send frames to server for WebM creation
-      const webmBlob = await this.sendFramesToServer(clientFrames, settings);
+      // Convert base64 frames back to blobs
+      const frameBlobs: Blob[] = [];
+      for (let i = 0; i < serverFrames.length; i++) {
+        const binaryString = atob(serverFrames[i]);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let j = 0; j < binaryString.length; j++) {
+          bytes[j] = binaryString.charCodeAt(j);
+        }
+        frameBlobs.push(new Blob([bytes], { type: 'image/webp' }));
+      }
       
-      console.log('✅ WebM created from client frames with perfect quality');
+      console.log('🔄 Converted server frames to blobs for WebM creation');
       
+      // Create WebM using existing serverless pipeline
+      const webmBlob = await this.createWebMViaServerless(frameBlobs, settings);
+      
+      console.log('✅ Perfect quality WebM created via server-side rendering:', { size: webmBlob.size });
+      
+      // Optional download for explicit user request
       if (autoDownload) {
-        const url = URL.createObjectURL(webmBlob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `coin-emoji-${Date.now()}.webm`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        this.downloadBlob(webmBlob, 'coinmoji-perfect-quality.webm');
+        console.log('📦 Downloaded perfect quality WebM');
       }
       
       return webmBlob;
       
     } catch (error) {
-      console.error('❌ Client-side frame capture failed, falling back to client-side method:', error);
+      console.error('❌ Server-side rendering failed, falling back to client-side:', error);
       
       // Fallback to original client-side method
       return this.exportAsWebMClientSide(settings, autoDownload);
@@ -367,112 +375,7 @@ export class CoinExporter {
     };
   }
 
-  // NEW APPROACH: Use client-side rendered frames instead of server-side recreation
-  private async captureFramesFromCoinEditor(_coinSettings: any, exportSettings: ExportSettings): Promise<string[]> {
-    console.log('📸 Capturing frames directly from CoinEditor (100% identical rendering)...');
-    
-    // Get the current Three.js objects from CoinEditor
-    const scene = this.scene;
-    const turntable = this.turntable;
-    
-    if (!scene || !turntable) {
-      throw new Error('Scene or turntable not available for frame capture');
-    }
-    
-    const frames: string[] = [];
-    const totalFrames = Math.round(exportSettings.fps * exportSettings.duration);
-    
-    // Store original rotation
-    const originalRotation = turntable.rotation.y;
-    
-    // Create offscreen renderer for capture (same as exportFrames method)
-    const offscreenRenderer = new THREE.WebGLRenderer({
-      antialias: true,
-      alpha: true,
-      preserveDrawingBuffer: true,
-      premultipliedAlpha: false,
-      powerPreference: 'high-performance'
-    });
-    
-    offscreenRenderer.setSize(100, 100); // Direct 100px rendering
-    offscreenRenderer.setClearColor(0x000000, 0);
-    offscreenRenderer.outputColorSpace = THREE.SRGBColorSpace;
-    offscreenRenderer.setPixelRatio(1);
-    
-    // Create camera for capture
-    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
-    camera.position.set(0, 0, 2.8);
-    camera.lookAt(0, 0, 0);
-    
-    try {
-      // Capture frames with rotation
-      for (let i = 0; i < totalFrames; i++) {
-        // Calculate rotation (identical to current logic)
-        const frameProgress = i / (totalFrames - 1);
-        const totalRotation = frameProgress * Math.PI * 2;
-        turntable.rotation.y = totalRotation;
-        
-        // Render frame
-        offscreenRenderer.render(scene, camera);
-        
-        // Capture as WebP and convert to base64
-        const dataURL = offscreenRenderer.domElement.toDataURL('image/webp', 0.99);
-        const base64 = dataURL.split(',')[1];
-        frames.push(base64);
-        
-        if (i === 0 || i === totalFrames - 1 || i % 10 === 0) {
-          console.log(`📸 Captured client frame ${i + 1}/${totalFrames}`);
-        }
-      }
-      
-      console.log(`✅ Client-side frame capture complete: ${frames.length} frames`);
-      
-    } finally {
-      // Restore original rotation
-      turntable.rotation.y = originalRotation;
-      
-      // Clean up renderer
-      offscreenRenderer.dispose();
-    }
-    
-    return frames;
-  }
-
-  // Send captured frames to server for WebM creation (much simpler!)
-  private async sendFramesToServer(frames: string[], exportSettings: ExportSettings): Promise<Blob> {
-    console.log('📡 Sending captured frames to server for WebM creation...');
-    
-    const payload = {
-      frames,
-      framerate: exportSettings.fps,
-      duration: exportSettings.duration,
-      targetFileSize: exportSettings.targetFileSize || 60 * 1024,
-      qualityMode: exportSettings.qualityMode || 'balanced'
-    };
-    
-    const response = await fetch('/.netlify/functions/make-webm', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-    
-    if (!response.ok) {
-      const errorResult = await response.json();
-      throw new Error(`WebM creation failed: ${errorResult.error || response.statusText}`);
-    }
-    
-    const result = await response.blob();
-    console.log('✅ WebM created from client frames:', {
-      size: `${(result.size / 1024).toFixed(1)}KB`,
-      frames: frames.length
-    });
-    
-    return result;
-  }
-
-  // Legacy server-side rendering call (kept for fallback)
+  // Server-side rendering call
   private async renderFramesOnServer(coinSettings: any, exportSettings: ExportSettings): Promise<string[]> {
     console.log('📡 Sending render request to server...');
     
