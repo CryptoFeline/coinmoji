@@ -172,12 +172,12 @@ export const handler: Handler = async (event) => {
       // Create coin geometry (EXACT COPY from CoinEditor.tsx)
       const { settings } = renderRequest;
       
-      // Coin parameters (identical to CoinEditor.tsx)
+      // Coin parameters (optimized for speed while maintaining quality)
       const R = 1.0;
       const T = 0.35;
       const bulge = 0.10;
-      const radialSegments = 128;
-      const capSegments = 32;
+      const radialSegments = 64; // Reduced from 128 for 2x speed gain
+      const capSegments = 16; // Reduced from 32 for 2x speed gain
 
       // Materials (identical to CoinEditor.tsx)
       const rimMat = new THREE.MeshStandardMaterial({
@@ -514,12 +514,15 @@ export const handler: Handler = async (event) => {
       const { exportSettings } = renderRequest;
       const startTime = Date.now();
       
-      console.log(`🎬 Starting frame capture: ${exportSettings.frames} frames...`);
+      console.log(`🎬 Starting optimized frame capture: ${exportSettings.frames} frames...`);
+      
+      // Track total performance
+      const totalStartTime = Date.now();
       
       for (let i = 0; i < exportSettings.frames; i++) {
-        // Check timeout (max 25 seconds to leave buffer for cleanup)
-        if (Date.now() - startTime > 25000) {
-          console.warn(`⏰ Timeout approaching, stopping at frame ${i}`);
+        // Check timeout (max 22 seconds to leave 8s buffer for response)
+        if (Date.now() - startTime > 22000) {
+          console.warn(`⏰ Timeout approaching at 22s, stopping at frame ${i}/${exportSettings.frames}`);
           break;
         }
         
@@ -562,19 +565,21 @@ export const handler: Handler = async (event) => {
         // Render frame
         renderer.render(scene, camera);
 
-        // Capture as WebP with high quality (optimized compression)
-        const dataURL = renderer.domElement.toDataURL('image/webp', 0.95);
+        // Capture as WebP with balanced quality for speed
+        const dataURL = renderer.domElement.toDataURL('image/webp', 0.85);
         const base64 = dataURL.split(',')[1];
         frames.push(base64);
 
-        // Progress logging (reduced frequency)
-        if (i === 0 || i === exportSettings.frames - 1 || i % 15 === 0) {
+        // Progress logging (every 20 frames for reduced overhead)
+        if (i === 0 || i === exportSettings.frames - 1 || i % 20 === 0) {
           const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
           console.log(`📸 Frame ${i + 1}/${exportSettings.frames} (${elapsed}s elapsed)`);
         }
       }
 
-      console.log(`✅ Server-side frame capture complete: ${frames.length} frames`);
+      const totalTime = Date.now() - totalStartTime;
+      const avgFps = frames.length / (totalTime / 1000);
+      console.log(`✅ Server-side frame capture complete: ${frames.length} frames in ${totalTime}ms (${avgFps.toFixed(1)} fps)`);
       return frames;
 
     }, request);
