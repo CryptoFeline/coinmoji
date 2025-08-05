@@ -9,6 +9,9 @@ package = "netlify-plugin-chromium"
 
 [functions]
   node_bundler = "esbuild"
+  # Include chromium binary in function bundle
+  external_node_modules = ["chromium"]
+  included_files = ["node_modules/chromium/lib/chromium/**"]
   # Increase timeout for video processing and server-side rendering
   "*" = { timeout = 60 }
   # Increase size limit for functions with bundled FFmpeg binary
@@ -18,8 +21,6 @@ package = "netlify-plugin-chromium"
   # Upgrade to Node.js 20 for better Puppeteer support
   NODE_VERSION = "20"
   AWS_LAMBDA_JS_RUNTIME = "nodejs20.x"
-  # Ensure Chrome path is available at runtime
-  CHROME_PATH = "/opt/chromium/chrome"
 
 [[redirects]]
   from = "/api/*"

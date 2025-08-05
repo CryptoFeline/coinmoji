@@ -1,5 +1,6 @@
 import { Handler } from '@netlify/functions';
 import puppeteer from 'puppeteer-core';
+import { path as chromiumPath } from 'chromium';
 
 interface RenderFramesRequest {
   settings: {
@@ -43,69 +44,23 @@ export const handler: Handler = async (event) => {
       exportSettings: request.exportSettings
     });
 
-    console.log('🚀 Launching Chrome via Netlify Chromium plugin...');
+    console.log('🚀 Launching Chrome via chromium package...');
     console.log('🔍 Environment check:', {
       NODE_ENV: process.env.NODE_ENV,
       AWS_LAMBDA_JS_RUNTIME: process.env.AWS_LAMBDA_JS_RUNTIME,
-      CHROME_PATH: process.env.CHROME_PATH ? 'available' : 'missing',
-      NETLIFY: process.env.NETLIFY
+      chromiumPath: chromiumPath || 'missing'
     });
 
-    // Try multiple Chrome paths (Netlify plugin can put Chrome in different locations)
-    const possibleChromePaths = [
-      process.env.CHROME_PATH,                    // Plugin-set environment variable
-      '/opt/chromium/chrome',                     // Runtime plugin location
-      '/opt/chrome/chrome',                       // Alternative location
-      '/usr/bin/google-chrome',                   // System Chrome
-      '/usr/bin/google-chrome-stable',            // System Chrome stable
-      '/usr/bin/chromium-browser',                // System Chromium
-      '/usr/bin/chromium'                         // System Chromium alt
-    ].filter(Boolean);
-
-    let chromePath: string | null = null;
-    
-    // Find the first available Chrome executable
-    for (const path of possibleChromePaths) {
-      try {
-        const fs = await import('fs');
-        if (path && fs.existsSync(path)) {
-          chromePath = path;
-          console.log('✅ Found Chrome at:', path);
-          break;
-        } else {
-          console.log('⚠️ Chrome not found at:', path);
-        }
-      } catch (e) {
-        console.log('❌ Error checking path:', path, e.message);
-      }
+    // Use chromium package path directly (bundled with function)
+    if (!chromiumPath) {
+      throw new Error('Chromium path not available from chromium package');
     }
 
-    if (!chromePath) {
-      // List available files for debugging
-      try {
-        const fs = await import('fs');
-        console.log('🔍 Debug: Checking /opt directory contents...');
-        if (fs.existsSync('/opt')) {
-          const optContents = fs.readdirSync('/opt');
-          console.log('/opt contents:', optContents);
-          
-          if (optContents.includes('chromium')) {
-            const chromiumContents = fs.readdirSync('/opt/chromium');
-            console.log('/opt/chromium contents:', chromiumContents);
-          }
-        }
-      } catch (debugError) {
-        console.log('Debug error:', debugError.message);
-      }
-      
-      throw new Error(`Chrome executable not found. Checked paths: ${possibleChromePaths.join(', ')}`);
-    }
+    console.log('✅ Using chromium package executable at:', chromiumPath);
 
-    console.log('✅ Using Chrome executable at:', chromePath);
-
-    // Launch Chrome with Netlify plugin executable
+    // Launch Chrome with chromium package executable
     browser = await puppeteer.launch({
-      executablePath: chromePath,
+      executablePath: chromiumPath,
       headless: true,
       args: [
         '--no-sandbox',
