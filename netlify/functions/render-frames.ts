@@ -270,8 +270,8 @@ export const handler: Handler = async (event) => {
       turntable.add(coinGroup);
       scene.add(turntable);
 
-      // Add IDENTICAL lighting to CoinEditor.tsx (optimized for serverless)
-      console.log('💡 Setting up lighting optimized for serverless...');
+      // Add IDENTICAL lighting to CoinEditor.tsx (REMOVED environment map for serverless speed)
+      console.log('💡 Setting up identical lighting (without heavy environment map)...');
       
       // Hemisphere + Directional lights (exact match to CoinEditor.tsx)
       const hemiLight = new THREE.HemisphereLight(0xffffff, 0x222233, 0.45);
@@ -281,20 +281,18 @@ export const handler: Handler = async (event) => {
       dirLight.position.set(3, 5, 2);
       scene.add(dirLight);
       
-      // Skip environment map for serverless performance - the HDR cubemap loading
-      // was causing 30s timeouts. The directional + hemisphere lighting provides
-      // good quality for metallic surfaces without the loading overhead.
-      console.log('⚡ Using optimized lighting without environment map for serverless speed');
-      
-      console.log('✅ Lighting setup complete');
+      // Skip environment map loading for serverless performance
+      // The heavy HDR cubemap loading from threejs.org was causing 30s timeouts
+      // We'll rely on the directional + hemisphere lighting for good results
+      console.log('⚡ Skipped environment map loading for serverless speed optimization');
 
       // Apply user lighting settings (EXACT match to CoinEditor.tsx)
       console.log('💡 Applying user lighting settings...');
       
       // Light strength mapping (identical to CoinEditor.tsx)
       const lightStrengthMap = {
-        low: { hemi: 0.3, dir: 1.0 },
-        medium: { hemi: 0.45, dir: 2.0 },
+        low: { hemi: 0.3, dir: 0.5 },
+        medium: { hemi: 0.45, dir: 0.8 },
         strong: { hemi: 1.2, dir: 3.0 }
       };
       
@@ -547,11 +545,6 @@ export const handler: Handler = async (event) => {
               bottomTexture.wrapS = THREE.RepeatWrapping;
               bottomTexture.repeat.x = -1; // Horizontal flip to fix mirroring
               bottomTexture.needsUpdate = true;
-              
-              // CRITICAL: Copy animation update function for GIF textures (even static Texture can have userData.update)
-              if (overlayTexture.userData?.update) {
-                bottomTexture.userData = { update: overlayTexture.userData.update };
-              }
             }
             
             overlayBot.material.map = bottomTexture;
@@ -591,18 +584,17 @@ export const handler: Handler = async (event) => {
         }
         
         if (overlayTexture) {
-          // DUAL MODE: Apply second overlay to bottom face (matching client-side logic exactly)
+          // Ensure correct flipY setting based on texture type (matching client-side)
           if (overlayTexture instanceof THREE.CanvasTexture) {
-            // For animated GIFs (CanvasTexture), apply directly with existing flipY = true
-            overlayBot.material.map = overlayTexture;
-            console.log('✅ Back overlay (GIF) applied to BOTTOM face - no flip (dual mode)');
+            overlayTexture.flipY = true; // FIXED: CanvasTexture should use flipY = true
           } else {
-            // For static images (Regular Texture), apply directly with flipY = true 
-            // (client-side sets flipY = true in applyOverlay for both faces in dual mode)
-            overlayTexture.flipY = true;
-            overlayBot.material.map = overlayTexture;
-            console.log('✅ Back overlay (static) applied to BOTTOM face with flipY=true (dual mode)');
+            overlayTexture.flipY = false; // FIXED: Regular Texture should use flipY = false
           }
+          
+          // DUAL MODE: Apply second overlay to bottom face (matching client-side logic exactly)
+          // Client-side only applies horizontal flip for VideoTextures, not CanvasTextures
+          overlayBot.material.map = overlayTexture;
+          console.log('✅ Back overlay applied to BOTTOM face without flip (dual mode - matches client-side)');
           
           overlayBot.material.opacity = 1;
           overlayBot.material.needsUpdate = true;
