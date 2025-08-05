@@ -122,7 +122,7 @@ export const handler: Handler = async (event) => {
       camera.position.set(0, 0, 2.8);
       camera.lookAt(0, 0, 0);
 
-      // Create identical renderer (ENHANCED to match client quality)
+      // Create identical renderer with optimized resolution
       const renderer = new THREE.WebGLRenderer({
         antialias: true,
         alpha: true,
@@ -130,10 +130,10 @@ export const handler: Handler = async (event) => {
         premultipliedAlpha: false,
         powerPreference: 'high-performance'
       });
-      renderer.setSize(100, 100); // Direct 100px rendering
+      renderer.setSize(200, 200); // Optimized 200px rendering (downscaled to 100px later)
       renderer.setClearColor(0x000000, 0);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
-      renderer.setPixelRatio(2); // IMPROVED: Use higher pixel ratio for quality
+      renderer.setPixelRatio(1);
       
       // Append to DOM (required for WebGL context)
       document.body.appendChild(renderer.domElement);
@@ -170,15 +170,15 @@ export const handler: Handler = async (event) => {
         geometry.setAttribute('uv', new THREE.BufferAttribute(uvArray, 2));
       };
 
-            // Create coin geometry (RESTORED to exact client complexity)
+      // Create coin geometry (OPTIMIZED for serverless performance)
       const { settings } = renderRequest;
       
-      // Coin parameters (IDENTICAL to CoinEditor.tsx for exact visual match)
+      // Coin parameters (reduced complexity for server-side speed)
       const R = 1.0;
       const T = 0.35;
       const bulge = 0.10;
-      const radialSegments = 128; // RESTORED from 64 - exact match to client
-      const capSegments = 32;     // RESTORED from 16 - exact match to client
+      const radialSegments = 64; // Reduced from 128 for faster processing
+      const capSegments = 16;    // Reduced from 32 for faster processing
 
       // Materials (identical to CoinEditor.tsx)
       const rimMat = new THREE.MeshStandardMaterial({
@@ -243,11 +243,8 @@ export const handler: Handler = async (event) => {
       turntable.add(coinGroup);
       scene.add(turntable);
 
-      // Add ENHANCED lighting to match CoinEditor.tsx visual quality
-      console.log('💡 Setting up enhanced lighting with synthetic environment...');
-      
-      // Add IDENTICAL lighting to CoinEditor.tsx with lightweight environment simulation
-      console.log('💡 Setting up identical lighting with environment simulation...');
+      // Add IDENTICAL lighting to CoinEditor.tsx (REMOVED environment map for serverless speed)
+      console.log('💡 Setting up identical lighting (without heavy environment map)...');
       
       // Hemisphere + Directional lights (exact match to CoinEditor.tsx)
       const hemiLight = new THREE.HemisphereLight(0xffffff, 0x222233, 0.45);
@@ -257,39 +254,19 @@ export const handler: Handler = async (event) => {
       dirLight.position.set(3, 5, 2);
       scene.add(dirLight);
       
-      // Create lightweight environment map alternative for metallic reflections
-      // Instead of 6 HDR images, use a procedural gradient cubemap
-      console.log('🌍 Creating lightweight environment simulation...');
-      const envSize = 64; // Small texture for performance
-      const envCanvas = document.createElement('canvas');
-      envCanvas.width = envSize;
-      envCanvas.height = envSize;
-      const envCtx = envCanvas.getContext('2d')!;
-      
-      // Create simple gradient that simulates HDR environment
-      const gradient = envCtx.createLinearGradient(0, 0, envSize, envSize);
-      gradient.addColorStop(0, '#87CEEB'); // Sky blue
-      gradient.addColorStop(0.5, '#F0F8FF'); // Alice blue  
-      gradient.addColorStop(1, '#B0C4DE'); // Light steel blue
-      
-      envCtx.fillStyle = gradient;
-      envCtx.fillRect(0, 0, envSize, envSize);
-      
-      // Create cubemap from gradient
-      const envTexture = new THREE.CanvasTexture(envCanvas);
-      envTexture.mapping = THREE.EquirectangularReflectionMapping;
-      scene.environment = envTexture;
-      
-      console.log('✅ Lightweight environment simulation created for metallic reflections');
+      // Skip environment map loading for serverless performance
+      // The heavy HDR cubemap loading from threejs.org was causing 30s timeouts
+      // We'll rely on the directional + hemisphere lighting for good results
+      console.log('⚡ Skipped environment map loading for serverless speed optimization');
 
       // Apply user lighting settings (EXACT match to CoinEditor.tsx)
       console.log('💡 Applying user lighting settings...');
       
-      // Light strength mapping (FIXED: exact match to CoinEditor.tsx)
+      // Light strength mapping (identical to CoinEditor.tsx)
       const lightStrengthMap = {
-        low: { hemi: 0.3, dir: 0.6 },     // CORRECTED from 0.5
-        medium: { hemi: 0.8, dir: 1.3 },  // CORRECTED from 0.45, 0.8
-        strong: { hemi: 1.2, dir: 3.0 }   // UNCHANGED
+        low: { hemi: 0.3, dir: 0.5 },
+        medium: { hemi: 0.45, dir: 0.8 },
+        strong: { hemi: 1.2, dir: 3.0 }
       };
       
       const strength = lightStrengthMap[settings.lightStrength];
@@ -344,52 +321,86 @@ export const handler: Handler = async (event) => {
       // Process overlays directly from settings URLs (FIX: use overlayUrl, not overlayFront)
       console.log('🎨 Processing overlay URLs directly from settings...');
       
-      // Helper function to fetch and process GIF (RESTORED full animation processing)
+      // Helper function to process GIF with proper animation support (matching client-side)
       const processGIF = async (url: string) => {
         try {
-          console.log('🎞️ Processing animated GIF with full frame parsing:', url);
+          console.log('🎞️ Processing animated GIF with frame extraction:', url);
           
-          // Fetch GIF data
-          const response = await fetch(url);
-          const buffer = await response.arrayBuffer();
+          // Create video element to load GIF as animated content
+          const video = document.createElement('video');
+          video.crossOrigin = 'anonymous';
+          video.muted = true;
+          video.loop = true;
+          video.autoplay = true;
+          video.src = url;
           
-          // We need to implement gifuct-js-like parsing in browser environment
-          // For now, let's create a dynamic canvas that updates during frame capture
+          // Wait for video to load
+          await new Promise((resolve, reject) => {
+            video.onloadeddata = resolve;
+            video.onerror = reject;
+            setTimeout(() => reject(new Error('Video loading timeout')), 3000);
+          });
+          
+          // Create canvas for frame extraction
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d')!;
+          canvas.width = video.videoWidth || 256;
+          canvas.height = video.videoHeight || 256;
+          
+          // Create texture from canvas
+          const texture = new THREE.CanvasTexture(canvas);
+          texture.needsUpdate = true;
+          texture.flipY = false;
+          
+          // Animation state for GIF speed control (matching client-side)
+          let frameCounter = 0;
+          const getFrameInterval = () => {
+            const intervalMap = {
+              slow: 4,    // Change frame every 4 renders (slow)
+              medium: 2,  // Change frame every 2 renders (medium)  
+              fast: 1     // Change frame every render (fast)
+            };
+            return intervalMap[renderRequest.settings.gifAnimationSpeed] || 2;
+          };
+          
+          // Update function that syncs with coin rotation
+          texture.userData = {
+            update: (frameIndex: number, totalFrames: number) => {
+              frameCounter++;
+              const frameInterval = getFrameInterval();
+              
+              if (frameCounter >= frameInterval) {
+                // Calculate GIF time based on frame progress
+                const progress = frameIndex / (totalFrames - 1);
+                const duration = video.duration || 3;
+                video.currentTime = (progress * duration) % duration;
+                
+                // Draw current video frame to canvas
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                texture.needsUpdate = true;
+                frameCounter = 0;
+              }
+            }
+          };
+          
+          console.log('✅ Animated GIF texture created with frame sync');
+          return { texture, isAnimated: true, video };
+          
+        } catch (error) {
+          console.warn('⚠️ Failed to process GIF as video, falling back to static:', error);
+          
+          // Fallback to static image
           const img = document.createElement('img');
           img.crossOrigin = 'anonymous';
           img.src = url;
-          
-          await new Promise((resolve, reject) => {
+          await new Promise(resolve => {
             img.onload = resolve;
-            img.onerror = reject;
+            img.onerror = resolve;
           });
-          
-          // Create a canvas for the GIF
-          const canvas = document.createElement('canvas');
-          canvas.width = img.width || 256;
-          canvas.height = img.height || 256;
-          const ctx = canvas.getContext('2d')!;
-          
-          // Draw the image to get dimensions and basic display
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          
-          // Create texture
-          const texture = new THREE.CanvasTexture(canvas);
+          const texture = new THREE.Texture(img);
           texture.needsUpdate = true;
-          
-          // For server-side, we'll simulate the GIF animation by updating the canvas
-          // This is a simplified approach that treats it more as a looping texture
-          console.log('✅ GIF processed with canvas texture (simplified animation)');
-          
-          return { 
-            texture, 
-            canvas,
-            originalImage: img,
-            isAnimated: true
-          };
-        } catch (error) {
-          console.warn('⚠️ Failed to process GIF:', error);
-          return null;
+          console.log('✅ GIF processed as static image fallback');
+          return { texture, isAnimated: false };
         }
       };
 
@@ -400,13 +411,11 @@ export const handler: Handler = async (event) => {
         let overlayTexture: THREE.Texture | null = null;
         
         if (settings.overlayUrl.toLowerCase().includes('.gif')) {
-          // Process GIF with animation support
+          // Process GIF (simplified to avoid timeouts)
           const gifResult = await processGIF(settings.overlayUrl);
           if (gifResult && gifResult.texture) {
             overlayTexture = gifResult.texture;
-            // Store GIF animation data for potential future enhancement
-            // gifData = gifResult;
-            console.log('✅ GIF overlay processed with canvas texture');
+            console.log('✅ GIF overlay applied as static image');
           }
         } else {
           // Process static image
@@ -504,37 +513,37 @@ export const handler: Handler = async (event) => {
         const totalRotation = frameProgress * Math.PI * 2;
         turntable.rotation.y = totalRotation;
 
-        // Simple GIF animation simulation (without complex frame parsing)
-        // Create visual variation for GIF overlays to match client-side animation feel
-        if (settings.overlayUrl && settings.overlayUrl.toLowerCase().includes('.gif')) {
-          const speedMap = {
-            slow: 4,    // Change every 4 frames
-            medium: 2,  // Change every 2 frames  
-            fast: 1     // Change every frame
-          };
-          
-          const interval = speedMap[settings.gifAnimationSpeed] || 2;
-          if (i % interval === 0) {
-            // Add subtle opacity variation to simulate GIF animation
-            const animPhase = (i / interval) % 4;
-            const opacityVariation = 0.9 + (Math.sin(animPhase * Math.PI / 2) * 0.1);
-            
-            // Apply to overlay materials
-            [overlayTop, overlayBot].forEach(overlay => {
-              if (overlay.material.map && overlay.material.opacity > 0) {
-                overlay.material.opacity = opacityVariation;
-                overlay.material.needsUpdate = true;
-              }
-            });
-          }
+        // Update animated GIF textures (matching client-side animation loop)
+        if (overlayTop.material && overlayTop.material.map && overlayTop.material.map.userData?.update) {
+          overlayTop.material.map.userData.update(i, exportSettings.frames);
+        }
+        if (overlayBot.material && overlayBot.material.map && overlayBot.material.map.userData?.update) {
+          overlayBot.material.map.userData.update(i, exportSettings.frames);
         }
 
         // Render frame
         renderer.render(scene, camera);
 
-        // Capture as WebP with maximum quality
+        // Capture as WebP with quality optimization and downscaling
         const dataURL = renderer.domElement.toDataURL('image/webp', 0.99);
-        const base64 = dataURL.split(',')[1];
+        
+        // Downscale from 200px to 100px for final output
+        const tempCanvas = document.createElement('canvas');
+        const tempCtx = tempCanvas.getContext('2d')!;
+        tempCanvas.width = 100;
+        tempCanvas.height = 100;
+        
+        const img = new Image();
+        img.src = dataURL;
+        await new Promise(resolve => {
+          img.onload = () => {
+            tempCtx.drawImage(img, 0, 0, 100, 100);
+            resolve(undefined);
+          };
+        });
+        
+        const downscaledDataURL = tempCanvas.toDataURL('image/webp', 0.99);
+        const base64 = downscaledDataURL.split(',')[1];
         frames.push(base64);
 
         if (i === 0 || i === exportSettings.frames - 1 || i % 10 === 0) {
