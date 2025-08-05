@@ -210,7 +210,7 @@ export const handler: Handler = async (event) => {
       // Materials (identical to CoinEditor.tsx)
       const rimMat = new THREE.MeshStandardMaterial({
         color: 0xb87333,
-        metalness: 1,
+        metalness: 0.8, // Metalness 1 is too much
         roughness: 0.34,
         envMapIntensity: 1
       });
@@ -544,10 +544,8 @@ export const handler: Handler = async (event) => {
               bottomTexture.wrapS = THREE.RepeatWrapping;
               bottomTexture.repeat.x = -1; // Horizontal flip to fix mirroring
               bottomTexture.needsUpdate = true;
-              // Copy animation update function
-              if (overlayTexture.userData?.update) {
-                bottomTexture.userData = { update: overlayTexture.userData.update };
-              }
+              // CRITICAL: Share the EXACT SAME userData object for synchronized animation (matching client-side)
+              bottomTexture.userData = overlayTexture.userData;
             } else {
               // For static images, clone and flip (FIXED: match client-side flipY = true)
               bottomTexture = overlayTexture.clone();

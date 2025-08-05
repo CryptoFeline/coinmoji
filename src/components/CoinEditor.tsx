@@ -184,7 +184,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     // Materials
     const rimMat = new THREE.MeshStandardMaterial({
       color: 0xb87333,
-      metalness: 1,
+      metalness: 0.8, // Metalness 1 is too much
       roughness: 0.34,
       envMapIntensity: 1
     });
