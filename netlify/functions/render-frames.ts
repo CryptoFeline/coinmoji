@@ -79,21 +79,22 @@ export const handler: Handler = async (event) => {
 
     console.log('🎨 Injecting Three.js and creating scene...');
 
-    // Read and inject gifuct-js using require.resolve() for proper bundled path resolution
-    console.log('📦 Resolving gifuct-js library path...');
-    let gifuctCode = '';
-    try {
-      // Use require.resolve() to locate the library within the bundled function
-      const gifuctPath = require.resolve('gifuct-js/lib/index.js');
-      gifuctCode = fs.readFileSync(gifuctPath, 'utf8');
-      console.log('✅ gifuct-js file loaded from resolved path:', gifuctPath);
-    } catch (error) {
-      console.error('❌ Failed to load gifuct-js via require.resolve():', error);
-      throw new Error('gifuct-js library resolution failed - ensure it\'s bundled in netlify.toml');
+    // Load browser-bundled gifuct-js (IIFE format for browser compatibility)
+    console.log('📦 Loading browser-bundled gifuct-js...');
+    const vendorGifuctPath = path.join(__dirname, 'vendor', 'gifuct.browser.js');
+    
+    if (!fs.existsSync(vendorGifuctPath)) {
+      throw new Error('Browser-bundled gifuct-js not found - run "npm run build:gifuct" first');
     }
+    
+    console.log('✅ Browser-bundled gifuct-js found at:', vendorGifuctPath);
 
-    // Inject Three.js and create identical scene with local gifuct-js
-    const framesBase64 = await page.evaluate(async (renderRequest, gifuctJsCode) => {
+    // Inject browser-bundled gifuct-js into the page BEFORE page.evaluate
+    await page.addScriptTag({ path: vendorGifuctPath });
+    console.log('✅ Browser-bundled gifuct-js injected into page');
+
+    // Inject Three.js and create identical scene with browser-bundled gifuct-js
+    const framesBase64 = await page.evaluate(async (renderRequest) => {
       console.log('⏱️ Starting Three.js setup with performance monitoring...');
       const setupStart = Date.now();
       
@@ -119,64 +120,15 @@ export const handler: Handler = async (event) => {
       });
 
       // Inject gifuct-js locally (bundled with function)
-      console.log('📦 Injecting local gifuct-js for GIF processing...');
+      console.log('📦 Verifying browser-bundled gifuct-js is available...');
       
-      try {
-        // Create a script element and inject the local gifuct-js code
-        // Wrap the CommonJS module in a way that exposes globals
-        const wrappedGifuctCode = `
-          (function() {
-            // Create a module context for CommonJS
-            var module = { exports: {} };
-            var exports = module.exports;
-            
-            // Execute the gifuct-js code
-            ${gifuctJsCode}
-            
-            // Expose the functions globally for browser access
-            if (module.exports.parseGIF) {
-              window.parseGIF = module.exports.parseGIF;
-              window.decompressFrames = module.exports.decompressFrames;
-            }
-            
-            // Also create gifuct object for consistency
-            window.gifuct = {
-              parseGIF: window.parseGIF,
-              decompressFrames: window.decompressFrames
-            };
-            
-            console.log('🎯 gifuct-js CommonJS module wrapped and exposed globally');
-          })();
-        `;
-        
-        const gifuctScript = document.createElement('script');
-        gifuctScript.textContent = wrappedGifuctCode;
-        document.head.appendChild(gifuctScript);
-        
-        // Wait a moment for the script to execute
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // Verify gifuct-js is available with better error reporting
-        const parseGIF = (window as any).parseGIF;
-        const decompressFrames = (window as any).decompressFrames;
-        const gifuct = (window as any).gifuct;
-        
-        console.log('🔍 Checking gifuct-js availability:', {
-          parseGIF: !!parseGIF,
-          decompressFrames: !!decompressFrames,
-          gifuct: !!gifuct,
-          windowKeys: Object.keys(window).filter(k => k.includes('gif') || k.includes('parse'))
-        });
-        
-        if (!parseGIF || !decompressFrames) {
-          throw new Error(`gifuct-js functions not available - parseGIF: ${!!parseGIF}, decompressFrames: ${!!decompressFrames}`);
-        }
-        
-        console.log('✅ gifuct-js successfully injected and verified');
-      } catch (error) {
-        console.error('❌ Failed to inject local gifuct-js:', error);
-        throw new Error('Local gifuct-js injection failed');
+      // Verify gifuct-js is available (injected via page.addScriptTag before page.evaluate)
+      const gifuct = (window as any).gifuct;
+      if (!gifuct) {
+        throw new Error('Browser-bundled gifuct-js not available - check IIFE injection');
       }
+      
+      console.log('✅ Browser-bundled gifuct-js successfully verified:', typeof gifuct);
 
       const setupTime = Date.now() - setupStart;
       console.log(`⚡ Three.js and gifuct-js loaded in ${setupTime}ms`);
@@ -410,12 +362,10 @@ export const handler: Handler = async (event) => {
       
       // Helper function to process GIF with gifuct-js (MUST work - no fallbacks)
       const processGIF = async (url: string) => {
-        // CRITICAL: gifuct-js functions MUST be available - fail if not
-        const parseGIF = (window as any).parseGIF;
-        const decompressFrames = (window as any).decompressFrames;
-        
-        if (!parseGIF || !decompressFrames) {
-          throw new Error('❌ gifuct-js functions not available - GIF processing cannot continue');
+        // CRITICAL: gifuct-js MUST be available - fail if not
+        const gifuct = (window as any).gifuct;
+        if (!gifuct) {
+          throw new Error('❌ gifuct-js not available - GIF processing cannot continue');
         }
 
         console.log('🎞️ Processing animated GIF with gifuct-js (matching client):', url);
@@ -425,8 +375,8 @@ export const handler: Handler = async (event) => {
         const buffer = await response.arrayBuffer();
         
         // Parse GIF using gifuct-js (identical to client-side)
-        const gif = parseGIF(buffer);
-        const frames = decompressFrames(gif, true);
+        const gif = gifuct.parseGIF(buffer);
+        const frames = gifuct.decompressFrames(gif, true);
         
         console.log('🎯 GIF parsed:', { 
           frameCount: frames.length,
@@ -758,7 +708,7 @@ export const handler: Handler = async (event) => {
       console.log(`✅ Server-side frame capture complete: ${frames.length} frames in ${totalTime}ms`);
       return frames;
 
-    }, request, gifuctCode);
+    }, request);
 
     console.log(`✅ Server-side rendering complete: ${framesBase64.length} frames captured`);
 

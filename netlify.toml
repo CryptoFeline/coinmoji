@@ -1,6 +1,6 @@
 [build]
   publish = "dist"
-  command = "npm ci && ./scripts/bundle-ffmpeg.sh && npm run build"
+  command = "npm ci && npm run build:gifuct && ./scripts/bundle-ffmpeg.sh && npm run build"
   functions = "netlify/functions"
 
 [functions]
@@ -8,13 +8,13 @@
   # Default timeout for all functions
   "*" = { timeout = 60 }
 
-# render-frames function needs @sparticuz/chromium for server-side rendering + gifuct-js for GIF processing
+# render-frames function needs @sparticuz/chromium for server-side rendering + browser-bundled gifuct-js
 [functions."render-frames"]
   timeout = 60
-  external_node_modules = ["@sparticuz/chromium", "gifuct-js"]
+  external_node_modules = ["@sparticuz/chromium"]
   included_files = [
     "node_modules/@sparticuz/chromium/bin/**",
-    "node_modules/gifuct-js/lib/**"
+    "netlify/functions/vendor/gifuct.browser.js"
   ]
 
 # make-webm function already has bundled FFmpeg binary
