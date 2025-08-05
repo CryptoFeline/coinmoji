@@ -629,7 +629,7 @@ export const handler: Handler = async (event) => {
           });
           const texture = new THREE.Texture(img);
           texture.needsUpdate = true;
-          texture.flipY = false; // FIXED: Match client-side flipY = false for static images
+          texture.flipY = true; // FIXED: Match client-side flipY = false for static images
           overlayTexture = texture;
         }
         
@@ -638,7 +638,7 @@ export const handler: Handler = async (event) => {
           if (overlayTexture instanceof THREE.CanvasTexture) {
             overlayTexture.flipY = true; // FIXED: CanvasTexture should use flipY = true
           } else {
-            overlayTexture.flipY = false; // FIXED: Regular Texture should use flipY = false
+            overlayTexture.flipY = true; // FIXED: Regular Texture should use flipY = true
           }
           
           // DUAL MODE: Apply second overlay to bottom face (matching client-side logic exactly)
