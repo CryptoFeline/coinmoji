@@ -194,9 +194,9 @@ export const handler: Handler = async (event) => {
       const scene = new THREE.Scene();
       scene.background = null; // Transparent
 
-      // Create identical camera
+      // Create identical camera (FIXED: match client-side position)
       const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
-      camera.position.set(0, 0, 2.8);
+      camera.position.set(0, 0, 7); // FIXED: Match client-side camera position
       camera.lookAt(0, 0, 0);
 
       // Create identical renderer with optimized resolution
@@ -410,152 +410,120 @@ export const handler: Handler = async (event) => {
       overlayBot.material.opacity = 0;
       overlayBot.material.needsUpdate = true;
       
-      // Helper function to process GIF with gifuct-js (with graceful fallback)
+      // Helper function to process GIF with gifuct-js (MUST work - no fallbacks)
       const processGIF = async (url: string) => {
-        // First check if gifuct-js is available
+        // CRITICAL: gifuct-js MUST be available - fail if not
         const gifuct = (window as any).gifuct;
         if (!gifuct) {
-          console.warn('⚠️ gifuct-js not available, falling back to static image processing');
-          // Fallback to static image immediately
-          const img = document.createElement('img');
-          img.crossOrigin = 'anonymous';
-          img.src = url;
-          await new Promise(resolve => {
-            img.onload = resolve;
-            img.onerror = resolve;
-          });
-          const texture = new THREE.Texture(img);
-          texture.needsUpdate = true;
-          texture.flipY = false;
-          console.log('✅ GIF processed as static image (gifuct-js unavailable)');
-          return { texture, isAnimated: false, frames: 1 };
+          throw new Error('❌ gifuct-js not available - GIF processing cannot continue');
         }
 
-        try {
-          console.log('🎞️ Processing animated GIF with gifuct-js (matching client):', url);
+        console.log('🎞️ Processing animated GIF with gifuct-js (matching client):', url);
+        
+        // Fetch the GIF as a buffer (identical to client-side)
+        const response = await fetch(url);
+        const buffer = await response.arrayBuffer();
+        
+        // Parse GIF using gifuct-js (identical to client-side)
+        const gif = gifuct.parseGIF(buffer);
+        const frames = gifuct.decompressFrames(gif, true);
+        
+        console.log('🎯 GIF parsed:', { 
+          frameCount: frames.length,
+          width: gif.lsd.width,
+          height: gif.lsd.height
+        });
+        
+        if (frames.length === 0) {
+          throw new Error('No frames found in GIF');
+        }
+        
+        // Create canvas for rendering frames (identical to client-side)
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d')!;
+        canvas.width = gif.lsd.width;
+        canvas.height = gif.lsd.height;
+        
+        // Create texture (MATCHING client-side: flipY = true for CanvasTexture)
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.flipY = true; // FIXED: Match client-side flipY = true for GIF CanvasTextures
+        
+        // Animation state (identical to client-side)
+        let currentFrame = 0;
+        let frameCounter = 0;
+        
+        // Frame-rate-based speed mapping (identical to client-side)
+        const getFrameInterval = () => {
+          const intervalMap = {
+            slow: 4,    // Change frame every 4 renders (15fps effective)
+            medium: 2,  // Change frame every 2 renders (30fps effective)  
+            fast: 1     // Change frame every render (60fps effective)
+          };
+          return intervalMap[renderRequest.settings.gifAnimationSpeed];
+        };
+        
+        // Helper to draw frame to canvas (identical to client-side)
+        const drawFrame = (frameIndex: number) => {
+          const frame = frames[frameIndex];
+          const imageData = new ImageData(
+            new Uint8ClampedArray(frame.patch),
+            frame.dims.width,
+            frame.dims.height
+          );
           
-          // Fetch the GIF as a buffer (identical to client-side)
-          const response = await fetch(url);
-          const buffer = await response.arrayBuffer();
-          
-          // Parse GIF using gifuct-js (identical to client-side)
-          const gif = gifuct.parseGIF(buffer);
-          const frames = gifuct.decompressFrames(gif, true);
-          
-          console.log('🎯 GIF parsed:', { 
-            frameCount: frames.length,
-            width: gif.lsd.width,
-            height: gif.lsd.height
-          });
-          
-          if (frames.length === 0) {
-            throw new Error('No frames found in GIF');
+          // Clear canvas (handle disposal method)
+          if (frame.disposalType === 2) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
           }
           
-          // Create canvas for rendering frames (identical to client-side)
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d')!;
-          canvas.width = gif.lsd.width;
-          canvas.height = gif.lsd.height;
+          // Create temporary canvas for the frame
+          const tempCanvas = document.createElement('canvas');
+          const tempCtx = tempCanvas.getContext('2d')!;
+          tempCanvas.width = frame.dims.width;
+          tempCanvas.height = frame.dims.height;
+          tempCtx.putImageData(imageData, 0, 0);
           
-          // Create texture (MATCHING client-side: flipY = true for CanvasTexture)
-          const texture = new THREE.CanvasTexture(canvas);
-          texture.colorSpace = THREE.SRGBColorSpace;
-          texture.flipY = true; // FIXED: Match client-side flipY = true for GIF CanvasTextures
-          
-          // Animation state (identical to client-side)
-          let currentFrame = 0;
-          let frameCounter = 0;
-          
-          // Frame-rate-based speed mapping (identical to client-side)
-          const getFrameInterval = () => {
-            const intervalMap = {
-              slow: 4,    // Change frame every 4 renders (15fps effective)
-              medium: 2,  // Change frame every 2 renders (30fps effective)  
-              fast: 1     // Change frame every render (60fps effective)
-            };
-            return intervalMap[renderRequest.settings.gifAnimationSpeed];
-          };
-          
-          // Helper to draw frame to canvas (identical to client-side)
-          const drawFrame = (frameIndex: number) => {
-            const frame = frames[frameIndex];
-            const imageData = new ImageData(
-              new Uint8ClampedArray(frame.patch),
-              frame.dims.width,
-              frame.dims.height
-            );
+          // Draw frame at correct position
+          ctx.drawImage(
+            tempCanvas,
+            frame.dims.left,
+            frame.dims.top,
+            frame.dims.width,
+            frame.dims.height
+          );
+        };
+        
+        // Draw initial frame (identical to client-side)
+        drawFrame(0);
+        
+        // Store update function called by main animation loop (identical to client-side)
+        texture.userData = {
+          update: () => {
+            if (frames.length <= 1) return; // Static image
             
-            // Clear canvas (handle disposal method)
-            if (frame.disposalType === 2) {
-              ctx.clearRect(0, 0, canvas.width, canvas.height);
-            }
+            frameCounter++;
+            const frameInterval = getFrameInterval();
             
-            // Create temporary canvas for the frame
-            const tempCanvas = document.createElement('canvas');
-            const tempCtx = tempCanvas.getContext('2d')!;
-            tempCanvas.width = frame.dims.width;
-            tempCanvas.height = frame.dims.height;
-            tempCtx.putImageData(imageData, 0, 0);
-            
-            // Draw frame at correct position
-            ctx.drawImage(
-              tempCanvas,
-              frame.dims.left,
-              frame.dims.top,
-              frame.dims.width,
-              frame.dims.height
-            );
-          };
-          
-          // Draw initial frame (identical to client-side)
-          drawFrame(0);
-          
-          // Store update function called by main animation loop (identical to client-side)
-          texture.userData = {
-            update: () => {
-              if (frames.length <= 1) return; // Static image
+            // Only advance frame when we hit the interval
+            if (frameCounter >= frameInterval) {
+              // Advance to next frame
+              currentFrame = (currentFrame + 1) % frames.length;
               
-              frameCounter++;
-              const frameInterval = getFrameInterval();
+              // Draw new frame
+              drawFrame(currentFrame);
               
-              // Only advance frame when we hit the interval
-              if (frameCounter >= frameInterval) {
-                // Advance to next frame
-                currentFrame = (currentFrame + 1) % frames.length;
-                
-                // Draw new frame
-                drawFrame(currentFrame);
-                
-                // Mark texture as needing update
-                texture.needsUpdate = true;
-                
-                // Reset counter
-                frameCounter = 0;
-              }
+              // Mark texture as needing update
+              texture.needsUpdate = true;
+              
+              // Reset counter
+              frameCounter = 0;
             }
-          };
-          
-          console.log('✅ Animated GIF texture created with gifuct-js (matching client)');
-          return { texture, isAnimated: true, frames: frames.length };
-          
-        } catch (error) {
-          console.warn('⚠️ Failed to process GIF with gifuct-js, falling back to static:', error);
-          
-          // Fallback to static image
-          const img = document.createElement('img');
-          img.crossOrigin = 'anonymous';
-          img.src = url;
-          await new Promise(resolve => {
-            img.onload = resolve;
-            img.onerror = resolve;
-          });
-          const texture = new THREE.Texture(img);
-          texture.needsUpdate = true;
-          texture.flipY = false; // FIXED: Match client-side flipY = false for static images
-          console.log('✅ GIF processed as static image fallback');
-          return { texture, isAnimated: false, frames: 1 };
-        }
+          }
+        };
+        
+        console.log('✅ Animated GIF texture created with gifuct-js (matching client)');
+        return { texture, isAnimated: true, frames: frames.length };
       };
 
       // Apply front overlay (FIXED: use overlayUrl directly)
@@ -673,33 +641,13 @@ export const handler: Handler = async (event) => {
             overlayTexture.flipY = false; // FIXED: Regular Texture should use flipY = false
           }
           
-          // Bottom face gets horizontally flipped version (matching client-side fix)
-          let bottomTexture;
-          if (overlayTexture instanceof THREE.CanvasTexture) {
-            // For animated GIFs, create new texture with flip
-            bottomTexture = new THREE.CanvasTexture(overlayTexture.image);
-            bottomTexture.colorSpace = THREE.SRGBColorSpace;
-            bottomTexture.flipY = true; // FIXED: Match client-side flipY = true for CanvasTextures
-            bottomTexture.wrapS = THREE.RepeatWrapping;
-            bottomTexture.repeat.x = -1; // Horizontal flip to fix mirroring
-            bottomTexture.needsUpdate = true;
-            // Copy animation update function
-            if (overlayTexture.userData?.update) {
-              bottomTexture.userData = { update: overlayTexture.userData.update };
-            }
-          } else {
-            // For static images, clone and flip
-            bottomTexture = overlayTexture.clone();
-            bottomTexture.flipY = false; // FIXED: Match client-side flipY = false for static images
-            bottomTexture.wrapS = THREE.RepeatWrapping;
-            bottomTexture.repeat.x = -1; // Horizontal flip to fix mirroring
-            bottomTexture.needsUpdate = true;
-          }
+          // DUAL MODE: Apply second overlay to bottom face (matching client-side logic exactly)
+          // Client-side only applies horizontal flip for VideoTextures, not CanvasTextures
+          overlayBot.material.map = overlayTexture;
+          console.log('✅ Back overlay applied to BOTTOM face without flip (dual mode - matches client-side)');
           
-          overlayBot.material.map = bottomTexture;
           overlayBot.material.opacity = 1;
           overlayBot.material.needsUpdate = true;
-          console.log('✅ Back overlay applied to BOTTOM face with horizontal flip (dual mode)');
         }
       }
 
