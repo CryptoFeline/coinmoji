@@ -848,11 +848,11 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
             }
             botMaterial.map = bottomTexture;
           } else {
-            // For non-video textures, clone as before
+            // For non-video textures, clone and fix orientation
             const bottomTexture = texture.clone();
             bottomTexture.flipY = true;
-            // we also need to flip on X
             bottomTexture.wrapS = THREE.RepeatWrapping;
+            bottomTexture.repeat.x = -1; // Horizontal flip to fix mirroring
             bottomTexture.needsUpdate = true;
             botMaterial.map = bottomTexture;
           }

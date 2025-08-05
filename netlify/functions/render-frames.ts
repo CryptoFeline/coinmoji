@@ -103,26 +103,53 @@ export const handler: Handler = async (event) => {
         };
       });
 
-      // Load gifuct-js for proper GIF frame parsing (matching client-side)
+      // Load gifuct-js for proper GIF frame parsing (with fallback URLs)
       console.log('📦 Loading gifuct-js for GIF processing...');
       const gifuctScript = document.createElement('script');
-      gifuctScript.src = 'https://unpkg.com/gifuct-js@2.1.2/dist/gifuct.js';
-      document.head.appendChild(gifuctScript);
       
-      await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error('gifuct-js loading timeout'));
-        }, 3000);
+      // Try multiple CDN sources for reliability
+      const gifuctUrls = [
+        'https://unpkg.com/gifuct-js@2.1.2/dist/gifuct.js',
+        'https://cdn.jsdelivr.net/npm/gifuct-js@2.1.2/dist/gifuct.js',
+        'https://cdn.skypack.dev/gifuct-js@2.1.2'
+      ];
+      
+      let gifuctLoaded = false;
+      for (const url of gifuctUrls) {
+        if (gifuctLoaded) break;
         
-        gifuctScript.onload = () => {
-          clearTimeout(timeout);
-          resolve(undefined);
-        };
-        gifuctScript.onerror = () => {
-          clearTimeout(timeout);
-          reject(new Error('gifuct-js loading failed'));
-        };
-      });
+        try {
+          gifuctScript.src = url;
+          document.head.appendChild(gifuctScript);
+          
+          await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+              reject(new Error(`gifuct-js loading timeout from ${url}`));
+            }, 5000); // Increased timeout
+            
+            gifuctScript.onload = () => {
+              clearTimeout(timeout);
+              gifuctLoaded = true;
+              console.log(`✅ gifuct-js loaded from ${url}`);
+              resolve(undefined);
+            };
+            gifuctScript.onerror = () => {
+              clearTimeout(timeout);
+              console.warn(`⚠️ Failed to load gifuct-js from ${url}`);
+              document.head.removeChild(gifuctScript);
+              reject(new Error(`gifuct-js loading failed from ${url}`));
+            };
+          });
+          break; // Success, exit loop
+        } catch (error) {
+          console.warn(`⚠️ Trying next CDN for gifuct-js:`, error);
+          continue; // Try next URL
+        }
+      }
+      
+      if (!gifuctLoaded) {
+        console.warn('⚠️ All gifuct-js CDNs failed, will fallback to static GIF processing');
+      }
 
       const setupTime = Date.now() - setupStart;
       console.log(`⚡ Three.js and gifuct-js loaded in ${setupTime}ms`);
@@ -342,8 +369,27 @@ export const handler: Handler = async (event) => {
       // Process overlays directly from settings URLs (FIX: use overlayUrl, not overlayFront)
       console.log('🎨 Processing overlay URLs directly from settings...');
       
-      // Helper function to process GIF with gifuct-js (IDENTICAL to client-side)
+      // Helper function to process GIF with gifuct-js (with graceful fallback)
       const processGIF = async (url: string) => {
+        // First check if gifuct-js is available
+        const gifuct = (window as any).gifuct;
+        if (!gifuct) {
+          console.warn('⚠️ gifuct-js not available, falling back to static image processing');
+          // Fallback to static image immediately
+          const img = document.createElement('img');
+          img.crossOrigin = 'anonymous';
+          img.src = url;
+          await new Promise(resolve => {
+            img.onload = resolve;
+            img.onerror = resolve;
+          });
+          const texture = new THREE.Texture(img);
+          texture.needsUpdate = true;
+          texture.flipY = false;
+          console.log('✅ GIF processed as static image (gifuct-js unavailable)');
+          return { texture, isAnimated: false, frames: 1 };
+        }
+
         try {
           console.log('🎞️ Processing animated GIF with gifuct-js (matching client):', url);
           
@@ -352,11 +398,6 @@ export const handler: Handler = async (event) => {
           const buffer = await response.arrayBuffer();
           
           // Parse GIF using gifuct-js (identical to client-side)
-          const gifuct = (window as any).gifuct;
-          if (!gifuct) {
-            throw new Error('gifuct-js not loaded');
-          }
-          
           const gif = gifuct.parseGIF(buffer);
           const frames = gifuct.decompressFrames(gif, true);
           
@@ -470,6 +511,7 @@ export const handler: Handler = async (event) => {
           });
           const texture = new THREE.Texture(img);
           texture.needsUpdate = true;
+          texture.flipY = false;
           console.log('✅ GIF processed as static image fallback');
           return { texture, isAnimated: false, frames: 1 };
         }
@@ -511,12 +553,35 @@ export const handler: Handler = async (event) => {
             overlayTop.material.opacity = 1;
             overlayTop.material.needsUpdate = true;
           } else {
-            // Apply to both faces in single mode
+            // Apply to both faces in single mode - top face gets original
             overlayTop.material.map = overlayTexture;
             overlayTop.material.opacity = 1;
             overlayTop.material.needsUpdate = true;
             
-            overlayBot.material.map = overlayTexture;
+            // Bottom face gets horizontally flipped version (matching client-side fix)
+            let bottomTexture;
+            if (overlayTexture instanceof THREE.CanvasTexture) {
+              // For animated GIFs, share the same canvas but create new texture with flip
+              bottomTexture = new THREE.CanvasTexture(overlayTexture.image);
+              bottomTexture.colorSpace = THREE.SRGBColorSpace;
+              bottomTexture.flipY = false;
+              bottomTexture.wrapS = THREE.RepeatWrapping;
+              bottomTexture.repeat.x = -1; // Horizontal flip to fix mirroring
+              bottomTexture.needsUpdate = true;
+              // Copy animation update function
+              if (overlayTexture.userData?.update) {
+                bottomTexture.userData = { update: overlayTexture.userData.update };
+              }
+            } else {
+              // For static images, clone and flip
+              bottomTexture = overlayTexture.clone();
+              bottomTexture.flipY = false;
+              bottomTexture.wrapS = THREE.RepeatWrapping;
+              bottomTexture.repeat.x = -1; // Horizontal flip to fix mirroring
+              bottomTexture.needsUpdate = true;
+            }
+            
+            overlayBot.material.map = bottomTexture;
             overlayBot.material.opacity = 1;
             overlayBot.material.needsUpdate = true;
           }
@@ -553,10 +618,34 @@ export const handler: Handler = async (event) => {
         
         if (overlayTexture) {
           overlayTexture.flipY = false;
-          overlayBot.material.map = overlayTexture;
+          
+          // Bottom face gets horizontally flipped version (matching client-side fix)
+          let bottomTexture;
+          if (overlayTexture instanceof THREE.CanvasTexture) {
+            // For animated GIFs, create new texture with flip
+            bottomTexture = new THREE.CanvasTexture(overlayTexture.image);
+            bottomTexture.colorSpace = THREE.SRGBColorSpace;
+            bottomTexture.flipY = false;
+            bottomTexture.wrapS = THREE.RepeatWrapping;
+            bottomTexture.repeat.x = -1; // Horizontal flip to fix mirroring
+            bottomTexture.needsUpdate = true;
+            // Copy animation update function
+            if (overlayTexture.userData?.update) {
+              bottomTexture.userData = { update: overlayTexture.userData.update };
+            }
+          } else {
+            // For static images, clone and flip
+            bottomTexture = overlayTexture.clone();
+            bottomTexture.flipY = false;
+            bottomTexture.wrapS = THREE.RepeatWrapping;
+            bottomTexture.repeat.x = -1; // Horizontal flip to fix mirroring
+            bottomTexture.needsUpdate = true;
+          }
+          
+          overlayBot.material.map = bottomTexture;
           overlayBot.material.opacity = 1;
           overlayBot.material.needsUpdate = true;
-          console.log('✅ Back overlay applied');
+          console.log('✅ Back overlay applied with horizontal flip');
         }
       }
 
