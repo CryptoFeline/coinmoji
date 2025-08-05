@@ -338,43 +338,77 @@ export const handler: Handler = async (event) => {
         isGif2: settings.overlayUrl2?.toLowerCase().includes('.gif')
       });
       
-      // Load gifuct-js ONCE in browser context (outside processGIF)
+      // Load gifuct-js ONCE in browser context (FIXED: Alternative loading method)
       if (settings.overlayUrl?.toLowerCase().includes('.gif') || settings.overlayUrl2?.toLowerCase().includes('.gif')) {
         console.log('📦 Loading gifuct-js library for GIF processing...');
-        const script = document.createElement('script');
-        script.src = 'https://cdn.skypack.dev/gifuct-js';
-        document.head.appendChild(script);
         
-        await new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            reject(new Error('gifuct-js loading timeout'));
-          }, 10000);
-          
-          script.onload = () => {
-            clearTimeout(timeout);
-            console.log('✅ gifuct-js loaded successfully');
-            resolve(undefined);
-          };
-          script.onerror = () => {
-            clearTimeout(timeout);
-            reject(new Error('gifuct-js loading failed'));
-          };
-        });
+        // Try multiple CDN sources for reliability
+        const scriptSources = [
+          'https://cdn.skypack.dev/gifuct-js',
+          'https://unpkg.com/gifuct-js@2.1.2/dist/gifuct.js',
+          'https://cdn.jsdelivr.net/npm/gifuct-js@2.1.2/dist/gifuct.js'
+        ];
         
-        // Verify gifuct is available
-        if (!(window as any).gifuct) {
-          console.error('❌ gifuct-js loaded but not accessible');
-          throw new Error('gifuct-js library not available');
+        let loaded = false;
+        for (const src of scriptSources) {
+          try {
+            console.log(`📦 Trying to load gifuct-js from: ${src}`);
+            const script = document.createElement('script');
+            script.src = src;
+            document.head.appendChild(script);
+            
+            await new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => {
+                reject(new Error('gifuct-js loading timeout'));
+              }, 15000); // Increased timeout
+              
+              script.onload = () => {
+                clearTimeout(timeout);
+                console.log(`✅ gifuct-js loaded successfully from: ${src}`);
+                resolve(undefined);
+              };
+              script.onerror = () => {
+                clearTimeout(timeout);
+                reject(new Error('gifuct-js loading failed'));
+              };
+            });
+            
+            // Verify gifuct is available
+            if ((window as any).gifuct) {
+              console.log('✅ gifuct-js verified and ready');
+              loaded = true;
+              break;
+            }
+          } catch (error) {
+            console.warn(`⚠️ Failed to load from ${src}:`, error);
+            continue;
+          }
         }
-        console.log('✅ gifuct-js verified and ready');
+        
+        if (!loaded) {
+          console.error('❌ All gifuct-js CDN sources failed, skipping GIF processing');
+          // Don't throw error - continue without GIF processing
+        }
       }
       
-      // Helper function to fetch and process GIF (FIXED: no nested page.evaluate)
+      // Helper function to fetch and process GIF (ENHANCED: Better error handling)
       const processGIF = async (url: string) => {
         try {
           console.log('🎞️ Fetching GIF:', url);
+          
+          // Check if gifuct is available
+          if (!(window as any).gifuct) {
+            console.warn('⚠️ gifuct-js not available, skipping GIF processing');
+            return null;
+          }
+          
           const response = await fetch(url);
+          if (!response.ok) {
+            throw new Error(`Failed to fetch GIF: ${response.status} ${response.statusText}`);
+          }
+          
           const buffer = await response.arrayBuffer();
+          console.log('📥 GIF downloaded:', { size: buffer.byteLength });
           
           // Parse GIF directly (gifuct-js already loaded above)
           const { parseGIF, decompressFrames } = (window as any).gifuct;
@@ -412,6 +446,7 @@ export const handler: Handler = async (event) => {
           const gifData = await processGIF(settings.overlayUrl);
           console.log('🎞️ GIF processing result:', gifData ? 'SUCCESS' : 'FAILED');
           if (gifData && gifData.frames.length > 0) {
+            console.log('🎨 Creating canvas for GIF animation...');
             const canvas = document.createElement('canvas');
             canvas.width = gifData.width;
             canvas.height = gifData.height;
@@ -453,6 +488,19 @@ export const handler: Handler = async (event) => {
               frameInterval: getFrameInterval(),
               animationSpeed: settings.gifAnimationSpeed
             });
+          } else {
+            console.warn('⚠️ GIF processing failed or no frames, applying as static image');
+            // Fallback: try to load as static image
+            const img = document.createElement('img');
+            img.crossOrigin = 'anonymous';
+            img.src = settings.overlayUrl;
+            await new Promise(resolve => {
+              img.onload = resolve;
+              img.onerror = resolve;
+            });
+            const texture = new THREE.Texture(img);
+            texture.needsUpdate = true;
+            overlayTexture = texture;
           }
         } else {
           // Process static image
