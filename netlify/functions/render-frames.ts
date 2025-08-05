@@ -40,7 +40,16 @@ export const handler: Handler = async (event) => {
   try {
     const request: RenderFramesRequest = JSON.parse(event.body || '{}');
     
-    console.log('📋 Render request:', {
+    // CRITICAL: Cap FPS to 20 to prevent Chrome timeouts in serverless environment
+    // High FPS (30+) causes 90+ frame processing which exceeds 30s Lambda timeout
+    const maxSafeFPS = 20;
+    if (request.exportSettings.fps > maxSafeFPS) {
+      console.log(`⚠️ Capping FPS from ${request.exportSettings.fps} to ${maxSafeFPS} for serverless stability`);
+      request.exportSettings.fps = maxSafeFPS;
+      request.exportSettings.frames = Math.round(maxSafeFPS * request.exportSettings.duration);
+    }
+    
+    console.log('📋 Render request (after FPS cap):', {
       settings: request.settings,
       exportSettings: request.exportSettings
     });
@@ -428,11 +437,23 @@ export const handler: Handler = async (event) => {
 
       console.log('🪙 Created identical coin geometry and materials');
 
-      // Capture frames with identical rotation (FIXED: no GIF animation state)
+      // Capture frames with identical rotation and timeout protection
       const frames: string[] = [];
       const { exportSettings } = renderRequest;
       
+      console.log(`🎬 Starting frame capture: ${exportSettings.frames} frames at ${exportSettings.fps} FPS`);
+      const startTime = Date.now();
+      
       for (let i = 0; i < exportSettings.frames; i++) {
+        // Check for timeout every 10 frames to prevent Lambda timeout
+        if (i > 0 && i % 10 === 0) {
+          const elapsed = Date.now() - startTime;
+          if (elapsed > 25000) { // 25s timeout (5s buffer before 30s Lambda limit)
+            console.warn(`⚠️ Approaching timeout at frame ${i}/${exportSettings.frames}, stopping capture`);
+            break;
+          }
+        }
+        
         // Identical rotation calculation to client
         const frameProgress = i / (exportSettings.frames - 1);
         const totalRotation = frameProgress * Math.PI * 2;
@@ -447,11 +468,13 @@ export const handler: Handler = async (event) => {
         frames.push(base64);
 
         if (i === 0 || i === exportSettings.frames - 1 || i % 10 === 0) {
-          console.log(`📸 Captured server frame ${i + 1}/${exportSettings.frames}`);
+          const elapsed = Date.now() - startTime;
+          console.log(`📸 Captured server frame ${i + 1}/${exportSettings.frames} (${elapsed}ms elapsed)`);
         }
       }
 
-      console.log(`✅ Server-side frame capture complete: ${frames.length} frames`);
+      const totalTime = Date.now() - startTime;
+      console.log(`✅ Server-side frame capture complete: ${frames.length} frames in ${totalTime}ms`);
       return frames;
 
     }, request);
