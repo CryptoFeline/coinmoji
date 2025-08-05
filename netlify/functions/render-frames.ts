@@ -318,43 +318,66 @@ export const handler: Handler = async (event) => {
       // Process overlays directly from settings URLs (FIX: use overlayUrl, not overlayFront)
       console.log('🎨 Processing overlay URLs directly from settings...');
       
-      // Helper function to fetch and process GIF
+      // Helper function to fetch and process GIF (OPTIMIZED)
       const processGIF = async (url: string) => {
         try {
           console.log('🎞️ Fetching GIF:', url);
           const response = await fetch(url);
           const buffer = await response.arrayBuffer();
           
-          // Parse GIF (we need to import gifuct-js in the page context)
-          const gifData = await page.evaluate(async (buffer) => {
-            // Load gifuct-js in browser context
-            const script = document.createElement('script');
-            script.src = 'https://cdn.skypack.dev/gifuct-js';
-            document.head.appendChild(script);
+          console.log('📦 GIF downloaded, size:', buffer.byteLength, 'bytes');
+          
+          // Parse GIF with timeout protection
+          const gifData = await Promise.race([
+            page.evaluate(async (bufferArray) => {
+              // Check if gifuct is already loaded
+              if (!(window as any).gifuct) {
+                console.log('Loading gifuct-js...');
+                const script = document.createElement('script');
+                script.src = 'https://cdn.skypack.dev/gifuct-js';
+                document.head.appendChild(script);
+                
+                await new Promise((resolve, reject) => {
+                  const timeout = setTimeout(() => reject(new Error('gifuct loading timeout')), 5000);
+                  script.onload = () => {
+                    clearTimeout(timeout);
+                    resolve(undefined);
+                  };
+                  script.onerror = () => {
+                    clearTimeout(timeout);
+                    reject(new Error('gifuct loading failed'));
+                  };
+                });
+              }
+              
+              const { parseGIF, decompressFrames } = (window as any).gifuct;
+              const buffer = new Uint8Array(bufferArray);
+              const gif = parseGIF(buffer);
+              const frames = decompressFrames(gif, true);
+              
+              console.log(`🎯 GIF processed: ${frames.length} frames, ${gif.lsd.width}x${gif.lsd.height}`);
+              
+              // Only process first 30 frames max to avoid timeout
+              const maxFrames = Math.min(frames.length, 30);
+              
+              return {
+                frames: frames.slice(0, maxFrames).map(frame => ({
+                  dims: frame.dims,
+                  patch: Array.from(frame.patch) // Convert Uint8ClampedArray to regular array
+                })),
+                width: gif.lsd.width,
+                height: gif.lsd.height
+              };
+            }, Array.from(new Uint8Array(buffer))),
             
-            await new Promise((resolve, reject) => {
-              script.onload = resolve;
-              script.onerror = reject;
-            });
-            
-            const { parseGIF, decompressFrames } = (window as any).gifuct;
-            const gif = parseGIF(buffer);
-            const frames = decompressFrames(gif, true);
-            
-            return {
-              frames: frames.map(frame => ({
-                dims: frame.dims,
-                patch: Array.from(frame.patch) // Convert Uint8ClampedArray to regular array
-              })),
-              width: gif.lsd.width,
-              height: gif.lsd.height
-            };
-          }, Array.from(new Uint8Array(buffer)));
+            // 10 second timeout for GIF processing
+            new Promise((_, reject) => setTimeout(() => reject(new Error('GIF processing timeout')), 10000))
+          ]);
           
           console.log('✅ GIF processed:', { frameCount: gifData.frames.length, size: `${gifData.width}x${gifData.height}` });
           return gifData;
         } catch (error) {
-          console.warn('⚠️ Failed to process GIF:', error);
+          console.warn('⚠️ Failed to process GIF (will use as static image):', error);
           return null;
         }
       };
@@ -368,7 +391,7 @@ export const handler: Handler = async (event) => {
         let overlayTexture: THREE.Texture | null = null;
         
         if (settings.overlayUrl.toLowerCase().includes('.gif')) {
-          // Process GIF
+          // Process GIF with fallback to static image
           const gifData = await processGIF(settings.overlayUrl);
           if (gifData && gifData.frames.length > 0) {
             const canvas = document.createElement('canvas');
@@ -397,6 +420,19 @@ export const handler: Handler = async (event) => {
               ctx,
               texture: texture
             };
+          } else {
+            // GIF processing failed, fallback to static image
+            console.log('🔄 GIF processing failed, falling back to static image');
+            const img = document.createElement('img');
+            img.crossOrigin = 'anonymous';
+            img.src = settings.overlayUrl;
+            await new Promise(resolve => {
+              img.onload = resolve;
+              img.onerror = resolve;
+            });
+            const texture = new THREE.Texture(img);
+            texture.needsUpdate = true;
+            overlayTexture = texture;
           }
         } else {
           // Process static image
@@ -441,7 +477,7 @@ export const handler: Handler = async (event) => {
         let overlayTexture: THREE.Texture | null = null;
         
         if (settings.overlayUrl2.toLowerCase().includes('.gif')) {
-          // Process GIF
+          // Process GIF with fallback to static image
           const gifData = await processGIF(settings.overlayUrl2);
           if (gifData && gifData.frames.length > 0) {
             const canvas = document.createElement('canvas');
@@ -456,6 +492,19 @@ export const handler: Handler = async (event) => {
             ctx.putImageData(imageData, frame.dims.left, frame.dims.top);
             
             const texture = new THREE.CanvasTexture(canvas);
+            texture.needsUpdate = true;
+            overlayTexture = texture;
+          } else {
+            // GIF processing failed, fallback to static image
+            console.log('🔄 GIF processing failed for overlayUrl2, falling back to static image');
+            const img = document.createElement('img');
+            img.crossOrigin = 'anonymous';
+            img.src = settings.overlayUrl2;
+            await new Promise(resolve => {
+              img.onload = resolve;
+              img.onerror = resolve;
+            });
+            const texture = new THREE.Texture(img);
             texture.needsUpdate = true;
             overlayTexture = texture;
           }
