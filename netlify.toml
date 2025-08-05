@@ -3,18 +3,21 @@
   command = "npm ci && ./scripts/bundle-ffmpeg.sh && npm run build"
   functions = "netlify/functions"
 
+# Add Netlify Chromium plugin for server-side rendering
+[[plugins]]
+package = "netlify-plugin-chromium"
+
 [functions]
   node_bundler = "esbuild"
-  # Increase timeout for video processing
+  # Increase timeout for video processing and server-side rendering
   "*" = { timeout = 60 }
   # Increase size limit for functions with bundled FFmpeg binary
   "make-webm" = { timeout = 60, size = 100000000 }
 
 [functions.environment]
-  # Enable Node.js 18+ features for fetch API
-  NODE_VERSION = "18"
-  # Increase memory for video processing
-  AWS_LAMBDA_JS_RUNTIME = "nodejs18.x"
+  # Upgrade to Node.js 20 for better Puppeteer support
+  NODE_VERSION = "20"
+  AWS_LAMBDA_JS_RUNTIME = "nodejs20.x"
 
 [[redirects]]
   from = "/api/*"
