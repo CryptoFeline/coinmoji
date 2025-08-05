@@ -447,7 +447,7 @@ export const handler: Handler = async (event) => {
         // Create texture (MATCHING client-side: flipY = true for CanvasTexture)
         const texture = new THREE.CanvasTexture(canvas);
         texture.colorSpace = THREE.SRGBColorSpace;
-        texture.flipY = false; // FIXED: Match client-side flipY = true for GIF CanvasTextures
+        texture.flipY = true; // FIXED: Match client-side flipY = true for GIF CanvasTextures
         
         // Animation state (identical to client-side)
         let currentFrame = 0;
@@ -589,9 +589,9 @@ export const handler: Handler = async (event) => {
                 bottomTexture.userData = { update: overlayTexture.userData.update };
               }
             } else {
-              // For static images, clone and flip
+              // For static images, clone and flip (FIXED: match client-side flipY = true)
               bottomTexture = overlayTexture.clone();
-              bottomTexture.flipY = false; // FIXED: Match client-side flipY = false for static images
+              bottomTexture.flipY = true; // FIXED: Match client-side flipY = true for static images on bottom face
               bottomTexture.wrapS = THREE.RepeatWrapping;
               bottomTexture.repeat.x = -1; // Horizontal flip to fix mirroring
               bottomTexture.needsUpdate = true;
