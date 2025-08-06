@@ -291,7 +291,7 @@ export const handler: Handler = async (event) => {
       scene.add(rimLight);
       
       // Add stronger broad ambient light to brighten overall appearance (matching client-side)
-      const broadLight = new THREE.AmbientLight(0xffffff, 0.5);
+      const broadLight = new THREE.AmbientLight(0xffffff, 0.8);
       scene.add(broadLight);
       
       console.log('✅ Enhanced lighting setup complete (client-server parity achieved)');
