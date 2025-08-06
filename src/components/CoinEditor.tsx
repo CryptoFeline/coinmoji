@@ -160,12 +160,12 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     fillLight.position.set(-2, -3, -1);
     scene.add(fillLight);
     
-    const rimLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    const rimLight = new THREE.DirectionalLight(0xffffff, 0.4);
     rimLight.position.set(-3, 1, 4);
     scene.add(rimLight);
 
     // Add stronger broad ambient light to brighten overall appearance
-    const broadLight = new THREE.AmbientLight(0xffffff, 0.4);
+    const broadLight = new THREE.AmbientLight(0xffffff, 0.3);
     scene.add(broadLight);
 
     // Skip environment map for performance and visual parity with server-side
@@ -216,7 +216,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     // Overlay creation
     const overlayMaterial = new THREE.MeshStandardMaterial({
       transparent: true,
-      metalness: 0,
+      metalness: 0.8,
       roughness: 0.5,
       polygonOffset: true,
       polygonOffsetFactor: -1,

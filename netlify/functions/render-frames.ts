@@ -209,7 +209,7 @@ export const handler: Handler = async (event) => {
 
       // Materials (identical to CoinEditor.tsx)
       const rimMat = new THREE.MeshStandardMaterial({
-        color: 0xb87333,
+        color: 0xcecece,
         metalness: 0.8, // Metalness 1 is too much
         roughness: 0.34,
         envMapIntensity: 1
@@ -243,7 +243,7 @@ export const handler: Handler = async (event) => {
       const overlayMaterial = new THREE.MeshStandardMaterial({
         transparent: true,
         metalness: 0,
-        roughness: 0.5,
+        roughness: 0.8,
         polygonOffset: true,
         polygonOffsetFactor: -1,
         polygonOffsetUnits: -1,
@@ -286,12 +286,12 @@ export const handler: Handler = async (event) => {
       fillLight.position.set(-2, -3, -1);
       scene.add(fillLight);
       
-      const rimLight = new THREE.DirectionalLight(0xffffff, 0.6);
+      const rimLight = new THREE.DirectionalLight(0xffffff, 0.4);
       rimLight.position.set(-3, 1, 4);
       scene.add(rimLight);
       
       // Add stronger broad ambient light to brighten overall appearance (matching client-side)
-      const broadLight = new THREE.AmbientLight(0xffffff, 0.4);
+      const broadLight = new THREE.AmbientLight(0xffffff, 0.3);
       scene.add(broadLight);
       
       console.log('✅ Enhanced lighting setup complete (client-server parity achieved)');
