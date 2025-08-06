@@ -175,10 +175,13 @@ const AppContent: React.FC = () => {
       );
       
       if (result.success) {
-        alert('✅ Emoji created successfully! Check your custom emojis in Telegram.');
+        const botInfo = result.bot_used ? `\n\n🤖 Created using: ${result.bot_used}` : '';
+        alert(`✅ Emoji created successfully! Check your custom emojis in Telegram.${botInfo}`);
       } else if (result.error === 'rate_limit') {
         // Handle rate limiting with user-friendly message
-        const message = `⏰ ${result.message}\n\n💡 ${result.suggested_action}\n\nTip: You can download your coin as a WebM file instead and create the emoji later when the limit resets.`;
+        const botInfo = result.total_bots && result.rate_limited_bots ? 
+          `\n\n📊 ${result.rate_limited_bots}/${result.total_bots} bots are currently rate limited.` : '';
+        const message = `⏰ ${result.message}${botInfo}\n\n💡 ${result.suggested_action}\n\nTip: You can download your coin as a WebM file instead and create the emoji later when the limit resets.`;
         alert(message);
       } else {
         throw new Error(result.error || 'Failed to create emoji');

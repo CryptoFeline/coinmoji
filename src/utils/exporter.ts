@@ -837,6 +837,12 @@ export const createCustomEmoji = async (
 
     const result = await response.json();
     console.log('✅ Emoji creation success:', result);
+    
+    // Add bot info to result for better user feedback
+    if (result.success && result.bot_used) {
+      console.log(`🤖 Emoji created successfully using: ${result.bot_used} (@${result.bot_username})`);
+    }
+    
     return result;
   } catch (error) {
     console.log('❌ Error creating custom emoji:', { error: error instanceof Error ? error.message : 'Unknown error' });
