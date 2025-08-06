@@ -176,6 +176,10 @@ const AppContent: React.FC = () => {
       
       if (result.success) {
         alert('✅ Emoji created successfully! Check your custom emojis in Telegram.');
+      } else if (result.error === 'rate_limit') {
+        // Handle rate limiting with user-friendly message
+        const message = `⏰ ${result.message}\n\n💡 ${result.suggested_action}\n\nTip: You can download your coin as a WebM file instead and create the emoji later when the limit resets.`;
+        alert(message);
       } else {
         throw new Error(result.error || 'Failed to create emoji');
       }

@@ -1,4 +1,4 @@
-import { Handler } from '@netlify/functions';
+import { Handler, HandlerResponse } from '@netlify/functions';
 import { verifyTelegramWebAppData } from './utils/telegram-auth';
 
 interface CreateEmojiPayload {
@@ -21,6 +21,9 @@ const handler: Handler = async (event) => {
     console.log('❌ Method not allowed:', event.httpMethod);
     return {
       statusCode: 405,
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({ error: 'Method not allowed' }),
     };
   }
@@ -45,6 +48,9 @@ const handler: Handler = async (event) => {
       console.error('❌ Missing request body');
       return {
         statusCode: 400,
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ error: 'Missing request body' }),
       };
     }
@@ -72,6 +78,9 @@ const handler: Handler = async (event) => {
       });
       return {
         statusCode: 400,
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ error: 'Missing required fields' }),
       };
     }
@@ -82,6 +91,9 @@ const handler: Handler = async (event) => {
       console.error('❌ Invalid Telegram WebApp data');
       return {
         statusCode: 401,
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ error: 'Invalid Telegram WebApp data' }),
       };
     }
@@ -169,6 +181,40 @@ const handler: Handler = async (event) => {
     let result = await createResponse.json();
     console.log('📄 Create sticker set result:', result);
 
+    // Handle rate limiting (HTTP 429) with user-friendly response
+    if (!result.ok && result.error_code === 429) {
+      const retryAfterSeconds = result.parameters?.retry_after || 3600; // Default 1 hour if not specified
+      const retryAfterMinutes = Math.ceil(retryAfterSeconds / 60);
+      const retryAfterHours = Math.ceil(retryAfterSeconds / 3600);
+      
+      console.log(`⏰ Rate limited! Retry after ${retryAfterSeconds} seconds (${retryAfterMinutes} minutes / ${retryAfterHours} hours)`);
+      
+      // Return a user-friendly rate limit message instead of error
+      const rateLimitResponse: HandlerResponse = {
+        statusCode: 429,
+        headers: {
+          'Content-Type': 'application/json',
+          'Retry-After': retryAfterSeconds.toString()
+        },
+        body: JSON.stringify({
+          success: false,
+          error: 'rate_limit',
+          message: `Telegram is temporarily limiting emoji creation. Please try again in ${
+            retryAfterHours > 1 ? `${retryAfterHours} hours` : 
+            retryAfterMinutes > 1 ? `${retryAfterMinutes} minutes` : 
+            `${retryAfterSeconds} seconds`
+          }.`,
+          retry_after_seconds: retryAfterSeconds,
+          retry_after_minutes: retryAfterMinutes,
+          retry_after_hours: retryAfterHours,
+          suggested_action: retryAfterHours > 1 ? 
+            'Download your WebM file instead and create the emoji manually.' :
+            'Please wait and try again shortly.'
+        }),
+      };
+      return rateLimitResponse;
+    }
+
     // If set already exists, add to existing set
     if (!result.ok && result.description && 
         /STICKERSET_INVALID|name is already occupied/i.test(result.description)) {
@@ -254,6 +300,9 @@ const handler: Handler = async (event) => {
     console.error('Error in create-emoji function:', error);
     return {
       statusCode: 500,
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({ 
         error: 'Internal server error',
         message: error instanceof Error ? error.message : 'Unknown error'

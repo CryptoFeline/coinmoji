@@ -808,6 +808,23 @@ export const createCustomEmoji = async (
       headers: Object.fromEntries(response.headers.entries())
     });
 
+    // Handle rate limiting (HTTP 429) specifically
+    if (response.status === 429) {
+      const result = await response.json();
+      console.log('⏰ Rate limited response:', result);
+      
+      // Return rate limit info without throwing an error
+      return {
+        success: false,
+        error: 'rate_limit',
+        message: result.message || 'Too many requests. Please try again later.',
+        retry_after_seconds: result.retry_after_seconds,
+        retry_after_minutes: result.retry_after_minutes,
+        retry_after_hours: result.retry_after_hours,
+        suggested_action: result.suggested_action
+      };
+    }
+
     if (!response.ok) {
       const errorText = await response.text();
       console.log('❌ Emoji creation failed:', {
