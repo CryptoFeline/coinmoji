@@ -149,14 +149,14 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     mountRef.current.appendChild(renderer.domElement);
 
     // Lighting setup (IDENTICAL to server-side for perfect visual parity)
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x222233, 0.45);
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.45);
     scene.add(hemiLight);
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
     dirLight.position.set(3, 5, 2);
     scene.add(dirLight);
 
     // Add additional lights to compensate for missing environment map
-    const fillLight = new THREE.DirectionalLight(0x4466aa, 0.8);
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.8);
     fillLight.position.set(-2, -3, -1);
     scene.add(fillLight);
     

@@ -56,6 +56,21 @@ export const handler: Handler = async (event) => {
       exportSettings: request.exportSettings
     });
 
+    // MEMORY OPTIMIZATION: Detect dual GIF usage and adjust settings
+    const isDualGif = request.settings.dualOverlay && 
+                     request.settings.overlayUrl?.toLowerCase().includes('.gif') && 
+                     request.settings.overlayUrl2?.toLowerCase().includes('.gif');
+    
+    if (isDualGif) {
+      console.log('⚠️ DUAL GIF DETECTED - Applying aggressive memory optimizations...');
+      // Reduce frame count for dual GIF scenarios to prevent memory exhaustion
+      const originalFrames = request.exportSettings.frames;
+      request.exportSettings.frames = Math.min(originalFrames, 40); // Cap at 40 frames for dual GIFs
+      if (request.exportSettings.frames < originalFrames) {
+        console.log(`🔄 Reduced frames from ${originalFrames} to ${request.exportSettings.frames} for dual GIF memory management`);
+      }
+    }
+
     console.log('🚀 Launching Chrome via @sparticuz/chromium...');
     console.log('🔍 Environment check:', {
       NODE_ENV: process.env.NODE_ENV,
@@ -65,10 +80,21 @@ export const handler: Handler = async (event) => {
 
     console.log('✅ Using @sparticuz/chromium for serverless Chrome');
 
-    // Launch Chrome with @sparticuz/chromium
+    // Launch Chrome with @sparticuz/chromium + AGGRESSIVE memory optimization
     browser = await puppeteer.launch({
       executablePath: await chromium.executablePath(),
-      args: chromium.args,
+      args: [
+        ...chromium.args,
+        '--memory-pressure-off',           // Disable memory pressure detection
+        '--max_old_space_size=512',        // Limit V8 heap to 512MB
+        '--optimize-for-size',             // Optimize for memory over speed
+        '--no-sandbox',                    // Already in chromium.args but ensure it's set
+        '--disable-dev-shm-usage',         // Use /tmp instead of /dev/shm for shared memory
+        '--disable-gpu-memory-buffer-video-frames', // Reduce GPU memory usage
+        '--disable-background-timer-throttling',    // Prevent background throttling
+        '--disable-renderer-backgrounding',         // Keep renderer active
+        '--disable-backgrounding-occluded-windows', // Don't background occluded windows
+      ],
       headless: 'shell'
     });
 
@@ -274,7 +300,7 @@ export const handler: Handler = async (event) => {
       console.log('💡 Setting up enhanced lighting (matching client-side exactly)...');
       
       // Hemisphere + Directional lights (exact match to CoinEditor.tsx)
-      const hemiLight = new THREE.HemisphereLight(0xffffff, 0x222233, 0.45);
+      const hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.45);
       scene.add(hemiLight);
       
       const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
@@ -282,7 +308,7 @@ export const handler: Handler = async (event) => {
       scene.add(dirLight);
       
       // Add additional lights to compensate for missing environment map (matching client-side)
-      const fillLight = new THREE.DirectionalLight(0x4466aa, 0.8);
+      const fillLight = new THREE.DirectionalLight(0xffffff, 0.8);
       fillLight.position.set(-2, -3, -1);
       scene.add(fillLight);
       
@@ -327,25 +353,60 @@ export const handler: Handler = async (event) => {
         faceMat.color.set(settings.bodyColor);
         console.log('🎯 Applied solid color:', settings.bodyColor);
       } else {
-        // Create gradient texture (identical to CoinEditor.tsx)
-        const canvas = document.createElement('canvas');
-        canvas.width = 256;
-        canvas.height = 256;
-        const ctx = canvas.getContext('2d')!;
+        // Create SEPARATE gradient textures for rim and faces (FIXED: match CoinEditor.tsx exactly)
+        console.log('🌈 Creating separate rim and face gradient textures...');
         
-        const gradient = ctx.createLinearGradient(0, 0, 256, 256);
-        gradient.addColorStop(0, settings.gradientStart || '#00eaff');
-        gradient.addColorStop(1, settings.gradientEnd || '#ee00ff');
+        // Face texture: vertical gradient (256x256)
+        const faceCanvas = document.createElement('canvas');
+        faceCanvas.width = 256;
+        faceCanvas.height = 256;
+        const faceCtx = faceCanvas.getContext('2d')!;
         
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, 256, 256);
+        const faceGradient = faceCtx.createLinearGradient(0, 0, 0, faceCanvas.height);
+        faceGradient.addColorStop(0, settings.gradientStart || '#00eaff');
+        faceGradient.addColorStop(1, settings.gradientEnd || '#ee00ff');
         
-        const texture = new THREE.CanvasTexture(canvas);
-        rimMat.map = texture;
-        faceMat.map = texture;
+        faceCtx.fillStyle = faceGradient;
+        faceCtx.fillRect(0, 0, faceCanvas.width, faceCanvas.height);
+        
+        const faceTexture = new THREE.CanvasTexture(faceCanvas);
+        faceTexture.colorSpace = THREE.SRGBColorSpace;
+        
+        // Rim texture: horizontal split gradient (512x16)
+        const rimCanvas = document.createElement('canvas');
+        rimCanvas.width = 512;
+        rimCanvas.height = 16;
+        const rimCtx = rimCanvas.getContext('2d')!;
+        
+        // Left half: gradientStart -> gradientEnd
+        const grad1 = rimCtx.createLinearGradient(0, 0, rimCanvas.width / 2, 0);
+        grad1.addColorStop(0, settings.gradientStart || '#00eaff');
+        grad1.addColorStop(1, settings.gradientEnd || '#ee00ff');
+        rimCtx.fillStyle = grad1;
+        rimCtx.fillRect(0, 0, rimCanvas.width / 2, rimCanvas.height);
+        
+        // Right half: gradientEnd -> gradientStart
+        const grad2 = rimCtx.createLinearGradient(rimCanvas.width / 2, 0, rimCanvas.width, 0);
+        grad2.addColorStop(0, settings.gradientEnd || '#ee00ff');
+        grad2.addColorStop(1, settings.gradientStart || '#00eaff');
+        rimCtx.fillStyle = grad2;
+        rimCtx.fillRect(rimCanvas.width / 2, 0, rimCanvas.width / 2, rimCanvas.height);
+        
+        const rimTexture = new THREE.CanvasTexture(rimCanvas);
+        rimTexture.colorSpace = THREE.SRGBColorSpace;
+        
+        // Apply separate textures (FIXED: matching CoinEditor.tsx)
+        rimMat.map = rimTexture;
+        faceMat.map = faceTexture;
         rimMat.color.set('#ffffff'); // Base white for texture
         faceMat.color.set('#ffffff');
-        console.log('🌈 Applied gradient texture:', settings.gradientStart, '->', settings.gradientEnd);
+        
+        console.log('✅ Applied separate gradient textures:', {
+          gradientStart: settings.gradientStart,
+          gradientEnd: settings.gradientEnd,
+          faceTextureSize: '256x256',
+          rimTextureSize: '512x16'
+        });
       }
 
       // Update metallic properties (identical to CoinEditor.tsx)
@@ -370,7 +431,7 @@ export const handler: Handler = async (event) => {
       overlayBot.material.opacity = 0;
       overlayBot.material.needsUpdate = true;
       
-      // Helper function to process GIF with gifuct-js (MUST work - no fallbacks)
+      // Helper function to process GIF with gifuct-js (OPTIMIZED for serverless memory)
       const processGIF = async (url: string) => {
         // CRITICAL: gifuct-js MUST be available - fail if not
         const gifuct = (window as any).gifuct;
@@ -378,7 +439,7 @@ export const handler: Handler = async (event) => {
           throw new Error('❌ gifuct-js not available - GIF processing cannot continue');
         }
 
-        console.log('🎞️ Processing animated GIF with gifuct-js (matching client):', url);
+        console.log('🎞️ Processing animated GIF with gifuct-js (MEMORY OPTIMIZED):', url);
         
         // Fetch the GIF as a buffer (identical to client-side)
         const response = await fetch(url);
@@ -391,18 +452,29 @@ export const handler: Handler = async (event) => {
         console.log('🎯 GIF parsed:', { 
           frameCount: frames.length,
           width: gif.lsd.width,
-          height: gif.lsd.height
+          height: gif.lsd.height,
+          estimatedMemory: `${((frames.length * gif.lsd.width * gif.lsd.height * 4) / 1024 / 1024).toFixed(1)}MB`
         });
         
         if (frames.length === 0) {
           throw new Error('No frames found in GIF');
         }
         
-        // Create canvas for rendering frames (identical to client-side)
+        // MEMORY OPTIMIZATION: Limit canvas size for large GIFs
+        const maxCanvasSize = 256; // Cap canvas to 256px to reduce memory usage
+        const scaleFactor = Math.min(1, maxCanvasSize / Math.max(gif.lsd.width, gif.lsd.height));
+        const canvasWidth = Math.floor(gif.lsd.width * scaleFactor);
+        const canvasHeight = Math.floor(gif.lsd.height * scaleFactor);
+        
+        if (scaleFactor < 1) {
+          console.log(`🔄 MEMORY OPT: Scaling GIF canvas from ${gif.lsd.width}x${gif.lsd.height} to ${canvasWidth}x${canvasHeight} (${scaleFactor.toFixed(2)}x)`);
+        }
+        
+        // Create canvas for rendering frames (MEMORY OPTIMIZED)
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d')!;
-        canvas.width = gif.lsd.width;
-        canvas.height = gif.lsd.height;
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
         
         // Create texture (MATCHING client-side: flipY = true for CanvasTexture)
         const texture = new THREE.CanvasTexture(canvas);
@@ -423,7 +495,7 @@ export const handler: Handler = async (event) => {
           return intervalMap[renderRequest.settings.gifAnimationSpeed];
         };
         
-        // Helper to draw frame to canvas (identical to client-side)
+        // Helper to draw frame to canvas (MEMORY OPTIMIZED with scaling)
         const drawFrame = (frameIndex: number) => {
           const frame = frames[frameIndex];
           const imageData = new ImageData(
@@ -437,21 +509,28 @@ export const handler: Handler = async (event) => {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
           }
           
-          // Create temporary canvas for the frame
+          // Create temporary canvas for the frame (MEMORY: dispose after use)
           const tempCanvas = document.createElement('canvas');
           const tempCtx = tempCanvas.getContext('2d')!;
           tempCanvas.width = frame.dims.width;
           tempCanvas.height = frame.dims.height;
           tempCtx.putImageData(imageData, 0, 0);
           
-          // Draw frame at correct position
+          // Draw frame at correct position with scaling
+          const scaledLeft = frame.dims.left * scaleFactor;
+          const scaledTop = frame.dims.top * scaleFactor;
+          const scaledWidth = frame.dims.width * scaleFactor;
+          const scaledHeight = frame.dims.height * scaleFactor;
+          
           ctx.drawImage(
             tempCanvas,
-            frame.dims.left,
-            frame.dims.top,
-            frame.dims.width,
-            frame.dims.height
+            0, 0, frame.dims.width, frame.dims.height,
+            scaledLeft, scaledTop, scaledWidth, scaledHeight
           );
+          
+          // MEMORY: Explicit cleanup of temporary canvas
+          tempCanvas.width = 0;
+          tempCanvas.height = 0;
         };
         
         // Draw initial frame (identical to client-side)
@@ -619,13 +698,19 @@ export const handler: Handler = async (event) => {
       const startTime = Date.now();
       
       for (let i = 0; i < exportSettings.frames; i++) {
-        // Check for timeout every 10 frames to prevent Lambda timeout
+        // MEMORY MONITORING: Check for timeout AND memory pressure
         if (i > 0 && i % 10 === 0) {
           const elapsed = Date.now() - startTime;
           if (elapsed > 25000) { // 25s timeout (5s buffer before 30s Lambda limit)
             console.warn(`⚠️ Approaching timeout at frame ${i}/${exportSettings.frames}, stopping capture`);
             break;
           }
+          
+          // MEMORY: Force garbage collection every 10 frames to prevent accumulation
+          if (typeof (window as any).gc === 'function') {
+            (window as any).gc();
+          }
+          console.log(`🧹 Memory cleanup at frame ${i}/${exportSettings.frames} (${elapsed}ms elapsed)`);
         }
         
         // Identical rotation calculation to client
@@ -693,7 +778,7 @@ export const handler: Handler = async (event) => {
           }, 'image/webp', 0.99);
         });
         
-        // Convert blob to base64 for return (temporary until we can return blobs directly)
+        // Convert blob to base64 for return (MEMORY OPTIMIZED)
         const base64 = await new Promise<string>((resolve) => {
           const reader = new FileReader();
           reader.onload = () => {
@@ -703,6 +788,10 @@ export const handler: Handler = async (event) => {
           };
           reader.readAsDataURL(downscaledBlob);
         });
+        
+        // MEMORY: Explicit cleanup of temporary resources
+        tempCanvas.width = 0;
+        tempCanvas.height = 0;
         
         frames.push(base64);
 
