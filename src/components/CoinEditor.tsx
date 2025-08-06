@@ -24,6 +24,10 @@ export interface CoinSettings {
   lightColor: string;
   lightStrength: 'low' | 'medium' | 'strong';
   gifAnimationSpeed: 'slow' | 'medium' | 'fast';
+  // New customization settings
+  coinBulge: 'low' | 'normal' | 'high';
+  overlayMetalness: 'low' | 'normal' | 'high';
+  overlayRoughness: 'low' | 'normal' | 'high';
 }
 
 export interface CoinEditorRef {
@@ -73,6 +77,10 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     lightColor: '#ffffff',
     lightStrength: 'medium',
     gifAnimationSpeed: 'medium',
+    // Default values for new settings
+    coinBulge: 'normal',        // 0.1 (default)
+    overlayMetalness: 'normal', // 0.6 (default)
+    overlayRoughness: 'low',    // 0.3 (default)
   });
 
   // Use external settings if provided, otherwise use internal
@@ -174,10 +182,14 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     // Set loading complete immediately since no async resources are loaded
     setTimeout(() => setIsLoading(false), 100);
 
-    // Coin parameters
+    // Coin parameters with dynamic bulge based on settings
     const R = 1.0;
     const T = 0.35;
-    const bulge = 0.10;
+    
+    // Bulge mapping: low=0.0, normal=0.1, high=0.2
+    const bulgeMap = { low: 0.0, normal: 0.1, high: 0.2 };
+    const bulge = bulgeMap[currentSettings.coinBulge];
+    
     const radialSegments = 128;
     const capSegments = 32;
 
@@ -213,11 +225,19 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     const topFace = createFace(true);
     const bottomFace = createFace(false);
 
-    // Overlay creation
+    // Overlay creation with dynamic material properties
+    // Metalness mapping: low=0.3, normal=0.6, high=0.8
+    const metalnessMap = { low: 0.3, normal: 0.6, high: 0.8 };
+    // Roughness mapping: low=0.3, normal=0.5, high=0.7  
+    const roughnessMap = { low: 0.3, normal: 0.5, high: 0.7 };
+    
+    const overlayMetalness = currentSettings.metallic ? metalnessMap[currentSettings.overlayMetalness] : 0;
+    const overlayRoughness = currentSettings.metallic ? roughnessMap[currentSettings.overlayRoughness] : 0.5;
+    
     const overlayMaterial = new THREE.MeshStandardMaterial({
       transparent: true,
-      metalness: 0.6,
-      roughness: 0.3,
+      metalness: overlayMetalness,
+      roughness: overlayRoughness,
       polygonOffset: true,
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -1,
@@ -733,6 +753,43 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     // Update metallic property
     rimMat.metalness = faceMat.metalness = currentSettings.metallic ? 1 : 0.1;
   }, [currentSettings.fillMode, currentSettings.bodyColor, currentSettings.gradientStart, currentSettings.gradientEnd, currentSettings.metallic, currentSettings.bodyTextureUrl]);
+
+  // Update overlay material properties when metalness/roughness settings change
+  useEffect(() => {
+    if (!sceneRef.current) return;
+    
+    const { overlayTop, overlayBot } = sceneRef.current;
+    
+    // Metalness mapping: low=0.3, normal=0.6, high=0.8
+    const metalnessMap = { low: 0.3, normal: 0.6, high: 0.8 };
+    // Roughness mapping: low=0.3, normal=0.5, high=0.7  
+    const roughnessMap = { low: 0.3, normal: 0.5, high: 0.7 };
+    
+    const overlayMetalness = currentSettings.metallic ? metalnessMap[currentSettings.overlayMetalness] : 0;
+    const overlayRoughness = currentSettings.metallic ? roughnessMap[currentSettings.overlayRoughness] : 0.5;
+    
+    // Update overlay materials
+    if (overlayTop.material instanceof THREE.MeshStandardMaterial) {
+      overlayTop.material.metalness = overlayMetalness;
+      overlayTop.material.roughness = overlayRoughness;
+      overlayTop.material.needsUpdate = true;
+    }
+    
+    if (overlayBot.material instanceof THREE.MeshStandardMaterial) {
+      overlayBot.material.metalness = overlayMetalness;
+      overlayBot.material.roughness = overlayRoughness;
+      overlayBot.material.needsUpdate = true;
+    }
+    
+    console.log('🎨 Updated overlay materials:', {
+      metalness: overlayMetalness,
+      roughness: overlayRoughness,
+      metalnessEnabled: currentSettings.metallic
+    });
+  }, [currentSettings.metallic, currentSettings.overlayMetalness, currentSettings.overlayRoughness]);
+
+  // Note: Coin bulge changes require rebuilding geometry, so we handle this in the initial setup
+  // The bulge setting is applied during the createFace function using dynamic bulge value
 
   // Update lighting based on settings
   useEffect(() => {

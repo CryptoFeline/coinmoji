@@ -19,6 +19,10 @@ interface RenderFramesRequest {
     gifAnimationSpeed: 'slow' | 'medium' | 'fast';
     lightColor: string;
     lightStrength: 'low' | 'medium' | 'high';
+    // New customization settings
+    coinBulge?: 'low' | 'normal' | 'high';
+    overlayMetalness?: 'low' | 'normal' | 'high';
+    overlayRoughness?: 'low' | 'normal' | 'high';
   };
   exportSettings: {
     fps: number;
@@ -203,7 +207,11 @@ export const handler: Handler = async (event) => {
       // Coin parameters (reduced complexity for server-side speed)
       const R = 1.0;
       const T = 0.35;
-      const bulge = 0.10;
+      
+      // Dynamic bulge based on settings (with fallback for backwards compatibility)
+      const bulgeMap = { low: 0.0, normal: 0.1, high: 0.2 };
+      const bulge = settings.coinBulge ? bulgeMap[settings.coinBulge] : 0.10; // Default fallback
+      
       const radialSegments = 64; // Reduced from 128 for faster processing
       const capSegments = 16;    // Reduced from 32 for faster processing
 
@@ -239,11 +247,22 @@ export const handler: Handler = async (event) => {
       const topFace = createFace(true);
       const bottomFace = createFace(false);
 
-      // Overlay creation (identical to CoinEditor.tsx)
+      // Overlay creation with dynamic material properties (matching CoinEditor.tsx)
+      // Metalness mapping: low=0.3, normal=0.6, high=0.8
+      const metalnessMap = { low: 0.3, normal: 0.6, high: 0.8 };
+      // Roughness mapping: low=0.3, normal=0.5, high=0.7  
+      const roughnessMap = { low: 0.3, normal: 0.5, high: 0.7 };
+      
+      // Apply settings with fallbacks for backwards compatibility
+      const overlayMetalness = settings.metallic ? 
+        (settings.overlayMetalness ? metalnessMap[settings.overlayMetalness] : 0.6) : 0;
+      const overlayRoughness = settings.metallic ? 
+        (settings.overlayRoughness ? roughnessMap[settings.overlayRoughness] : 0.3) : 0.5;
+      
       const overlayMaterial = new THREE.MeshStandardMaterial({
         transparent: true,
-        metalness: 0.6,
-        roughness: 0.3,
+        metalness: overlayMetalness,
+        roughness: overlayRoughness,
         polygonOffset: true,
         polygonOffsetFactor: -1,
         polygonOffsetUnits: -1,

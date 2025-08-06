@@ -21,6 +21,10 @@ export interface CoinSettings {
   lightColor: string;
   lightStrength: 'low' | 'medium' | 'strong';
   gifAnimationSpeed: 'slow' | 'medium' | 'fast';
+  // New customization settings
+  coinBulge: 'low' | 'normal' | 'high';
+  overlayMetalness: 'low' | 'normal' | 'high';
+  overlayRoughness: 'low' | 'normal' | 'high';
 }
 
 const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings, onSettingsChange }) => {
@@ -233,6 +237,79 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
               checked={settings.metallic} 
               onChange={(checked) => updateSetting('metallic', checked)} 
             />
+          </div>
+
+          {/* Overlay Metalness - Only show when metallic is enabled */}
+          {settings.metallic && (
+            <div className="space-y-3">
+              <div>
+                <h3 className="text-base font-medium text-gray-900">Image Metalness</h3>
+                <p className="text-xs text-gray-500">Set metallic intensity</p>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {(['low', 'normal', 'high'] as const).map((metalness) => (
+                  <button
+                    key={metalness}
+                    onClick={() => updateSetting('overlayMetalness', metalness)}
+                    className={`p-2 rounded-lg text-sm font-medium transition-all capitalize border-2 ${
+                      settings.overlayMetalness === metalness
+                        ? 'bg-blue-50 text-blue-500 border-blue-500'
+                        : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                    }`}
+                  >
+                    {metalness}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Overlay Roughness - Only show when metallic is enabled */}
+          {settings.metallic && (
+            <div className="space-y-3">
+              <div>
+                <h3 className="text-base font-medium text-gray-900">Image Roughness</h3>
+                <p className="text-xs text-gray-500">Set surface roughness</p>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {(['low', 'normal', 'high'] as const).map((roughness) => (
+                  <button
+                    key={roughness}
+                    onClick={() => updateSetting('overlayRoughness', roughness)}
+                    className={`p-2 rounded-lg text-sm font-medium transition-all capitalize border-2 ${
+                      settings.overlayRoughness === roughness
+                        ? 'bg-blue-50 text-blue-500 border-blue-500'
+                        : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                    }`}
+                  >
+                    {roughness}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Coin Bulge */}
+          <div className="space-y-3">
+            <div>
+              <h3 className="text-base font-medium text-gray-900">Coin Bulge</h3>
+              <p className="text-xs text-gray-500">Face curvature - refresh page to apply</p>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {(['low', 'normal', 'high'] as const).map((bulge) => (
+                <button
+                  key={bulge}
+                  onClick={() => updateSetting('coinBulge', bulge)}
+                  className={`p-2 rounded-lg text-sm font-medium transition-all capitalize border-2 ${
+                    settings.coinBulge === bulge
+                      ? 'bg-blue-50 text-blue-500 border-blue-500'
+                      : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                  }`}
+                >
+                  {bulge}
+                </button>
+              ))}
+            </div>
           </div>
           
           {/* Rotation Speed */}

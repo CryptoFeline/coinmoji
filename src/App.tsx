@@ -25,6 +25,10 @@ const AppContent: React.FC = () => {
     gifAnimationSpeed: 'medium',
     lightColor: '#cecece',
     lightStrength: 'medium',
+    // Default values for new customization settings
+    coinBulge: 'normal',        // 0.1 (default)
+    overlayMetalness: 'normal', // 0.6 (default)
+    overlayRoughness: 'low',    // 0.3 (default)
   });
 
   if (isLoading) {
