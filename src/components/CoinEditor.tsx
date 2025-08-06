@@ -665,7 +665,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
   useEffect(() => {
     if (!sceneRef.current) return;
 
-    const { coinGroup } = sceneRef.current;
+    const { coinGroup, overlayTop, overlayBot } = sceneRef.current;
     const bulgeMap = { low: 0.01, normal: 0.15, high: 0.25 };
     const newBulge = bulgeMap[currentSettings.coinBulge];
 
@@ -704,6 +704,30 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
 
     // Add new faces to coin group
     coinGroup.add(newTopFace, newBottomFace);
+
+    // Update overlay geometries to match new bulge
+    // Dispose old overlay geometries
+    overlayTop.geometry?.dispose();
+    overlayBot.geometry?.dispose();
+
+    // Create new overlay geometries with updated bulge
+    const newTopOverlayGeometry = new THREE.SphereGeometry(
+      R, radialSegments, capSegments, 0, Math.PI * 2, 0, Math.PI / 2
+    );
+    newTopOverlayGeometry.scale(1, newBulge / R, 1);
+    newTopOverlayGeometry.translate(0, T / 2, 0);
+    planarMapUVs(newTopOverlayGeometry);
+    overlayTop.geometry = newTopOverlayGeometry;
+
+    const newBotOverlayGeometry = new THREE.SphereGeometry(
+      R, radialSegments, capSegments, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2
+    );
+    newBotOverlayGeometry.scale(1, newBulge / R, 1);
+    newBotOverlayGeometry.translate(0, -T / 2, 0);
+    planarMapUVs(newBotOverlayGeometry);
+    overlayBot.geometry = newBotOverlayGeometry;
+
+    console.log('🔄 Updated coin and overlay geometry for bulge:', currentSettings.coinBulge, 'value:', newBulge);
 
   }, [currentSettings.coinBulge]);
 
