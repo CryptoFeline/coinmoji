@@ -49,36 +49,15 @@ const getBotConfigs = (): BotConfig[] => {
   return configs;
 };
 
-// Get bot's own user ID
-const getBotUserId = async (botToken: string): Promise<number | null> => {
-  try {
-    const response = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
-    const result = await response.json();
-    if (result.ok) {
-      console.log(`🤖 Bot user ID: ${result.result.id}`);
-      return result.result.id;
-    }
-    return null;
-  } catch (error) {
-    console.error('❌ Failed to get bot user ID:', error);
-    return null;
-  }
-};
-
 // Attempt to create emoji with a specific bot
 const tryCreateEmojiWithBot = async (
   bot: BotConfig,
   payload: CreateEmojiPayload,
-  primaryBotUserId?: number // Use primary bot's user ID for backup bots
+  skipFileUpload: boolean = false // For backup bots, try direct sticker creation
 ): Promise<{ success: boolean; result?: any; rateLimited?: boolean; retryAfter?: number }> => {
   const { user_id, set_title, emoji_list, webm_base64 } = payload;
   
-  // For backup bots, we need to use a different user_id since the user hasn't interacted with them
-  // We'll use the primary bot's own user ID for file uploads
-  const effectiveUserId = primaryBotUserId || user_id;
-  
   console.log(`🤖 Trying ${bot.name} (@${bot.username})...`);
-  console.log(`👤 Using user ID: ${effectiveUserId} ${primaryBotUserId ? '(backup bot - using primary bot user ID)' : '(original user)'}`);
   
   try {
     // Create sticker set name with this bot's username
@@ -92,12 +71,65 @@ const tryCreateEmojiWithBot = async (
     const stickerSetName = slugifyTitle(set_title);
     console.log(`📛 Sticker set name for ${bot.name}: ${stickerSetName}`);
 
-    // Step 1: Upload sticker file
+    if (skipFileUpload) {
+      // For backup bots: try to create sticker set directly with webm data
+      console.log(`🚀 Attempting direct sticker creation with ${bot.name} (no pre-upload)...`);
+      
+      const fileBuffer = Buffer.from(webm_base64, 'base64');
+      
+      // Create input sticker with direct file data
+      const formData = new FormData();
+      formData.append('user_id', String(user_id));
+      formData.append('name', stickerSetName);
+      formData.append('title', `@${set_title}`);
+      formData.append('sticker_type', 'custom_emoji');
+      
+      // Create sticker object with direct file
+      const stickerBlob = new Blob([fileBuffer], { type: 'video/webm' });
+      formData.append('stickers', JSON.stringify([{
+        sticker: 'attach://sticker_file',
+        format: 'video',
+        emoji_list: emoji_list,
+      }]));
+      formData.append('sticker_file', stickerBlob, 'coin.webm');
+
+      const createResponse = await fetch(`https://api.telegram.org/bot${bot.token}/createNewStickerSet`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const result = await createResponse.json();
+      console.log(`📄 Direct create result for ${bot.name}:`, result);
+
+      // Check if rate limited
+      if (!result.ok && result.error_code === 429) {
+        console.log(`⏰ ${bot.name} is rate limited during direct creation`);
+        return { 
+          success: false, 
+          rateLimited: true, 
+          retryAfter: result.parameters?.retry_after 
+        };
+      }
+
+      // Return result
+      return {
+        success: result.ok,
+        result: {
+          ...result,
+          bot_used: bot.name,
+          bot_username: bot.username,
+          set_name: stickerSetName,
+          set_url: `https://t.me/addemoji/${stickerSetName}`
+        }
+      };
+    }
+
+    // Original approach for primary bot: upload file first, then create sticker set
     console.log(`📤 Uploading sticker file with ${bot.name}...`);
     const fileBuffer = Buffer.from(webm_base64, 'base64');
     
     const formData = new FormData();
-    formData.append('user_id', String(effectiveUserId));
+    formData.append('user_id', String(user_id));
     formData.append('sticker_format', 'video');
     formData.append('sticker', new Blob([fileBuffer], { type: 'video/webm' }), 'coin.webm');
 
@@ -137,7 +169,7 @@ const tryCreateEmojiWithBot = async (
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        user_id: effectiveUserId,
+        user_id: user_id,
         name: stickerSetName,
         title: `@${set_title}`,
         sticker_type: 'custom_emoji',
@@ -167,7 +199,7 @@ const tryCreateEmojiWithBot = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: effectiveUserId,
+          user_id: user_id,
           name: stickerSetName,
           sticker: inputSticker,
         }),
@@ -298,13 +330,6 @@ const handler: Handler = async (event) => {
     }
     console.log('✅ Telegram WebApp data verified');
 
-    // Get primary bot's user ID for backup bot operations
-    console.log('🤖 Getting primary bot user ID for backup bot operations...');
-    const primaryBotUserId = await getBotUserId(botConfigs[0].token);
-    if (!primaryBotUserId) {
-      console.warn('⚠️ Could not get primary bot user ID, backup bots may fail');
-    }
-
     // Try each bot in sequence until one succeeds or all are rate limited
     const rateLimitedBots: Array<{ bot: BotConfig; retryAfter: number }> = [];
     let finalResult: any = null;
@@ -316,11 +341,11 @@ const handler: Handler = async (event) => {
       
       console.log(`� Attempting emoji creation with ${bot.name}...`);
       
-      // For backup bots, use primary bot's user ID
+      // For backup bots, try direct sticker creation (skip file upload)
       const attempt = await tryCreateEmojiWithBot(
         bot, 
         payload, 
-        isPrimaryBot ? undefined : primaryBotUserId || undefined
+        !isPrimaryBot // Skip file upload for backup bots
       );
       
       if (attempt.success) {
