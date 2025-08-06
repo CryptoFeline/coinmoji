@@ -165,7 +165,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     scene.add(rimLight);
 
     // Add stronger broad ambient light to brighten overall appearance
-    const broadLight = new THREE.AmbientLight(0xffffff, 0.5);
+    const broadLight = new THREE.AmbientLight(0xffffff, 0.8);
     scene.add(broadLight);
 
     // Skip environment map for performance and visual parity with server-side
