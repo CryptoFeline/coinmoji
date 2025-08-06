@@ -182,16 +182,15 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     // Set loading complete immediately since no async resources are loaded
     setTimeout(() => setIsLoading(false), 100);
 
-    // Coin parameters with dynamic bulge based on settings
+    // Coin parameters - will be used in rebuilding function
     const R = 1.0;
     const T = 0.35;
-    
-    // Bulge mapping: low=0.0, normal=0.1, high=0.2
-    const bulgeMap = { low: 0.0, normal: 0.1, high: 0.2 };
-    const bulge = bulgeMap[currentSettings.coinBulge];
-    
     const radialSegments = 128;
     const capSegments = 32;
+
+    // Initial bulge value
+    const bulgeMap = { low: 0.01, normal: 0.1, high: 0.2 };
+    let currentBulge = bulgeMap[currentSettings.coinBulge];
 
     // Materials
     const rimMat = new THREE.MeshStandardMaterial({
@@ -217,13 +216,15 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
         isTop ? 0 : Math.PI / 2,
         Math.PI / 2
       );
-      geometry.scale(1, bulge / R, 1);
+      geometry.scale(1, currentBulge / R, 1);
       geometry.translate(0, isTop ? T / 2 : -T / 2, 0);
       return new THREE.Mesh(geometry, faceMat);
     };
 
     const topFace = createFace(true);
+    topFace.userData = { type: 'face' };
     const bottomFace = createFace(false);
+    bottomFace.userData = { type: 'face' };
 
     // Overlay creation with dynamic material properties
     // Metalness mapping: low=0.3, normal=0.6, high=0.8
@@ -659,6 +660,52 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     texture.colorSpace = THREE.SRGBColorSpace;
     return texture;
   };
+
+  // Update coin geometry when bulge changes
+  useEffect(() => {
+    if (!sceneRef.current) return;
+
+    const { coinGroup } = sceneRef.current;
+    const bulgeMap = { low: 0.01, normal: 0.1, high: 0.2 };
+    const newBulge = bulgeMap[currentSettings.coinBulge];
+
+    // Find and remove existing faces
+    const facesToRemove = coinGroup.children.filter(child => 
+      child.userData?.type === 'face'
+    );
+    facesToRemove.forEach(face => {
+      coinGroup.remove(face);
+      (face as THREE.Mesh).geometry?.dispose();
+    });
+
+    // Create new faces with updated bulge
+    const R = 1.0;
+    const T = 0.35;
+    const radialSegments = 128;
+    const capSegments = 32;
+
+    // Create top face
+    const topGeometry = new THREE.SphereGeometry(
+      R, radialSegments, capSegments, 0, Math.PI * 2, 0, Math.PI / 2
+    );
+    topGeometry.scale(1, newBulge / R, 1);
+    topGeometry.translate(0, T / 2, 0);
+    const newTopFace = new THREE.Mesh(topGeometry, sceneRef.current.faceMat);
+    newTopFace.userData = { type: 'face' };
+
+    // Create bottom face  
+    const bottomGeometry = new THREE.SphereGeometry(
+      R, radialSegments, capSegments, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2
+    );
+    bottomGeometry.scale(1, newBulge / R, 1);
+    bottomGeometry.translate(0, -T / 2, 0);
+    const newBottomFace = new THREE.Mesh(bottomGeometry, sceneRef.current.faceMat);
+    newBottomFace.userData = { type: 'face' };
+
+    // Add new faces to coin group
+    coinGroup.add(newTopFace, newBottomFace);
+
+  }, [currentSettings.coinBulge]);
 
     // Update materials based on settings
   useEffect(() => {

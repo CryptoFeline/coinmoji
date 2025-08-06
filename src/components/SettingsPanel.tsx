@@ -227,6 +227,29 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
             </div>
           </div>
           
+          {/* Coin Bulge */}
+          <div className="space-y-3">
+            <div>
+              <h3 className="text-base font-medium text-gray-900">Coin Shape</h3>
+              <p className="text-xs text-gray-500">Adjust coin face bulge</p>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {(['low', 'normal', 'high'] as const).map((bulge) => (
+                <button
+                  key={bulge}
+                  onClick={() => updateSetting('coinBulge', bulge)}
+                  className={`p-3 rounded-lg border-2 text-sm font-medium transition-all ${
+                    settings.coinBulge === bulge
+                      ? 'border-blue-500 bg-blue-50 text-blue-500'
+                      : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
+                  }`}
+                >
+                  {bulge.charAt(0).toUpperCase() + bulge.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+          
           {/* Metallic Toggle */}
           <div className="flex items-center justify-between">
             <div>
