@@ -156,7 +156,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     scene.add(dirLight);
 
     // Add additional lights to compensate for missing environment map
-    const fillLight = new THREE.DirectionalLight(0x4466aa, 0.3);
+    const fillLight = new THREE.DirectionalLight(0x4466aa, 0.8);
     fillLight.position.set(-2, -3, -1);
     scene.add(fillLight);
     
@@ -165,7 +165,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     scene.add(rimLight);
 
     // Add stronger broad ambient light to brighten overall appearance
-    const broadLight = new THREE.AmbientLight(0xffffff, 0.8);
+    const broadLight = new THREE.AmbientLight(0xffffff, 0.5);
     scene.add(broadLight);
 
     // Skip environment map for performance and visual parity with server-side
