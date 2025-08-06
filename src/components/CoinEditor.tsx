@@ -25,7 +25,7 @@ export interface CoinSettings {
   lightStrength: 'low' | 'medium' | 'strong';
   gifAnimationSpeed: 'slow' | 'medium' | 'fast';
   // New customization settings
-  coinBulge: 'low' | 'normal' | 'high';
+  coinShape: 'thin' | 'normal' | 'thick';
   overlayMetalness: 'low' | 'normal' | 'high';
   overlayRoughness: 'low' | 'normal' | 'high';
 }
@@ -78,9 +78,9 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     lightStrength: 'medium',
     gifAnimationSpeed: 'medium',
     // Default values for new settings
-    coinBulge: 'normal',        // 0.1 (default)
-    overlayMetalness: 'normal', // 0.6 (default)
-    overlayRoughness: 'low',    // 0.3 (default)
+    coinShape: 'normal',         // 0.15 (default)
+    overlayMetalness: 'normal',  // 0.6 (default)
+    overlayRoughness: 'low',     // 0.3 (default)
   });
 
   // Use external settings if provided, otherwise use internal
@@ -188,9 +188,9 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     const radialSegments = 128;
     const capSegments = 32;
 
-    // Initial bulge value
-    const bulgeMap = { low: 0.01, normal: 0.15, high: 0.25 };
-    let currentBulge = bulgeMap[currentSettings.coinBulge];
+    // Initial shape value - thin/normal/thick mapping
+    const shapeMap = { thin: 0.01, normal: 0.15, thick: 0.25 };
+    let currentBulge = shapeMap[currentSettings.coinShape];
 
     // Materials
     const rimMat = new THREE.MeshStandardMaterial({
@@ -683,13 +683,13 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     return texture;
   };
 
-  // Update coin geometry when bulge changes
+  // Update coin geometry when shape changes
   useEffect(() => {
     if (!sceneRef.current) return;
 
     const { coinGroup, overlayTop, overlayBot } = sceneRef.current;
-    const bulgeMap = { low: 0.01, normal: 0.15, high: 0.25 };
-    const newBulge = bulgeMap[currentSettings.coinBulge];
+    const shapeMap = { thin: 0.01, normal: 0.15, thick: 0.25 };
+    const newBulge = shapeMap[currentSettings.coinShape];
 
     // Find and remove existing faces
     const facesToRemove = coinGroup.children.filter(child => 
@@ -749,9 +749,9 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     planarMapUVs(newBotOverlayGeometry);
     overlayBot.geometry = newBotOverlayGeometry;
 
-    console.log('🔄 Updated coin and overlay geometry for bulge:', currentSettings.coinBulge, 'value:', newBulge);
+    console.log('🔄 Updated coin and overlay geometry for shape:', currentSettings.coinShape, 'value:', newBulge);
 
-  }, [currentSettings.coinBulge]);
+  }, [currentSettings.coinShape]);
 
     // Update materials based on settings
   useEffect(() => {
@@ -891,8 +891,8 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     });
   }, [currentSettings.metallic, currentSettings.overlayMetalness, currentSettings.overlayRoughness]);
 
-  // Note: Coin bulge changes require rebuilding geometry, so we handle this in the initial setup
-  // The bulge setting is applied during the createFace function using dynamic bulge value
+  // Note: Coin shape changes require rebuilding geometry, so we handle this in the initial setup
+  // The shape setting is applied during the createFace function using dynamic bulge value
 
   // Update lighting based on settings
   useEffect(() => {

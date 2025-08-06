@@ -74,16 +74,16 @@ const handler: Handler = async (event) => {
         response = {
           method: 'sendMessage',
           chat_id: chatId,
-          text: `🪙 Welcome to Coinmoji, ${firstName}! 
+          text: `Welcome to 🪙 Coinmoji, ${firstName}! 
 
-Create amazing 3D coin emojis with custom textures and animations. 
+Create amazing 3D Coin Emojis with ease! 
 
-Click the button below to open the Coinmoji creator:`,
+Click the button below to open the App:`,
           reply_markup: {
             inline_keyboard: [
               [
                 {
-                  text: '🎨 Create Coin Emoji',
+                  text: 'Create Coin Emoji',
                   web_app: {
                     url: WEBAPP_URL
                   }
@@ -96,20 +96,18 @@ Click the button below to open the Coinmoji creator:`,
         response = {
           method: 'sendMessage',
           chat_id: chatId,
-          text: `🆘 Coinmoji Help
+          text: `Help with Coinmoji Bot:
 
 Commands:
 /start - Start creating coin emojis
 /help - Show this help message
 
 How to use:
-1. Click "Create Coin Emoji" to open the creator
-2. Upload a GIF or image for your coin texture
-3. Customize the 3D coin animation
-4. Export as WebM for Telegram emoji
-5. Create your custom emoji set!
-
-Enjoy creating unique coin emojis! 🪙✨`
+1. Click "Create Coin Emoji" to open the app
+2. Customize your 3D coin shape and appearance
+3. Add textures and overlays via URLs
+4. Export or create your Telegram emoji
+5. Add the emoji set and enjoy! 🪙✨`
         };
       } else {
         // Default response for other messages

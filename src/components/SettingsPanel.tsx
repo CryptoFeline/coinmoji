@@ -22,7 +22,7 @@ export interface CoinSettings {
   lightStrength: 'low' | 'medium' | 'strong';
   gifAnimationSpeed: 'slow' | 'medium' | 'fast';
   // New customization settings
-  coinBulge: 'low' | 'normal' | 'high';
+  coinShape: 'thin' | 'normal' | 'thick';
   overlayMetalness: 'low' | 'normal' | 'high';
   overlayRoughness: 'low' | 'normal' | 'high';
 }
@@ -227,24 +227,24 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
             </div>
           </div>
           
-          {/* Coin Bulge */}
+          {/* Coin Shape */}
           <div className="space-y-3">
             <div>
               <h3 className="text-base font-medium text-gray-900">Coin Shape</h3>
-              <p className="text-xs text-gray-500">Adjust coin face bulge</p>
+              <p className="text-xs text-gray-500">Adjust coin thickness</p>
             </div>
             <div className="grid grid-cols-3 gap-2">
-              {(['low', 'normal', 'high'] as const).map((bulge) => (
+              {(['thin', 'normal', 'thick'] as const).map((shape) => (
                 <button
-                  key={bulge}
-                  onClick={() => updateSetting('coinBulge', bulge)}
+                  key={shape}
+                  onClick={() => updateSetting('coinShape', shape)}
                   className={`p-3 rounded-lg border-2 text-sm font-medium transition-all ${
-                    settings.coinBulge === bulge
+                    settings.coinShape === shape
                       ? 'border-blue-500 bg-blue-50 text-blue-500'
                       : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
                   }`}
                 >
-                  {bulge.charAt(0).toUpperCase() + bulge.slice(1)}
+                  {shape.charAt(0).toUpperCase() + shape.slice(1)}
                 </button>
               ))}
             </div>
@@ -312,29 +312,6 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
             </div>
           )}
 
-          {/* Coin Bulge */}
-          <div className="space-y-3">
-            <div>
-              <h3 className="text-base font-medium text-gray-900">Coin Bulge</h3>
-              <p className="text-xs text-gray-500">Face curvature - refresh page to apply</p>
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              {(['low', 'normal', 'high'] as const).map((bulge) => (
-                <button
-                  key={bulge}
-                  onClick={() => updateSetting('coinBulge', bulge)}
-                  className={`p-2 rounded-lg text-sm font-medium transition-all capitalize border-2 ${
-                    settings.coinBulge === bulge
-                      ? 'bg-blue-50 text-blue-500 border-blue-500'
-                      : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
-                  }`}
-                >
-                  {bulge}
-                </button>
-              ))}
-            </div>
-          </div>
-          
           {/* Rotation Speed */}
           <div className="space-y-3">
             <h3 className="text-base font-medium text-gray-900">Coin Rotation Speed</h3>

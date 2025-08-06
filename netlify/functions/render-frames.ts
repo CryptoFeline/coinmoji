@@ -20,7 +20,7 @@ interface RenderFramesRequest {
     lightColor: string;
     lightStrength: 'low' | 'medium' | 'high';
     // New customization settings
-    coinBulge?: 'low' | 'normal' | 'high';
+    coinShape?: 'thin' | 'normal' | 'thick';
     overlayMetalness?: 'low' | 'normal' | 'high';
     overlayRoughness?: 'low' | 'normal' | 'high';
   };
@@ -208,9 +208,9 @@ export const handler: Handler = async (event) => {
       const R = 1.0;
       const T = 0.35;
       
-      // Dynamic bulge based on settings (with fallback for backwards compatibility)
-      const bulgeMap = { low: 0.01, normal: 0.15, high: 0.25 }; // Fixed: 0.0 -> 0.01 to prevent geometry issues
-      const bulge = settings.coinBulge ? bulgeMap[settings.coinBulge] : 0.15; // Default fallback
+      // Dynamic shape based on settings (with fallback for backwards compatibility)
+      const shapeMap = { thin: 0.01, normal: 0.15, thick: 0.25 }; // Fixed: 0.0 -> 0.01 to prevent geometry issues
+      const bulge = settings.coinShape ? shapeMap[settings.coinShape] : 0.15; // Default fallback
       
       const radialSegments = 64; // Reduced from 128 for faster processing
       const capSegments = 16;    // Reduced from 32 for faster processing
