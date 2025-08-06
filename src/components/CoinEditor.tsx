@@ -177,7 +177,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     // Coin parameters
     const R = 1.0;
     const T = 0.35;
-    const bulge = 0.20;
+    const bulge = 0.10;
     const radialSegments = 128;
     const capSegments = 32;
 
@@ -216,7 +216,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     // Overlay creation
     const overlayMaterial = new THREE.MeshStandardMaterial({
       transparent: true,
-      metalness: 0.3,
+      metalness: 0.6,
       roughness: 0.3,
       polygonOffset: true,
       polygonOffsetFactor: -1,
