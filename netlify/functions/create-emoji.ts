@@ -20,6 +20,15 @@ interface BotConfig {
 const getBotConfigs = (): BotConfig[] => {
   const configs: BotConfig[] = [];
   
+  // Debug: Log available environment variables for backup bots
+  console.log('🔍 Environment variable debug:');
+  for (let i = 2; i <= 3; i++) {
+    const tokenEnvName = `TELEGRAM_BOT_TOKEN_${i}`;
+    const usernameEnvName = `BOT_USERNAME_${i}`;
+    console.log(`  ${tokenEnvName}: ${process.env[tokenEnvName] ? 'SET' : 'NOT SET'}`);
+    console.log(`  ${usernameEnvName}: ${process.env[usernameEnvName] ? 'SET' : 'NOT SET'}`);
+  }
+  
   // Primary bot (required)
   const primaryToken = process.env.TELEGRAM_BOT_TOKEN;
   const primaryUsername = process.env.BOT_USERNAME;
