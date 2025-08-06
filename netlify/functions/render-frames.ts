@@ -242,8 +242,8 @@ export const handler: Handler = async (event) => {
       // Overlay creation (identical to CoinEditor.tsx)
       const overlayMaterial = new THREE.MeshStandardMaterial({
         transparent: true,
-        metalness: 0.6,
-        roughness: 0.3,
+        metalness: 0.5,
+        roughness: 0.5,
         polygonOffset: true,
         polygonOffsetFactor: -1,
         polygonOffsetUnits: -1,
