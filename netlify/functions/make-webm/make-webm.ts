@@ -66,7 +66,7 @@ interface MakeWebMRequest {
   frames: string[];          // base64 encoded WebP frames
   framerate: number;         // fps
   duration: number;          // total duration in seconds
-  targetFileSize?: number;   // target file size in bytes (default: 60KB)
+  targetFileSize?: number;   // target file size in bytes (default: 64KB)
   qualityMode?: 'high' | 'balanced' | 'compact'; // quality preference
 }
 
@@ -108,7 +108,7 @@ export const handler: Handler = async (event) => {
       frames: request.frames.length,
       framerate: request.framerate,
       duration: request.duration,
-      targetFileSize: request.targetFileSize ? `${(request.targetFileSize / 1024).toFixed(1)}KB` : '60KB (default)',
+      targetFileSize: request.targetFileSize ? `${(request.targetFileSize / 1024).toFixed(1)}KB` : '64KB (default)',
       qualityMode: request.qualityMode || 'balanced',
       ffmpegPath,
       workingDir: process.cwd(),
@@ -137,16 +137,16 @@ export const handler: Handler = async (event) => {
       console.log(`✅ Written ${request.frames.length} WebP frames, total: ${(totalWebPSize/1024).toFixed(1)}KB, avg: ${(avgWebPFrameSize/1024).toFixed(2)}KB per frame`);
 
       // Dynamic VP9 settings based on quality mode and target size
-      const targetFileSize = request.targetFileSize || 60 * 1024; // Default 60KB
+      const targetFileSize = request.targetFileSize || 64 * 1024; // Default 64KB
       const qualityMode = request.qualityMode || 'balanced';
       
       // Calculate optimal CRF for VP9 - BALANCED approach for size vs quality
       const bytesPerFrame = targetFileSize / request.frames.length;
       
-      // Initial CRF range 15-25 for aggressive size control while maintaining acceptable quality
+      // Initial CRF range 15-30 for aggressive size control while maintaining acceptable quality
       let crf = qualityMode === 'high' ? 15 :          // High quality but smaller size
-                qualityMode === 'balanced' ? 20 :      // Balanced quality/size  
-                25;                                     // Maximum compression for <64KB
+                qualityMode === 'balanced' ? 23 :      // Balanced quality/size  
+                30;                                    // Maximum compression for <64KB
       
       console.log(`🔬 OPTIMIZED: Starting with CRF=${crf} for aggressive size control (bytes per frame: ${bytesPerFrame.toFixed(0)})`);
       
@@ -154,8 +154,8 @@ export const handler: Handler = async (event) => {
       const baseBitrate = Math.floor((targetFileSize * 8) / request.duration / 1000);
       const targetBitrate = Math.floor(baseBitrate * 1.2); // More aggressive bitrate reduction
       const maxBitrate = Math.floor(targetBitrate * 1.8); // Tighter peak control
-      
-      console.log('🎯 OPTIMIZED VP9 settings (CRF 15-25 for <64KB target):', {
+
+      console.log('🎯 OPTIMIZED VP9 settings (CRF 15-30 for <64KB target):', {
         initialCrf: crf,
         targetBitrate: `${targetBitrate}kbps`,
         maxBitrate: `${maxBitrate}kbps`,
@@ -169,7 +169,7 @@ export const handler: Handler = async (event) => {
       // ITERATIVE ENCODING: Try different CRF values until we get under target size
       let finalWebmBuffer: Buffer | null = null;
       let attempts = 0;
-      const maxAttempts = 5; // Prevent infinite loops
+      const maxAttempts = 10; // Prevent infinite loops
       const maxCrf = 35; // Maximum reasonable CRF for VP9
       
       while (attempts < maxAttempts && crf <= maxCrf) {
