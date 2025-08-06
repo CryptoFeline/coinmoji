@@ -181,7 +181,7 @@ const AppContent: React.FC = () => {
         // Handle rate limiting with user-friendly message
         const botInfo = result.total_bots && result.rate_limited_bots ? 
           `\n\n📊 ${result.rate_limited_bots}/${result.total_bots} bots are currently rate limited.` : '';
-        const message = `⏰ ${result.message}${botInfo}\n\n💡 ${result.suggested_action}\n\nTip: You can download your coin as a WebM file instead and create the emoji later when the limit resets.`;
+        const message = `⏰ ${result.message}${botInfo}\n\n💡 ${result.suggested_action}`;
         alert(message);
       } else {
         throw new Error(result.error || 'Failed to create emoji');
