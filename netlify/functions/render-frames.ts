@@ -282,7 +282,7 @@ export const handler: Handler = async (event) => {
       scene.add(dirLight);
       
       // Add additional lights to compensate for missing environment map (matching client-side)
-      const fillLight = new THREE.DirectionalLight(0x4466aa, 0.3);
+      const fillLight = new THREE.DirectionalLight(0x4466aa, 0.8);
       fillLight.position.set(-2, -3, -1);
       scene.add(fillLight);
       
