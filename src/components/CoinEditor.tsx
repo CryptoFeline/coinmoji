@@ -189,7 +189,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     const capSegments = 32;
 
     // Initial bulge value
-    const bulgeMap = { low: 0.01, normal: 0.1, high: 0.2 };
+    const bulgeMap = { low: 0.01, normal: 0.15, high: 0.25 };
     let currentBulge = bulgeMap[currentSettings.coinBulge];
 
     // Materials
@@ -666,7 +666,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     if (!sceneRef.current) return;
 
     const { coinGroup } = sceneRef.current;
-    const bulgeMap = { low: 0.01, normal: 0.1, high: 0.2 };
+    const bulgeMap = { low: 0.01, normal: 0.15, high: 0.25 };
     const newBulge = bulgeMap[currentSettings.coinBulge];
 
     // Find and remove existing faces

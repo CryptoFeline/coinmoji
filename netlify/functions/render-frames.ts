@@ -209,8 +209,8 @@ export const handler: Handler = async (event) => {
       const T = 0.35;
       
       // Dynamic bulge based on settings (with fallback for backwards compatibility)
-      const bulgeMap = { low: 0.01, normal: 0.1, high: 0.2 }; // Fixed: 0.0 -> 0.01 to prevent geometry issues
-      const bulge = settings.coinBulge ? bulgeMap[settings.coinBulge] : 0.10; // Default fallback
+      const bulgeMap = { low: 0.01, normal: 0.15, high: 0.25 }; // Fixed: 0.0 -> 0.01 to prevent geometry issues
+      const bulge = settings.coinBulge ? bulgeMap[settings.coinBulge] : 0.15; // Default fallback
       
       const radialSegments = 64; // Reduced from 128 for faster processing
       const capSegments = 16;    // Reduced from 32 for faster processing
