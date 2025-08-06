@@ -203,7 +203,7 @@ export const handler: Handler = async (event) => {
       // Coin parameters (reduced complexity for server-side speed)
       const R = 1.0;
       const T = 0.35;
-      const bulge = 0.10;
+      const bulge = 0.20;
       const radialSegments = 64; // Reduced from 128 for faster processing
       const capSegments = 16;    // Reduced from 32 for faster processing
 
@@ -242,8 +242,8 @@ export const handler: Handler = async (event) => {
       // Overlay creation (identical to CoinEditor.tsx)
       const overlayMaterial = new THREE.MeshStandardMaterial({
         transparent: true,
-        metalness: 0.5,
-        roughness: 0.5,
+        metalness: 0.3,
+        roughness: 0.3,
         polygonOffset: true,
         polygonOffsetFactor: -1,
         polygonOffsetUnits: -1,
