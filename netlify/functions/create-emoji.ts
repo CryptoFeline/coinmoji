@@ -20,15 +20,6 @@ interface BotConfig {
 const getBotConfigs = (): BotConfig[] => {
   const configs: BotConfig[] = [];
   
-  // Debug: Log available environment variables for backup bots
-  console.log('🔍 Environment variable debug:');
-  for (let i = 2; i <= 3; i++) {
-    const tokenEnvName = `TELEGRAM_BOT_TOKEN_${i}`;
-    const usernameEnvName = `BOT_USERNAME_${i}`;
-    console.log(`  ${tokenEnvName}: ${process.env[tokenEnvName] ? 'SET' : 'NOT SET'}`);
-    console.log(`  ${usernameEnvName}: ${process.env[usernameEnvName] ? 'SET' : 'NOT SET'}`);
-  }
-  
   // Primary bot (required)
   const primaryToken = process.env.TELEGRAM_BOT_TOKEN;
   const primaryUsername = process.env.BOT_USERNAME;
@@ -58,14 +49,36 @@ const getBotConfigs = (): BotConfig[] => {
   return configs;
 };
 
+// Get bot's own user ID
+const getBotUserId = async (botToken: string): Promise<number | null> => {
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+    const result = await response.json();
+    if (result.ok) {
+      console.log(`🤖 Bot user ID: ${result.result.id}`);
+      return result.result.id;
+    }
+    return null;
+  } catch (error) {
+    console.error('❌ Failed to get bot user ID:', error);
+    return null;
+  }
+};
+
 // Attempt to create emoji with a specific bot
 const tryCreateEmojiWithBot = async (
   bot: BotConfig,
-  payload: CreateEmojiPayload
+  payload: CreateEmojiPayload,
+  primaryBotUserId?: number // Use primary bot's user ID for backup bots
 ): Promise<{ success: boolean; result?: any; rateLimited?: boolean; retryAfter?: number }> => {
   const { user_id, set_title, emoji_list, webm_base64 } = payload;
   
+  // For backup bots, we need to use a different user_id since the user hasn't interacted with them
+  // We'll use the primary bot's own user ID for file uploads
+  const effectiveUserId = primaryBotUserId || user_id;
+  
   console.log(`🤖 Trying ${bot.name} (@${bot.username})...`);
+  console.log(`👤 Using user ID: ${effectiveUserId} ${primaryBotUserId ? '(backup bot - using primary bot user ID)' : '(original user)'}`);
   
   try {
     // Create sticker set name with this bot's username
@@ -84,7 +97,7 @@ const tryCreateEmojiWithBot = async (
     const fileBuffer = Buffer.from(webm_base64, 'base64');
     
     const formData = new FormData();
-    formData.append('user_id', String(user_id));
+    formData.append('user_id', String(effectiveUserId));
     formData.append('sticker_format', 'video');
     formData.append('sticker', new Blob([fileBuffer], { type: 'video/webm' }), 'coin.webm');
 
@@ -124,7 +137,7 @@ const tryCreateEmojiWithBot = async (
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        user_id,
+        user_id: effectiveUserId,
         name: stickerSetName,
         title: `@${set_title}`,
         sticker_type: 'custom_emoji',
@@ -154,7 +167,7 @@ const tryCreateEmojiWithBot = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id,
+          user_id: effectiveUserId,
           name: stickerSetName,
           sticker: inputSticker,
         }),
@@ -285,15 +298,30 @@ const handler: Handler = async (event) => {
     }
     console.log('✅ Telegram WebApp data verified');
 
+    // Get primary bot's user ID for backup bot operations
+    console.log('🤖 Getting primary bot user ID for backup bot operations...');
+    const primaryBotUserId = await getBotUserId(botConfigs[0].token);
+    if (!primaryBotUserId) {
+      console.warn('⚠️ Could not get primary bot user ID, backup bots may fail');
+    }
+
     // Try each bot in sequence until one succeeds or all are rate limited
     const rateLimitedBots: Array<{ bot: BotConfig; retryAfter: number }> = [];
     let finalResult: any = null;
     let successfulBot: BotConfig | null = null;
 
-    for (const bot of botConfigs) {
+    for (let i = 0; i < botConfigs.length; i++) {
+      const bot = botConfigs[i];
+      const isPrimaryBot = i === 0;
+      
       console.log(`� Attempting emoji creation with ${bot.name}...`);
       
-      const attempt = await tryCreateEmojiWithBot(bot, payload);
+      // For backup bots, use primary bot's user ID
+      const attempt = await tryCreateEmojiWithBot(
+        bot, 
+        payload, 
+        isPrimaryBot ? undefined : primaryBotUserId || undefined
+      );
       
       if (attempt.success) {
         console.log(`✅ SUCCESS with ${bot.name}!`);
