@@ -535,7 +535,18 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
                 resolve(texture);
               },
               undefined,
-              reject
+              (error) => {
+                console.error('Failed to load static image texture:', error);
+                // Show user-friendly CORS error message
+                const errorMsg = error instanceof Error ? error.message : String(error);
+                if (errorMsg.includes('CORS') || 
+                    errorMsg.includes('cross-origin') ||
+                    errorMsg.includes('NetworkError') ||
+                    errorMsg.includes('Failed to fetch')) {
+                  alert("We can't access that URL! Please try a different URL or host.");
+                }
+                reject(error);
+              }
             );
           }
         })();
@@ -579,7 +590,18 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
               resolve(texture);
             },
             undefined,
-            reject
+            (error) => {
+              console.error('Failed to load WebM fallback texture:', error);
+              // Show user-friendly CORS error message
+              const errorMsg = error instanceof Error ? error.message : String(error);
+              if (errorMsg.includes('CORS') || 
+                  errorMsg.includes('cross-origin') ||
+                  errorMsg.includes('NetworkError') ||
+                  errorMsg.includes('Failed to fetch')) {
+                alert("We can't access that URL! Please try a different image URL or use a direct image link.");
+              }
+              reject(error);
+            }
           );
         };
         

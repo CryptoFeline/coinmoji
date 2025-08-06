@@ -183,8 +183,8 @@ const AppContent: React.FC = () => {
     } catch (error) {
       console.error('Frame export failed:', error);
       // Don't override the detailed error message from exporter
-      const errorMessage = error instanceof Error ? error.message : 'Failed to export frames. Please try again.';
-      alert(`Frame export failed: ${errorMessage}`);
+      // const errorMessage = error instanceof Error ? error.message : 'Failed to export frames. Please try again.';
+      alert(`Frame export failed!`); // add : ${errorMessage} to debug.
     } finally {
       setIsExporting(false);
     }
