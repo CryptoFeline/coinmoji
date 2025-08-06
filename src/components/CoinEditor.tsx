@@ -769,6 +769,16 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
         })
         .catch((error) => {
           console.error('Failed to load body texture:', error);
+          
+          // Show user-friendly CORS error message
+          if (error.message?.includes('CORS') || 
+              error.message?.includes('cross-origin') ||
+              error.message?.includes('NetworkError') ||
+              error.toString().includes('Failed to fetch')) {
+            // TODO: Replace with proper toast/notification system
+            alert("We can't access that URL! Please try a different image URL or host.");
+          }
+          
           // Fallback to color mode
           (rimMat.map as any)?.userData?.dispose?.();
           (faceMat.map as any)?.userData?.dispose?.();
@@ -998,6 +1008,15 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       })
       .catch((error) => {
         console.error('Failed to load overlay texture:', error);
+        
+        // Show user-friendly CORS error message
+        if (error.message?.includes('CORS') || 
+            error.message?.includes('cross-origin') ||
+            error.message?.includes('NetworkError') ||
+            error.toString().includes('Failed to fetch')) {
+          // TODO: Replace with proper toast/notification system
+          alert("We can't access that URL! Please try a different image URL or host.");
+        }
       });
   };
 
