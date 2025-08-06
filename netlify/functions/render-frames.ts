@@ -211,7 +211,7 @@ export const handler: Handler = async (event) => {
       const rimMat = new THREE.MeshStandardMaterial({
         color: 0xcecece,
         metalness: 0.8, // Metalness 1 is too much
-        roughness: 0.34,
+        roughness: 0.5,
         envMapIntensity: 1
       });
       const faceMat = rimMat.clone();
@@ -242,8 +242,8 @@ export const handler: Handler = async (event) => {
       // Overlay creation (identical to CoinEditor.tsx)
       const overlayMaterial = new THREE.MeshStandardMaterial({
         transparent: true,
-        metalness: 0,
-        roughness: 0.8,
+        metalness: 0.8,
+        roughness: 0.5,
         polygonOffset: true,
         polygonOffsetFactor: -1,
         polygonOffsetUnits: -1,
@@ -277,7 +277,7 @@ export const handler: Handler = async (event) => {
       const hemiLight = new THREE.HemisphereLight(0xffffff, 0x222233, 0.45);
       scene.add(hemiLight);
       
-      const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
       dirLight.position.set(3, 5, 2);
       scene.add(dirLight);
       
@@ -291,7 +291,7 @@ export const handler: Handler = async (event) => {
       scene.add(rimLight);
       
       // Add stronger broad ambient light to brighten overall appearance (matching client-side)
-      // const broadLight = new THREE.AmbientLight(0xffffff, 0.3);
+      // const broadLight = new THREE.AmbientLight(0xffffff, 0.5);
       // scene.add(broadLight);
       
       console.log('✅ Enhanced lighting setup complete (client-server parity achieved)');
@@ -349,9 +349,9 @@ export const handler: Handler = async (event) => {
       }
 
       // Update metallic properties (identical to CoinEditor.tsx)
-      rimMat.metalness = settings.metallic ? 1 : 0.1;
+      rimMat.metalness = settings.metallic ? 0.8 : 0.5;
       rimMat.roughness = settings.metallic ? 0.34 : 0.7;
-      faceMat.metalness = settings.metallic ? 1 : 0.1;
+      faceMat.metalness = settings.metallic ? 0.8 : 0.5;
       faceMat.roughness = settings.metallic ? 0.34 : 0.7;
       console.log('⚡ Applied metallic settings:', settings.metallic);
 

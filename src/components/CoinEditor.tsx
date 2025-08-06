@@ -165,7 +165,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     scene.add(rimLight);
 
     // Add stronger broad ambient light to brighten overall appearance
-    const broadLight = new THREE.AmbientLight(0xffffff, 0.3);
+    const broadLight = new THREE.AmbientLight(0xffffff, 0.5);
     scene.add(broadLight);
 
     // Skip environment map for performance and visual parity with server-side
@@ -731,7 +731,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     }
 
     // Update metallic property
-    rimMat.metalness = faceMat.metalness = currentSettings.metallic ? 1 : 0;
+    rimMat.metalness = faceMat.metalness = currentSettings.metallic ? 1 : 0.1;
   }, [currentSettings.fillMode, currentSettings.bodyColor, currentSettings.gradientStart, currentSettings.gradientEnd, currentSettings.metallic, currentSettings.bodyTextureUrl]);
 
   // Update lighting based on settings
