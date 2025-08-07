@@ -91,6 +91,42 @@ export const handler: Handler = async (event) => {
       exportSettings: request.exportSettings
     });
 
+    // Pre-process any local files to data URLs before passing to browser context
+    const processedSettings = { ...request.settings };
+    
+    if (processedSettings.bodyTextureUrl && isLocalFile(processedSettings.bodyTextureUrl)) {
+      console.log('🔄 Converting body texture local file to data URL:', processedSettings.bodyTextureUrl);
+      try {
+        processedSettings.bodyTextureUrl = await createDataUrlFromFile(processedSettings.bodyTextureUrl);
+        console.log('✅ Body texture converted to data URL');
+      } catch (error) {
+        console.error('❌ Failed to convert body texture:', error);
+        processedSettings.bodyTextureUrl = ''; // Clear invalid file
+      }
+    }
+    
+    if (processedSettings.overlayUrl && isLocalFile(processedSettings.overlayUrl)) {
+      console.log('🔄 Converting overlay 1 local file to data URL:', processedSettings.overlayUrl);
+      try {
+        processedSettings.overlayUrl = await createDataUrlFromFile(processedSettings.overlayUrl);
+        console.log('✅ Overlay 1 converted to data URL');
+      } catch (error) {
+        console.error('❌ Failed to convert overlay 1:', error);
+        processedSettings.overlayUrl = ''; // Clear invalid file
+      }
+    }
+    
+    if (processedSettings.overlayUrl2 && isLocalFile(processedSettings.overlayUrl2)) {
+      console.log('🔄 Converting overlay 2 local file to data URL:', processedSettings.overlayUrl2);
+      try {
+        processedSettings.overlayUrl2 = await createDataUrlFromFile(processedSettings.overlayUrl2);
+        console.log('✅ Overlay 2 converted to data URL');
+      } catch (error) {
+        console.error('❌ Failed to convert overlay 2:', error);
+        processedSettings.overlayUrl2 = ''; // Clear invalid file
+      }
+    }
+
     console.log('🚀 Launching Chrome via @sparticuz/chromium...');
     console.log('🔍 Environment check:', {
       NODE_ENV: process.env.NODE_ENV,
@@ -463,21 +499,16 @@ export const handler: Handler = async (event) => {
         
         let buffer: ArrayBuffer;
         
-        // Check if this is a local file or URL
-        if (isLocalFile(url)) {
-          console.log('📁 Loading GIF from local file:', url);
-          // Load from local filesystem
-          const fileBuffer = await fs.promises.readFile(url);
-          buffer = fileBuffer.buffer.slice(fileBuffer.byteOffset, fileBuffer.byteOffset + fileBuffer.byteLength);
-        } else {
-          console.log('🌐 Fetching GIF from URL:', url);
-          // Fetch the GIF and check size FIRST to prevent memory crashes
-          const response = await fetch(url);
-          if (!response.ok) {
-            throw new Error(`Failed to fetch GIF: ${response.status} ${response.statusText}`);
-          }
-          
-          // Check Content-Length header if available
+        console.log('🌐 Fetching GIF:', url.startsWith('data:') ? 'data URL' : 'external URL');
+        
+        // All files are now URLs or data URLs (local files pre-converted)
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch GIF: ${response.status} ${response.statusText}`);
+        }
+        
+        // Check Content-Length header if available (for external URLs)
+        if (!url.startsWith('data:')) {
           const contentLength = response.headers.get('Content-Length');
           if (contentLength) {
             const sizeInMB = parseInt(contentLength) / (1024 * 1024);
@@ -489,9 +520,9 @@ export const handler: Handler = async (event) => {
               console.log(`❌ GIF too large: ${sizeInMB.toFixed(2)}MB exceeds 15MB limit`);
             }
           }
-          
-          buffer = await response.arrayBuffer();
         }
+        
+        buffer = await response.arrayBuffer();
         
         const actualSizeInMB = buffer.byteLength / (1024 * 1024);
         console.log(`📏 Actual GIF size: ${actualSizeInMB.toFixed(2)}MB`);
@@ -612,26 +643,19 @@ export const handler: Handler = async (event) => {
         return { texture, isAnimated: true, frames: frames.length };
       };
 
-      // Helper function to load images from URLs or local files
-      const loadImageTexture = async (pathOrUrl: string): Promise<THREE.Texture> => {
+      // Helper function to load images (URLs and data URLs - local files pre-converted)
+      const loadImageTexture = async (urlOrDataUrl: string): Promise<THREE.Texture> => {
         const img = document.createElement('img');
         img.crossOrigin = 'anonymous';
+        img.src = urlOrDataUrl;
         
-        if (isLocalFile(pathOrUrl)) {
-          console.log('📁 Loading static image from local file:', pathOrUrl);
-          // Convert local file to data URL
-          const dataUrl = await createDataUrlFromFile(pathOrUrl);
-          img.src = dataUrl;
-        } else {
-          console.log('🌐 Loading static image from URL:', pathOrUrl);
-          img.src = pathOrUrl;
-        }
+        console.log('🌐 Loading image:', urlOrDataUrl.startsWith('data:') ? 'data URL' : 'external URL');
         
         await new Promise((resolve, reject) => {
           img.onload = resolve;
           img.onerror = (error) => {
-            console.error('❌ Failed to load image:', pathOrUrl, error);
-            reject(new Error(`Failed to load image: ${pathOrUrl}`));
+            console.error('❌ Failed to load image:', urlOrDataUrl.substring(0, 100) + '...', error);
+            reject(new Error(`Failed to load image: ${urlOrDataUrl.substring(0, 50)}...`));
           };
         });
         
@@ -895,7 +919,7 @@ export const handler: Handler = async (event) => {
       console.log(`✅ Server-side frame capture complete: ${frames.length} frames in ${totalTime}ms`);
       return frames;
 
-    }, request);
+    }, { ...request, settings: processedSettings });
 
     console.log(`✅ Server-side rendering complete: ${framesBase64.length} frames captured`);
 

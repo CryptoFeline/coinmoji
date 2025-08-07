@@ -169,7 +169,7 @@ export const handler: Handler = async (event) => {
       // ITERATIVE ENCODING: Try different CRF values until we get under target size
       let finalWebmBuffer: Buffer | null = null;
       let attempts = 0;
-      const maxAttempts = 10; // Prevent infinite loops
+      const maxAttempts = 20; // Prevent infinite loops
       const maxCrf = 35; // Maximum reasonable CRF for VP9
       
       while (attempts < maxAttempts && crf <= maxCrf) {
