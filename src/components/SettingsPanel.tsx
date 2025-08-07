@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -69,6 +69,21 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
   const bodyTextureFileRef = useRef<HTMLInputElement>(null);
   const overlayFileRef = useRef<HTMLInputElement>(null);
   const overlayFileRef2 = useRef<HTMLInputElement>(null);
+  
+  // Track blob URLs for cleanup on unmount
+  const activeBlobUrls = useRef<Set<string>>(new Set());
+  
+  // Cleanup all blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      activeBlobUrls.current.forEach(url => {
+        if (url.startsWith('blob:')) {
+          URL.revokeObjectURL(url);
+        }
+      });
+      activeBlobUrls.current.clear();
+    };
+  }, []);
 
   const updateSetting = (key: keyof CoinSettings, value: any) => {
     onSettingsChange({
@@ -113,7 +128,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
         
     if (oldBlobUrl && oldBlobUrl.startsWith('blob:')) {
       URL.revokeObjectURL(oldBlobUrl);
+      activeBlobUrls.current.delete(oldBlobUrl);
     }
+
+    // Track new blob URL for cleanup
+    activeBlobUrls.current.add(blobUrl);
 
     // Update settings with new file and blob URL
     const updates: Partial<CoinSettings> = {};
@@ -148,18 +167,42 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     // Set loading state
     setIsProcessingFile(prev => ({ ...prev, [type]: true }));
 
-    // Validate format
-    if (!file.type.match(/^(image|video)\/(jpeg|jpg|png|gif|webm)$/)) {
-      showNotification('Please select a valid file (JPG, PNG, GIF, WebM)', 'error');
+    // Enhanced format validation with specific error messages
+    const validTypes = /^(image|video)\/(jpeg|jpg|png|gif|webm)$/;
+    if (!file.type || !file.type.match(validTypes)) {
+      const fileExtension = file.name.split('.').pop()?.toLowerCase();
+      let errorMessage = 'Please select a valid file (JPG, PNG, GIF, WebM)';
+      
+      if (fileExtension) {
+        if (['jpg', 'jpeg', 'png', 'gif', 'webm'].includes(fileExtension)) {
+          errorMessage = `File appears to be ${fileExtension.toUpperCase()} but has invalid MIME type. Try re-saving the file.`;
+        } else {
+          errorMessage = `${fileExtension.toUpperCase()} files are not supported. Please use JPG, PNG, GIF, or WebM.`;
+        }
+      }
+      
+      showNotification(errorMessage, 'error');
       event.target.value = '';
       setIsProcessingFile(prev => ({ ...prev, [type]: false }));
       return;
     }
     
-    // Validate size (5MB limit)
+    // Enhanced size validation with contextual messages
     const maxSize = 5 * 1024 * 1024;
     if (file.size > maxSize) {
-      showNotification(`File too large! Please select a file smaller than ${maxSize / 1024 / 1024}MB`, 'error');
+      const actualSizeMB = (file.size / 1024 / 1024).toFixed(1);
+      showNotification(
+        `File too large (${actualSizeMB}MB)! Maximum size is 5MB. Try compressing or resizing the file.`, 
+        'error'
+      );
+      event.target.value = '';
+      setIsProcessingFile(prev => ({ ...prev, [type]: false }));
+      return;
+    }
+    
+    // Check for empty or corrupted files
+    if (file.size === 0) {
+      showNotification('File appears to be empty or corrupted. Please try a different file.', 'error');
       event.target.value = '';
       setIsProcessingFile(prev => ({ ...prev, [type]: false }));
       return;
@@ -171,12 +214,18 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
       showNotification(sizeWarning, file.size > 4 * 1024 * 1024 ? 'warning' : 'success');
     }
     
-    // Create blob URL for immediate preview
-    const blobUrl = URL.createObjectURL(file);
-    handleFileSelect(file, blobUrl, type);
-    
-    // Clear loading state
-    setIsProcessingFile(prev => ({ ...prev, [type]: false }));
+    try {
+      // Create blob URL for immediate preview
+      const blobUrl = URL.createObjectURL(file);
+      handleFileSelect(file, blobUrl, type);
+    } catch (error) {
+      console.error('Failed to create blob URL:', error);
+      showNotification('Failed to process file. Please try again.', 'error');
+      event.target.value = '';
+    } finally {
+      // Clear loading state
+      setIsProcessingFile(prev => ({ ...prev, [type]: false }));
+    }
   }, [handleFileSelect, showNotification, getFileSizeWarning]);
 
   // Mode change handlers - use single state update to ensure re-render
@@ -187,6 +236,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
       // Switching to URL mode - clear file data
       if (settings.bodyTextureBlobUrl && settings.bodyTextureBlobUrl.startsWith('blob:')) {
         URL.revokeObjectURL(settings.bodyTextureBlobUrl);
+        activeBlobUrls.current.delete(settings.bodyTextureBlobUrl);
       }
       if (bodyTextureFileRef.current) {
         bodyTextureFileRef.current.value = '';
@@ -216,6 +266,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
         // Switching to URL mode - clear file data
         if (settings.overlayBlobUrl && settings.overlayBlobUrl.startsWith('blob:')) {
           URL.revokeObjectURL(settings.overlayBlobUrl);
+          activeBlobUrls.current.delete(settings.overlayBlobUrl);
         }
         if (overlayFileRef.current) {
           overlayFileRef.current.value = '';
@@ -238,6 +289,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
         // Switching to URL mode - clear file data
         if (settings.overlayBlobUrl2 && settings.overlayBlobUrl2.startsWith('blob:')) {
           URL.revokeObjectURL(settings.overlayBlobUrl2);
+          activeBlobUrls.current.delete(settings.overlayBlobUrl2);
         }
         if (overlayFileRef2.current) {
           overlayFileRef2.current.value = '';
@@ -259,28 +311,47 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
   };
 
   const handleApplyOverlay = () => {
+    let appliedCount = 0;
+    
     // Handle primary overlay
     if (settings.overlayMode === 'url' && tempOverlayUrl.trim()) {
       updateSetting('overlayUrl', tempOverlayUrl.trim());
+      appliedCount++;
     } else if (settings.overlayMode === 'upload' && settings.overlayFile && settings.overlayBlobUrl) {
       updateSetting('overlayUrl', settings.overlayBlobUrl);
+      appliedCount++;
     }
     
     // Handle secondary overlay if dual is enabled
     if (settings.dualOverlay) {
       if (settings.overlayMode2 === 'url' && tempOverlayUrl2.trim()) {
         updateSetting('overlayUrl2', tempOverlayUrl2.trim());
+        appliedCount++;
       } else if (settings.overlayMode2 === 'upload' && settings.overlayFile2 && settings.overlayBlobUrl2) {
         updateSetting('overlayUrl2', settings.overlayBlobUrl2);
+        appliedCount++;
       }
+    }
+    
+    if (appliedCount > 0) {
+      const message = settings.dualOverlay 
+        ? `Applied ${appliedCount} face image${appliedCount > 1 ? 's' : ''}` 
+        : 'Face image applied successfully';
+      showNotification(message, 'success');
+    } else {
+      showNotification('No face images to apply. Please select an image first.', 'warning');
     }
   };
 
   const handleApplyBodyTexture = () => {
     if (settings.bodyTextureMode === 'url' && tempBodyTextureUrl.trim()) {
       updateSetting('bodyTextureUrl', tempBodyTextureUrl.trim());
+      showNotification('Body texture applied successfully', 'success');
     } else if (settings.bodyTextureMode === 'upload' && settings.bodyTextureFile && settings.bodyTextureBlobUrl) {
       updateSetting('bodyTextureUrl', settings.bodyTextureBlobUrl);
+      showNotification('Body texture applied successfully', 'success');
+    } else {
+      showNotification('No body texture to apply. Please select a texture first.', 'warning');
     }
   };
 
@@ -301,9 +372,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     // Cleanup blob URLs to prevent memory leaks
     if (settings.overlayBlobUrl && settings.overlayBlobUrl.startsWith('blob:')) {
       URL.revokeObjectURL(settings.overlayBlobUrl);
+      activeBlobUrls.current.delete(settings.overlayBlobUrl);
     }
     if (settings.overlayBlobUrl2 && settings.overlayBlobUrl2.startsWith('blob:')) {
       URL.revokeObjectURL(settings.overlayBlobUrl2);
+      activeBlobUrls.current.delete(settings.overlayBlobUrl2);
     }
     
     // Clear file inputs
@@ -327,6 +400,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     };
     
     onSettingsChange(clearedSettings);
+    showNotification('Face images cleared successfully', 'success');
   };
 
   const handleClearBodyTexture = () => {
@@ -338,6 +412,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     // Cleanup blob URL to prevent memory leaks
     if (settings.bodyTextureBlobUrl && settings.bodyTextureBlobUrl.startsWith('blob:')) {
       URL.revokeObjectURL(settings.bodyTextureBlobUrl);
+      activeBlobUrls.current.delete(settings.bodyTextureBlobUrl);
     }
     
     // Clear file input
@@ -355,6 +430,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     };
     
     onSettingsChange(clearedSettings);
+    showNotification('Body texture cleared successfully', 'success');
   };
 
   const Toggle: React.FC<{ checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }> = ({ 
