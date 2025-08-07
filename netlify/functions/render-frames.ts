@@ -497,8 +497,8 @@ export const handler: Handler = async (event) => {
       
       // Light strength mapping (identical to CoinEditor.tsx)
       const lightStrengthMap = {
-        low: { hemi: 0.3, dir: 0.5 },
-        medium: { hemi: 0.45, dir: 0.8 },
+        low: { hemi: 0.3, dir: 0.6 },
+        medium: { hemi: 0.8, dir: 1.3 },
         strong: { hemi: 1.2, dir: 3.0 }
       };
       
@@ -767,6 +767,11 @@ export const handler: Handler = async (event) => {
         return { texture, isAnimated: true, frames: frames.length };
       };
 
+      // Helper to detect if URL is a GIF (supports both URLs and data URIs)
+      const isGifUrl = (url: string): boolean => {
+        return /\.gif$/i.test(url) || url.startsWith('data:image/gif');
+      };
+
       // Helper function to load images (URLs and data URLs - local files pre-converted)
       const loadImageTexture = async (urlOrDataUrl: string): Promise<THREE.Texture> => {
         const img = document.createElement('img');
@@ -795,7 +800,7 @@ export const handler: Handler = async (event) => {
         
         let overlayTexture: THREE.Texture | null = null;
         
-        if (settings.overlayUrl.toLowerCase().includes('.gif')) {
+        if (isGifUrl(settings.overlayUrl)) {
           // Process GIF with gifuct-js (identical to client-side)
           const gifResult = await processGIF(settings.overlayUrl);
           if (gifResult && gifResult.texture) {
@@ -862,7 +867,7 @@ export const handler: Handler = async (event) => {
         
         let overlayTexture: THREE.Texture | null = null;
         
-        if (settings.overlayUrl2.toLowerCase().includes('.gif')) {
+        if (isGifUrl(settings.overlayUrl2)) {
           // Process GIF with gifuct-js (identical to client-side)
           const gifResult = await processGIF(settings.overlayUrl2);
           if (gifResult && gifResult.texture) {
@@ -913,7 +918,7 @@ export const handler: Handler = async (event) => {
         try {
           let bodyTexture: THREE.Texture | null = null;
           
-          if (settings.bodyTextureUrl.toLowerCase().includes('.gif')) {
+          if (isGifUrl(settings.bodyTextureUrl)) {
             // Process GIF body texture
             const gifResult = await processGIF(settings.bodyTextureUrl);
             if (gifResult && gifResult.texture) {
