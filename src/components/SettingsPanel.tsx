@@ -164,9 +164,6 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
       activeBlobUrls.current.delete(oldBlobUrl);
     }
 
-    // Track new blob URL for cleanup
-    activeBlobUrls.current.add(blobUrl);
-
     // Start server upload in the background (non-blocking)
     let tempId: string | undefined;
     let base64Data: string | undefined;
@@ -180,24 +177,42 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
       showNotification('Server upload failed - using client-side only', 'warning');
     }
 
-    // Update settings with new file and blob URL
+    // 🔧 FIX: Use data URLs for animated content (GIF/WebM) to preserve animation in client preview
+    // For animated content, data URLs work better than blob URLs for consistent cross-browser animation playback
+    const isAnimated = file.type === 'image/gif' || file.type === 'video/webm';
+    let displayUrl = blobUrl;
+    
+    if (isAnimated && base64Data) {
+      // Use data URL for animated content to ensure animations play in the client preview
+      const mimeType = file.type;
+      displayUrl = `data:${mimeType};base64,${base64Data}`;
+      console.log(`🎬 Using data URL for animated ${file.type} file in client preview`);
+      
+      // Cleanup blob URL since we're using data URL instead
+      URL.revokeObjectURL(blobUrl);
+    } else {
+      // Track blob URL for cleanup (static images)
+      activeBlobUrls.current.add(blobUrl);
+    }
+
+    // Update settings with new file and appropriate URL
     const updates: Partial<CoinSettings> = {};
     
     if (type === 'bodyTexture') {
       updates.bodyTextureFile = file;
-      updates.bodyTextureBlobUrl = blobUrl;
+      updates.bodyTextureBlobUrl = displayUrl;
       updates.bodyTextureMode = 'upload';
       updates.bodyTextureTempId = tempId;
       updates.bodyTextureBase64 = base64Data;
     } else if (type === 'overlay') {
       updates.overlayFile = file;
-      updates.overlayBlobUrl = blobUrl;
+      updates.overlayBlobUrl = displayUrl;
       updates.overlayMode = 'upload';
       updates.overlayTempId = tempId;
       updates.overlayBase64 = base64Data;
     } else {
       updates.overlayFile2 = file;
-      updates.overlayBlobUrl2 = blobUrl;
+      updates.overlayBlobUrl2 = displayUrl;
       updates.overlayMode2 = 'upload';
       updates.overlayTempId2 = tempId;
       updates.overlayBase64_2 = base64Data;

@@ -305,7 +305,9 @@ export const handler: Handler = async (event) => {
       const hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.45);
       scene.add(hemiLight);
       
-      const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
+      // 🎯 FIXED: Match client-side lighting EXACTLY for consistent color/brightness
+      // Main directional light - increased from 0.5 to 0.8 to match client-side
+      const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
       dirLight.position.set(3, 5, 2);
       scene.add(dirLight);
       
@@ -318,8 +320,8 @@ export const handler: Handler = async (event) => {
       rimLight.position.set(-3, 1, 4);
       scene.add(rimLight);
       
-      // Add stronger broad ambient light to brighten overall appearance (matching client-side)
-      const broadLight = new THREE.AmbientLight(0xffffff, 0.8);
+      // 🎯 FIXED: Increased ambient light from 0.8 to 0.9 to match client-side exactly
+      const broadLight = new THREE.AmbientLight(0xffffff, 0.9);
       scene.add(broadLight);
       
       console.log('✅ Enhanced lighting setup complete (client-server parity achieved)');
@@ -469,9 +471,12 @@ export const handler: Handler = async (event) => {
         const actualSizeInMB = buffer.byteLength / (1024 * 1024);
         console.log(`📏 Actual GIF size: ${actualSizeInMB.toFixed(2)}MB`);
         
-        // Double-check actual size after download
-        if (actualSizeInMB > 15) {
-          throw new Error(`GIF file is too large, please use a smaller file.`);
+        // 🔧 RELAXED: More permissive limits for uploaded files (base64 data URLs are more reliable)
+        const isUploadedFile = url.startsWith('data:');
+        const maxSizeMB = isUploadedFile ? 25 : 15; // Higher limit for uploaded files
+        
+        if (actualSizeInMB > maxSizeMB) {
+          throw new Error(`GIF file is too large (${actualSizeInMB.toFixed(1)}MB > ${maxSizeMB}MB), please use a smaller file.`);
         }
         
         // Parse GIF using gifuct-js (identical to client-side)
@@ -482,15 +487,17 @@ export const handler: Handler = async (event) => {
           frameCount: frames.length,
           width: gif.lsd.width,
           height: gif.lsd.height,
-          sizeInMB: actualSizeInMB.toFixed(2)
+          sizeInMB: actualSizeInMB.toFixed(2),
+          isUploadedFile
         });
         
-        // Additional safety check for frame count and dimensions
+        // 🔧 RELAXED: Higher memory limits for uploaded files
         const totalPixels = gif.lsd.width * gif.lsd.height * frames.length;
         const estimatedMemoryMB = (totalPixels * 4) / (1024 * 1024); // 4 bytes per pixel (RGBA)
+        const maxMemoryMB = isUploadedFile ? 400 : 200; // Higher memory limit for uploaded files
         
-        if (estimatedMemoryMB > 200) { // Prevent excessive memory usage
-          throw new Error(`GIF_TOO_COMPLEX: GIF is too complex (${frames.length} frames, ${gif.lsd.width}x${gif.lsd.height}). Estimated memory: ${estimatedMemoryMB.toFixed(1)}MB. Please use a simpler GIF.`);
+        if (estimatedMemoryMB > maxMemoryMB) {
+          throw new Error(`GIF_TOO_COMPLEX: GIF is too complex (${frames.length} frames, ${gif.lsd.width}x${gif.lsd.height}). Estimated memory: ${estimatedMemoryMB.toFixed(1)}MB > ${maxMemoryMB}MB. Please use a simpler GIF.`);
         }
         
         if (frames.length === 0) {
@@ -700,10 +707,24 @@ export const handler: Handler = async (event) => {
             overlayTexture.flipY = false; // FIXED: Regular Texture should use flipY = false
           }
           
-          // DUAL MODE: Apply second overlay to bottom face (matching client-side logic exactly)
-          // Client-side only applies horizontal flip for VideoTextures, not CanvasTextures
-          overlayBot.material.map = overlayTexture;
-          console.log('✅ Back overlay applied to BOTTOM face without flip (dual mode - matches client-side)');
+          // DUAL MODE: Apply second overlay to bottom face with proper texture cloning for animations
+          let bottomTexture;
+          if (overlayTexture instanceof THREE.CanvasTexture) {
+            // 🔧 FIX: For animated GIFs, create new texture instance but share canvas for sync
+            bottomTexture = new THREE.CanvasTexture(overlayTexture.image);
+            bottomTexture.colorSpace = THREE.SRGBColorSpace;
+            bottomTexture.flipY = true;
+            bottomTexture.needsUpdate = true;
+            // CRITICAL: Share the EXACT SAME userData object for synchronized animation
+            bottomTexture.userData = overlayTexture.userData;
+            console.log('✅ Back overlay (animated) applied to BOTTOM face with shared animation state');
+          } else {
+            // For static images, use texture directly (no need to clone in dual mode)
+            bottomTexture = overlayTexture;
+            console.log('✅ Back overlay (static) applied to BOTTOM face without cloning');
+          }
+          
+          overlayBot.material.map = bottomTexture;
           
           overlayBot.material.opacity = 1;
           overlayBot.material.needsUpdate = true;
