@@ -1,10 +1,72 @@
 # 📋 **File Upload Implementation Plan**
 
-## **🎯 Overview**
-Implement a hybrid texture system supporting both URL-based and file upload approaches for:
-- **Body textures** (coin surface)
-- **Face overlays** (single or dual overlay mode)
-- **All supported formats** (JPG, PNG, GIF, WebM)
+## **✅ PHASE 1: COMPLETE** *(Implemented & Tested)*
+
+### **🎯 Core Upload System**
+**Status:** ✅ **COMPLETED** - All functionality working as expected
+
+**What was implemented:**
+- ✅ **Server-side upload handler** - `netlify/functions/upload-temp-file.ts`
+  - Multipart form data parsing with proper Buffer handling
+  - File validation (JPG, PNG, GIF, WebM, 5MB limit)
+  - Temporary file storage in `/tmp` with 5-minute expiry
+  - UUID-based file naming and secure cleanup
+
+- ✅ **Enhanced Settings Interface** - `src/components/SettingsPanel.tsx`
+  - Added 9 new upload-related fields to CoinSettings interface
+  - URL/Upload mode switching with proper two-button toggle UI
+  - File upload handlers with client-side validation
+  - Blob URL management with memory leak prevention
+
+- ✅ **Consistent Apply/Clear System**
+  - Single Apply/Clear button pair for all texture types (body, overlay 1, overlay 2)
+  - Apply handles both URL and Upload modes automatically
+  - Clear properly removes applied textures AND clears UI state
+  - Mode switching preserves user data appropriately
+
+**Technical Implementation Details:**
+```typescript
+// Enhanced CoinSettings interface
+interface CoinSettings {
+  // Body texture upload support
+  bodyTextureMode: 'url' | 'upload';
+  bodyTextureFile: File | null;
+  bodyTextureBlobUrl: string;
+  
+  // Face overlay upload support
+  overlayMode: 'url' | 'upload';
+  overlayFile: File | null;
+  overlayBlobUrl: string;
+  overlayMode2: 'url' | 'upload';
+  overlayFile2: File | null;
+  overlayBlobUrl2: string;
+  
+  // ... existing settings preserved
+}
+
+// Mode change handlers with single state updates
+const handleBodyTextureModeChange = (mode: 'url' | 'upload') => {
+  // Single state update prevents React batching issues
+  onSettingsChange({
+    ...settings,
+    bodyTextureMode: mode,
+    // Clear opposite mode's data
+  });
+};
+```
+
+**UI Components Implemented:**
+- ✅ **Two-button toggle system** (URL | Upload) matching existing UI patterns
+- ✅ **Drag-and-drop file zones** with visual feedback and file info display
+- ✅ **File validation** with user-friendly error messages
+- ✅ **Blob URL preview system** for immediate visual feedback
+- ✅ **Memory management** with automatic blob URL cleanup
+
+**Issues Resolved:**
+- ✅ Upload to URL toggle not working (fixed with single state updates)
+- ✅ Duplicate clear buttons (consolidated to single Apply/Clear pair)
+- ✅ Clear not removing applied textures (fixed state update logic)
+- ✅ File input cleanup when switching modes
 
 ---
 
@@ -36,10 +98,10 @@ interface CoinSettings {
 ```
 
 **UI Components:**
-- **Toggle Switches**: URL ↔ Upload mode for each texture type
-- **File Upload Button**: Upload file with format validation
-- **Preview Filenames**: Show selected files with clear/replace options [using icons]
-- **Progress Indicators**: Upload status and file size validation (spinner icon)
+- ✅ **Toggle Switches**: URL ↔ Upload mode for each texture type (implemented as two-button system)
+- ✅ **File Upload Button**: Upload file with format validation
+- ✅ **Preview Filenames**: Show selected files with clear/replace options [using icons]
+- 🔄 **Progress Indicators**: Upload status and file size validation (spinner icon) - Phase 2
 
 ### **2. File Handling & Preview System**
 
@@ -74,9 +136,9 @@ const FileUploadZone = ({
 ```
 
 **Blob URL Management:**
-- **Create blob URLs** immediately for client-side render preview
-- **Cleanup old blob URLs** when files change to prevent memory leaks
-- **Automatic disposal** when component unmounts
+- ✅ **Create blob URLs** immediately for client-side render preview
+- ✅ **Cleanup old blob URLs** when files change to prevent memory leaks
+- ✅ **Automatic disposal** when component unmounts
 
 ### **3. CoinEditor.tsx Integration**
 
@@ -101,7 +163,24 @@ const createTextureFromSource = async (
 
 ---
 
-## **🖥️ Server-Side Implementation**
+## **� PHASE 2: Enhanced File Processing & UI Improvements**
+**Status:** 🔄 **IN PROGRESS** - Ready to implement
+
+### **🎯 Core Objectives**
+- **Progress Indicators & Loading States** - Visual feedback for file operations and mode switching
+- **Enhanced Error Handling** - Better user feedback with toast notifications
+- **File Processing Optimization** - Better handling of large files and edge cases
+- **UI Polish** - Loading spinners, file size warnings, and improved user experience
+
+### **Implementation Priority**
+1. 🔄 **Loading States & Progress Indicators** - Show feedback during file selection and mode changes
+2. 🔄 **Enhanced Error Handling** - Replace alert() with proper toast notifications
+3. 🔄 **File Size Warnings** - Progressive warnings for large files (1MB+, 3MB+, 5MB)
+4. 🔄 **UI Polish** - Loading spinners, better visual feedback, edge case handling
+
+---
+
+## **�🖥️ Server-Side Implementation**
 
 ### **1. Temporary File Upload Handler**
 

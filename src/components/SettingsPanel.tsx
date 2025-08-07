@@ -43,6 +43,28 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
   const [tempOverlayUrl2, setTempOverlayUrl2] = useState('');
   const [tempBodyTextureUrl, setTempBodyTextureUrl] = useState('');
   
+  // Loading states for better UX
+  const [isProcessingFile, setIsProcessingFile] = useState<{
+    bodyTexture: boolean;
+    overlay: boolean;
+    overlay2: boolean;
+  }>({
+    bodyTexture: false,
+    overlay: false,
+    overlay2: false
+  });
+  
+  // Toast notification state
+  const [notification, setNotification] = useState<{
+    message: string;
+    type: 'success' | 'error' | 'warning';
+    visible: boolean;
+  }>({
+    message: '',
+    type: 'success',
+    visible: false
+  });
+  
   // File upload refs
   const bodyTextureFileRef = useRef<HTMLInputElement>(null);
   const overlayFileRef = useRef<HTMLInputElement>(null);
@@ -53,6 +75,27 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
       ...settings,
       [key]: value
     });
+  };
+
+  // Toast notification helper
+  const showNotification = useCallback((message: string, type: 'success' | 'error' | 'warning' = 'success') => {
+    setNotification({ message, type, visible: true });
+    setTimeout(() => {
+      setNotification(prev => ({ ...prev, visible: false }));
+    }, 4000); // Auto-hide after 4 seconds
+  }, []);
+
+  // File size helper with progressive warnings
+  const getFileSizeWarning = (size: number): string | null => {
+    const mb = size / (1024 * 1024);
+    if (mb >= 4) {
+      return `⚠️ Large file (${mb.toFixed(1)}MB) - may slow down preview`;
+    } else if (mb >= 2) {
+      return `📊 Medium file (${mb.toFixed(1)}MB) - processing...`;
+    } else if (mb >= 1) {
+      return `📁 File size: ${mb.toFixed(1)}MB`;
+    }
+    return null;
   };
 
   // File upload handlers
@@ -102,25 +145,39 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     const file = event.target.files?.[0];
     if (!file) return;
 
+    // Set loading state
+    setIsProcessingFile(prev => ({ ...prev, [type]: true }));
+
     // Validate format
     if (!file.type.match(/^(image|video)\/(jpeg|jpg|png|gif|webm)$/)) {
-      alert('Please select a valid file (JPG, PNG, GIF, WebM)');
+      showNotification('Please select a valid file (JPG, PNG, GIF, WebM)', 'error');
       event.target.value = '';
+      setIsProcessingFile(prev => ({ ...prev, [type]: false }));
       return;
     }
     
     // Validate size (5MB limit)
     const maxSize = 5 * 1024 * 1024;
     if (file.size > maxSize) {
-      alert(`File too large! Please select a file smaller than ${maxSize / 1024 / 1024}MB`);
+      showNotification(`File too large! Please select a file smaller than ${maxSize / 1024 / 1024}MB`, 'error');
       event.target.value = '';
+      setIsProcessingFile(prev => ({ ...prev, [type]: false }));
       return;
+    }
+    
+    // Show file size warning if applicable
+    const sizeWarning = getFileSizeWarning(file.size);
+    if (sizeWarning) {
+      showNotification(sizeWarning, file.size > 4 * 1024 * 1024 ? 'warning' : 'success');
     }
     
     // Create blob URL for immediate preview
     const blobUrl = URL.createObjectURL(file);
     handleFileSelect(file, blobUrl, type);
-  }, [handleFileSelect]);
+    
+    // Clear loading state
+    setIsProcessingFile(prev => ({ ...prev, [type]: false }));
+  }, [handleFileSelect, showNotification, getFileSizeWarning]);
 
   // Mode change handlers - use single state update to ensure re-render
   const handleBodyTextureModeChange = (mode: 'url' | 'upload') => {
@@ -464,9 +521,16 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                 />
                 <div 
                   onClick={() => bodyTextureFileRef.current?.click()}
-                  className="w-full p-4 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors"
+                  className={`w-full p-4 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors ${
+                    isProcessingFile.bodyTexture ? 'opacity-75 cursor-wait' : ''
+                  }`}
                 >
-                  {settings.bodyTextureFile ? (
+                  {isProcessingFile.bodyTexture ? (
+                    <div className="text-center">
+                      <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+                      <p className="text-sm text-gray-600 mt-2">Processing file...</p>
+                    </div>
+                  ) : settings.bodyTextureFile ? (
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2">
                         <span className="text-green-600">✅</span>
@@ -675,9 +739,16 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                     />
                     <div 
                       onClick={() => overlayFileRef.current?.click()}
-                      className="w-full p-4 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors"
+                      className={`w-full p-4 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors ${
+                        isProcessingFile.overlay ? 'opacity-75 cursor-wait' : ''
+                      }`}
                     >
-                      {settings.overlayFile ? (
+                      {isProcessingFile.overlay ? (
+                        <div className="text-center">
+                          <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+                          <p className="text-sm text-gray-600 mt-2">Processing file...</p>
+                        </div>
+                      ) : settings.overlayFile ? (
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-2">
                             <span className="text-green-600">✅</span>
@@ -749,9 +820,16 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                       />
                       <div 
                         onClick={() => overlayFileRef2.current?.click()}
-                        className="w-full p-4 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors"
+                        className={`w-full p-4 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors ${
+                          isProcessingFile.overlay2 ? 'opacity-75 cursor-wait' : ''
+                        }`}
                       >
-                        {settings.overlayFile2 ? (
+                        {isProcessingFile.overlay2 ? (
+                          <div className="text-center">
+                            <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+                            <p className="text-sm text-gray-600 mt-2">Processing file...</p>
+                          </div>
+                        ) : settings.overlayFile2 ? (
                           <div className="flex items-center justify-between">
                             <div className="flex items-center space-x-2">
                               <span className="text-green-600">✅</span>
@@ -850,6 +928,41 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
           </div>
         </div>
       </div>
+      
+      {/* Toast Notification */}
+      {notification.visible && (
+        <div className="fixed top-4 right-4 z-60 max-w-sm">
+          <div className={`
+            p-4 rounded-lg shadow-lg border-l-4 
+            ${notification.type === 'success' 
+              ? 'bg-green-50 border-green-400 text-green-800' 
+              : notification.type === 'error' 
+                ? 'bg-red-50 border-red-400 text-red-800'
+                : 'bg-yellow-50 border-yellow-400 text-yellow-800'
+            }
+          `}>
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                {notification.type === 'success' && <span className="text-green-400">✓</span>}
+                {notification.type === 'error' && <span className="text-red-400">✕</span>}
+                {notification.type === 'warning' && <span className="text-yellow-400">⚠</span>}
+              </div>
+              <div className="ml-3">
+                <p className="text-sm font-medium">{notification.message}</p>
+              </div>
+              <div className="ml-auto pl-3">
+                <button
+                  onClick={() => setNotification(prev => ({ ...prev, visible: false }))}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <span className="sr-only">Close</span>
+                  ×
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };
