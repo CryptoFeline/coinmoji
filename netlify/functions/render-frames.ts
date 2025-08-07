@@ -48,9 +48,41 @@ export const handler: Handler = async (event) => {
 
   console.log('🎬 Server-side Three.js frame rendering started');
 
+  // 🔧 CRITICAL: Add early validation to catch large payload issues
+  const payloadSize = event.body ? event.body.length : 0;
+  console.log(`📦 Request payload size: ${(payloadSize / 1024 / 1024).toFixed(2)}MB`);
+  
+  if (payloadSize > 5 * 1024 * 1024) { // 5MB limit
+    console.error('❌ Payload too large:', payloadSize, 'bytes');
+    return {
+      statusCode: 413,
+      body: JSON.stringify({
+        success: false,
+        error: `Request too large: ${(payloadSize / 1024 / 1024).toFixed(2)}MB. Maximum: 5MB`,
+        details: 'Reduce file sizes or use external hosting for large assets'
+      }),
+    };
+  }
+
   let browser;
   try {
-    const request: RenderFramesRequest = JSON.parse(event.body || '{}');
+    console.log('🔍 Parsing request JSON...');
+    let request: RenderFramesRequest;
+    
+    try {
+      request = JSON.parse(event.body || '{}');
+      console.log('✅ JSON parsed successfully');
+    } catch (parseError) {
+      console.error('❌ JSON parsing failed:', parseError);
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
+          success: false,
+          error: `Invalid JSON: ${parseError instanceof Error ? parseError.message : 'Unknown JSON error'}`,
+          details: 'Request body must be valid JSON'
+        }),
+      };
+    }
     
     // CRITICAL: Cap FPS to 20 to prevent Chrome timeouts in serverless environment
     // High FPS (30+) causes 90+ frame processing which exceeds 30s Lambda timeout
