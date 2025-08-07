@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -13,11 +13,22 @@ export interface CoinSettings {
   gradientStart: string;
   gradientEnd: string;
   bodyTextureUrl: string;
+  // Enhanced texture handling for body
+  bodyTextureMode: 'url' | 'upload';
+  bodyTextureFile: File | null;
+  bodyTextureBlobUrl: string;
   metallic: boolean;
   rotationSpeed: 'slow' | 'medium' | 'fast';
   overlayUrl: string;
+  // Enhanced texture handling for overlays
+  overlayMode: 'url' | 'upload';
+  overlayFile: File | null;
+  overlayBlobUrl: string;
   dualOverlay: boolean;
   overlayUrl2: string;
+  overlayMode2: 'url' | 'upload';
+  overlayFile2: File | null;
+  overlayBlobUrl2: string;
   lightColor: string;
   lightStrength: 'low' | 'medium' | 'strong';
   gifAnimationSpeed: 'slow' | 'medium' | 'fast';
@@ -31,6 +42,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
   const [tempOverlayUrl, setTempOverlayUrl] = useState('');
   const [tempOverlayUrl2, setTempOverlayUrl2] = useState('');
   const [tempBodyTextureUrl, setTempBodyTextureUrl] = useState('');
+  
+  // File upload refs
+  const bodyTextureFileRef = useRef<HTMLInputElement>(null);
+  const overlayFileRef = useRef<HTMLInputElement>(null);
+  const overlayFileRef2 = useRef<HTMLInputElement>(null);
 
   const updateSetting = (key: keyof CoinSettings, value: any) => {
     onSettingsChange({
@@ -39,18 +55,132 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     });
   };
 
-  const handleApplyOverlay = () => {
-    if (tempOverlayUrl.trim()) {
-      updateSetting('overlayUrl', tempOverlayUrl.trim());
+  // File upload handlers
+  const handleFileSelect = useCallback((
+    file: File,
+    blobUrl: string,
+    type: 'bodyTexture' | 'overlay' | 'overlay2'
+  ) => {
+    // Cleanup old blob URL to prevent memory leaks
+    const oldBlobUrl = type === 'bodyTexture' 
+      ? settings.bodyTextureBlobUrl
+      : type === 'overlay' 
+        ? settings.overlayBlobUrl 
+        : settings.overlayBlobUrl2;
+        
+    if (oldBlobUrl && oldBlobUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(oldBlobUrl);
     }
-    if (settings.dualOverlay && tempOverlayUrl2.trim()) {
-      updateSetting('overlayUrl2', tempOverlayUrl2.trim());
+
+    // Update settings with new file and blob URL
+    const updates: Partial<CoinSettings> = {};
+    
+    if (type === 'bodyTexture') {
+      updates.bodyTextureFile = file;
+      updates.bodyTextureBlobUrl = blobUrl;
+      updates.bodyTextureMode = 'upload';
+    } else if (type === 'overlay') {
+      updates.overlayFile = file;
+      updates.overlayBlobUrl = blobUrl;
+      updates.overlayMode = 'upload';
+    } else {
+      updates.overlayFile2 = file;
+      updates.overlayBlobUrl2 = blobUrl;
+      updates.overlayMode2 = 'upload';
+    }
+
+    onSettingsChange({
+      ...settings,
+      ...updates
+    });
+  }, [settings, onSettingsChange]);
+
+  const validateAndSelectFile = useCallback((
+    event: React.ChangeEvent<HTMLInputElement>,
+    type: 'bodyTexture' | 'overlay' | 'overlay2'
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate format
+    if (!file.type.match(/^(image|video)\/(jpeg|jpg|png|gif|webm)$/)) {
+      alert('Please select a valid file (JPG, PNG, GIF, WebM)');
+      event.target.value = '';
+      return;
+    }
+    
+    // Validate size (5MB limit)
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      alert(`File too large! Please select a file smaller than ${maxSize / 1024 / 1024}MB`);
+      event.target.value = '';
+      return;
+    }
+    
+    // Create blob URL for immediate preview
+    const blobUrl = URL.createObjectURL(file);
+    handleFileSelect(file, blobUrl, type);
+  }, [handleFileSelect]);
+
+  // Mode toggle handlers
+  const toggleTextureMode = (type: 'bodyTexture' | 'overlay' | 'overlay2') => {
+    if (type === 'bodyTexture') {
+      const newMode = settings.bodyTextureMode === 'url' ? 'upload' : 'url';
+      updateSetting('bodyTextureMode', newMode);
+      if (newMode === 'url') {
+        // Clear file data when switching to URL mode
+        if (settings.bodyTextureBlobUrl && settings.bodyTextureBlobUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(settings.bodyTextureBlobUrl);
+        }
+        updateSetting('bodyTextureFile', null);
+        updateSetting('bodyTextureBlobUrl', '');
+      }
+    } else if (type === 'overlay') {
+      const newMode = settings.overlayMode === 'url' ? 'upload' : 'url';
+      updateSetting('overlayMode', newMode);
+      if (newMode === 'url') {
+        if (settings.overlayBlobUrl && settings.overlayBlobUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(settings.overlayBlobUrl);
+        }
+        updateSetting('overlayFile', null);
+        updateSetting('overlayBlobUrl', '');
+      }
+    } else {
+      const newMode = settings.overlayMode2 === 'url' ? 'upload' : 'url';
+      updateSetting('overlayMode2', newMode);
+      if (newMode === 'url') {
+        if (settings.overlayBlobUrl2 && settings.overlayBlobUrl2.startsWith('blob:')) {
+          URL.revokeObjectURL(settings.overlayBlobUrl2);
+        }
+        updateSetting('overlayFile2', null);
+        updateSetting('overlayBlobUrl2', '');
+      }
+    }
+  };
+
+  const handleApplyOverlay = () => {
+    // Handle primary overlay
+    if (settings.overlayMode === 'url' && tempOverlayUrl.trim()) {
+      updateSetting('overlayUrl', tempOverlayUrl.trim());
+    } else if (settings.overlayMode === 'upload' && settings.overlayFile && settings.overlayBlobUrl) {
+      updateSetting('overlayUrl', settings.overlayBlobUrl);
+    }
+    
+    // Handle secondary overlay if dual is enabled
+    if (settings.dualOverlay) {
+      if (settings.overlayMode2 === 'url' && tempOverlayUrl2.trim()) {
+        updateSetting('overlayUrl2', tempOverlayUrl2.trim());
+      } else if (settings.overlayMode2 === 'upload' && settings.overlayFile2 && settings.overlayBlobUrl2) {
+        updateSetting('overlayUrl2', settings.overlayBlobUrl2);
+      }
     }
   };
 
   const handleApplyBodyTexture = () => {
-    if (tempBodyTextureUrl.trim()) {
+    if (settings.bodyTextureMode === 'url' && tempBodyTextureUrl.trim()) {
       updateSetting('bodyTextureUrl', tempBodyTextureUrl.trim());
+    } else if (settings.bodyTextureMode === 'upload' && settings.bodyTextureFile && settings.bodyTextureBlobUrl) {
+      updateSetting('bodyTextureUrl', settings.bodyTextureBlobUrl);
     }
   };
 
@@ -62,15 +192,35 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
       tempOverlayUrl2
     });
     
-    // Clear both temp fields and actual settings immediately
+    // Clear temp fields
     setTempOverlayUrl('');
     setTempOverlayUrl2('');
+    
+    // Cleanup blob URLs to prevent memory leaks
+    if (settings.overlayBlobUrl && settings.overlayBlobUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(settings.overlayBlobUrl);
+    }
+    if (settings.overlayBlobUrl2 && settings.overlayBlobUrl2.startsWith('blob:')) {
+      URL.revokeObjectURL(settings.overlayBlobUrl2);
+    }
+    
+    // Clear file inputs
+    if (overlayFileRef.current) {
+      overlayFileRef.current.value = '';
+    }
+    if (overlayFileRef2.current) {
+      overlayFileRef2.current.value = '';
+    }
     
     // Create the updated settings object and call onSettingsChange directly
     const clearedSettings = {
       ...settings,
       overlayUrl: '',
-      overlayUrl2: ''
+      overlayUrl2: '',
+      overlayFile: null,
+      overlayBlobUrl: '',
+      overlayFile2: null,
+      overlayBlobUrl2: ''
     };
     
     onSettingsChange(clearedSettings);
@@ -201,30 +351,96 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
 
           {/* Body Texture Upload */}
           <div className="space-y-3">
-            <label className="block text-sm font-medium text-gray-700">Body Texture (Optional)</label>
-            <div className="space-y-2">
-              <input
-                type="url"
-                value={tempBodyTextureUrl}
-                onChange={(e) => setTempBodyTextureUrl(e.target.value)}
-                placeholder="https://example.com/txtr.jpg/png/gif/webm"
-                className="w-full px-3 py-2 bg-gray-50 border-2 border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-              />
-              <div className="flex space-x-2">
-                <button 
-                  onClick={handleApplyBodyTexture}
-                  className="flex-1 bg-white border-2 border-blue-500 text-blue-500 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-blue-50 text-sm"
-                >
-                  Apply Texture
-                </button>
-                <button 
-                  onClick={handleClearBodyTexture}
-                  className="flex-1 bg-white border-2 border-gray-300 text-gray-700 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-gray-50 text-sm"
-                >
-                  Clear
-                </button>
-              </div>
+            <div className="flex items-center justify-between">
+              <label className="block text-sm font-medium text-gray-700">Body Texture (Optional)</label>
+              <button
+                onClick={() => toggleTextureMode('bodyTexture')}
+                className={`px-3 py-1 text-xs font-medium rounded-full border ${
+                  settings.bodyTextureMode === 'url' 
+                    ? 'bg-blue-50 text-blue-600 border-blue-200' 
+                    : 'bg-green-50 text-green-600 border-green-200'
+                }`}
+              >
+                {settings.bodyTextureMode === 'url' ? '🔗 URL' : '📁 Upload'}
+              </button>
             </div>
+            
+            {settings.bodyTextureMode === 'url' ? (
+              <div className="space-y-2">
+                <input
+                  type="url"
+                  value={tempBodyTextureUrl}
+                  onChange={(e) => setTempBodyTextureUrl(e.target.value)}
+                  placeholder="https://example.com/txtr.jpg/png/gif/webm"
+                  className="w-full px-3 py-2 bg-gray-50 border-2 border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                />
+                <div className="flex space-x-2">
+                  <button 
+                    onClick={handleApplyBodyTexture}
+                    className="flex-1 bg-white border-2 border-blue-500 text-blue-500 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-blue-50 text-sm"
+                  >
+                    Apply Texture
+                  </button>
+                  <button 
+                    onClick={handleClearBodyTexture}
+                    className="flex-1 bg-white border-2 border-gray-300 text-gray-700 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-gray-50 text-sm"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <input
+                  ref={bodyTextureFileRef}
+                  type="file"
+                  accept="image/jpeg,image/jpg,image/png,image/gif,video/webm"
+                  onChange={(e) => validateAndSelectFile(e, 'bodyTexture')}
+                  className="hidden"
+                />
+                <div 
+                  onClick={() => bodyTextureFileRef.current?.click()}
+                  className="w-full p-4 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors"
+                >
+                  {settings.bodyTextureFile ? (
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-green-600">✅</span>
+                        <span className="text-sm text-gray-700 truncate">
+                          {settings.bodyTextureFile.name}
+                        </span>
+                      </div>
+                      <span className="text-xs text-gray-500">
+                        {(settings.bodyTextureFile.size / 1024).toFixed(1)}KB
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <span className="text-gray-400 text-2xl">📁</span>
+                      <p className="text-sm text-gray-600">Click to select file</p>
+                      <p className="text-xs text-gray-400">JPG, PNG, GIF, WebM (max 5MB)</p>
+                    </div>
+                  )}
+                </div>
+                {settings.bodyTextureFile && (
+                  <button 
+                    onClick={() => {
+                      if (settings.bodyTextureBlobUrl && settings.bodyTextureBlobUrl.startsWith('blob:')) {
+                        URL.revokeObjectURL(settings.bodyTextureBlobUrl);
+                      }
+                      updateSetting('bodyTextureFile', null);
+                      updateSetting('bodyTextureBlobUrl', '');
+                      if (bodyTextureFileRef.current) {
+                        bodyTextureFileRef.current.value = '';
+                      }
+                    }}
+                    className="w-full bg-white border-2 border-gray-300 text-gray-700 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-gray-50 text-sm"
+                  >
+                    Clear File
+                  </button>
+                )}
+              </div>
+            )}
           </div>
           
           {/* Coin Shape */}
@@ -347,30 +563,164 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
               />
             </div>
             
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  {settings.dualOverlay ? 'Front Image URL' : 'Image URL'}
-                </label>
-                <input
-                  type="url"
-                  value={tempOverlayUrl}
-                  onChange={(e) => setTempOverlayUrl(e.target.value)}
-                  placeholder="https://example.com/img.jpg/png/gif/webm"
-                  className="w-full px-3 py-2 bg-gray-50 border-2 border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                />
-              </div>
-              
-              {settings.dualOverlay && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Back Image URL</label>
+            <div className="space-y-4">
+              {/* Primary Overlay */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="block text-sm font-medium text-gray-700">
+                    {settings.dualOverlay ? 'Front Image' : 'Face Image'}
+                  </label>
+                  <button
+                    onClick={() => toggleTextureMode('overlay')}
+                    className={`px-3 py-1 text-xs font-medium rounded-full border ${
+                      settings.overlayMode === 'url' 
+                        ? 'bg-blue-50 text-blue-600 border-blue-200' 
+                        : 'bg-green-50 text-green-600 border-green-200'
+                    }`}
+                  >
+                    {settings.overlayMode === 'url' ? '🔗 URL' : '📁 Upload'}
+                  </button>
+                </div>
+                
+                {settings.overlayMode === 'url' ? (
                   <input
                     type="url"
-                    value={tempOverlayUrl2}
-                    onChange={(e) => setTempOverlayUrl2(e.target.value)}
-                    placeholder="https://example.com/img2.jpg/png/gif/webm"
+                    value={tempOverlayUrl}
+                    onChange={(e) => setTempOverlayUrl(e.target.value)}
+                    placeholder="https://example.com/img.jpg/png/gif/webm"
                     className="w-full px-3 py-2 bg-gray-50 border-2 border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                   />
+                ) : (
+                  <div className="space-y-2">
+                    <input
+                      ref={overlayFileRef}
+                      type="file"
+                      accept="image/jpeg,image/jpg,image/png,image/gif,video/webm"
+                      onChange={(e) => validateAndSelectFile(e, 'overlay')}
+                      className="hidden"
+                    />
+                    <div 
+                      onClick={() => overlayFileRef.current?.click()}
+                      className="w-full p-4 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors"
+                    >
+                      {settings.overlayFile ? (
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-green-600">✅</span>
+                            <span className="text-sm text-gray-700 truncate">
+                              {settings.overlayFile.name}
+                            </span>
+                          </div>
+                          <span className="text-xs text-gray-500">
+                            {(settings.overlayFile.size / 1024).toFixed(1)}KB
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="text-center">
+                          <span className="text-gray-400 text-2xl">📁</span>
+                          <p className="text-sm text-gray-600">Click to select file</p>
+                          <p className="text-xs text-gray-400">JPG, PNG, GIF, WebM (max 5MB)</p>
+                        </div>
+                      )}
+                    </div>
+                    {settings.overlayFile && (
+                      <button 
+                        onClick={() => {
+                          if (settings.overlayBlobUrl && settings.overlayBlobUrl.startsWith('blob:')) {
+                            URL.revokeObjectURL(settings.overlayBlobUrl);
+                          }
+                          updateSetting('overlayFile', null);
+                          updateSetting('overlayBlobUrl', '');
+                          if (overlayFileRef.current) {
+                            overlayFileRef.current.value = '';
+                          }
+                        }}
+                        className="w-full bg-white border-2 border-gray-300 text-gray-700 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-gray-50 text-sm"
+                      >
+                        Clear File
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+              
+              {/* Secondary Overlay (if dual overlay enabled) */}
+              {settings.dualOverlay && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-sm font-medium text-gray-700">Back Image</label>
+                    <button
+                      onClick={() => toggleTextureMode('overlay2')}
+                      className={`px-3 py-1 text-xs font-medium rounded-full border ${
+                        settings.overlayMode2 === 'url' 
+                          ? 'bg-blue-50 text-blue-600 border-blue-200' 
+                          : 'bg-green-50 text-green-600 border-green-200'
+                      }`}
+                    >
+                      {settings.overlayMode2 === 'url' ? '🔗 URL' : '📁 Upload'}
+                    </button>
+                  </div>
+                  
+                  {settings.overlayMode2 === 'url' ? (
+                    <input
+                      type="url"
+                      value={tempOverlayUrl2}
+                      onChange={(e) => setTempOverlayUrl2(e.target.value)}
+                      placeholder="https://example.com/img2.jpg/png/gif/webm"
+                      className="w-full px-3 py-2 bg-gray-50 border-2 border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    />
+                  ) : (
+                    <div className="space-y-2">
+                      <input
+                        ref={overlayFileRef2}
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png,image/gif,video/webm"
+                        onChange={(e) => validateAndSelectFile(e, 'overlay2')}
+                        className="hidden"
+                      />
+                      <div 
+                        onClick={() => overlayFileRef2.current?.click()}
+                        className="w-full p-4 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors"
+                      >
+                        {settings.overlayFile2 ? (
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <span className="text-green-600">✅</span>
+                              <span className="text-sm text-gray-700 truncate">
+                                {settings.overlayFile2.name}
+                              </span>
+                            </div>
+                            <span className="text-xs text-gray-500">
+                              {(settings.overlayFile2.size / 1024).toFixed(1)}KB
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="text-center">
+                            <span className="text-gray-400 text-2xl">📁</span>
+                            <p className="text-sm text-gray-600">Click to select file</p>
+                            <p className="text-xs text-gray-400">JPG, PNG, GIF, WebM (max 5MB)</p>
+                          </div>
+                        )}
+                      </div>
+                      {settings.overlayFile2 && (
+                        <button 
+                          onClick={() => {
+                            if (settings.overlayBlobUrl2 && settings.overlayBlobUrl2.startsWith('blob:')) {
+                              URL.revokeObjectURL(settings.overlayBlobUrl2);
+                            }
+                            updateSetting('overlayFile2', null);
+                            updateSetting('overlayBlobUrl2', '');
+                            if (overlayFileRef2.current) {
+                              overlayFileRef2.current.value = '';
+                            }
+                          }}
+                          className="w-full bg-white border-2 border-gray-300 text-gray-700 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-gray-50 text-sm"
+                        >
+                          Clear File
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

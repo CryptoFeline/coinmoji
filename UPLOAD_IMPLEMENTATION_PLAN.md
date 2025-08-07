@@ -37,9 +37,9 @@ interface CoinSettings {
 
 **UI Components:**
 - **Toggle Switches**: URL ↔ Upload mode for each texture type
-- **File Drop Zones**: Drag & drop with format validation
-- **Preview Thumbnails**: Show selected files with clear/replace options
-- **Progress Indicators**: Upload status and file size validation
+- **File Upload Button**: Upload file with format validation
+- **Preview Filenames**: Show selected files with clear/replace options [using icons]
+- **Progress Indicators**: Upload status and file size validation (spinner icon)
 
 ### **2. File Handling & Preview System**
 
@@ -54,7 +54,7 @@ const FileUploadZone = ({
   const handleFileSelect = useCallback((file: File) => {
     // Validate format
     if (!file.type.match(/^(image|video)\/(jpeg|jpg|png|gif|webm)$/)) {
-      alert('Please select a valid image or video file (JPG, PNG, GIF, WebM)');
+      alert('Please select a valid file (JPG, PNG, GIF, WebM)');
       return;
     }
     
@@ -69,12 +69,12 @@ const FileUploadZone = ({
     onFileSelect(file, blobUrl);
   }, [onFileSelect, maxSize]);
   
-  // ... drag/drop implementation
+  // ... upload button implementation
 };
 ```
 
 **Blob URL Management:**
-- **Create blob URLs** immediately for client-side preview
+- **Create blob URLs** immediately for client-side render preview
 - **Cleanup old blob URLs** when files change to prevent memory leaks
 - **Automatic disposal** when component unmounts
 
@@ -151,8 +151,8 @@ export const handler: Handler = async (event) => {
         originalName: filename,
         mimetype,
         size: file.length,
-        // Auto-expire after 10 minutes
-        expiresAt: Date.now() + 10 * 60 * 1000
+        // Auto-expire after 5 minutes
+        expiresAt: Date.now() + 5 * 60 * 1000 // Add expiry log when happens and if user process is still ongoing
       })
     };
 
@@ -321,16 +321,15 @@ try {
 - **Pre-load all textures** before browser scene creation
 - **Convert GIFs to frame arrays** server-side
 - **Use data URLs** instead of file system access in browser
-- **Cache processing results** for identical files
 
 ### **2. Memory Management:**
 - **Immediate blob URL cleanup** on client
-- **Automatic temp file expiration** (10 minutes)
+- **Automatic temp file expiration** (5 minutes)
 - **Garbage collection triggers** after large file processing
 - **Stream processing** for large files (avoid loading entire file into memory)
 
 ### **3. Size Validation:**
-- **Client-side validation** before upload (5MB limit)
+- **Client-side validation** before upload (5MB limit - suggest WebM instead of GIF if too large)
 - **Server-side validation** as backup
 - **Progressive upload** with progress indicators
 - **Automatic compression** for oversized images
