@@ -339,6 +339,7 @@ export class CoinExporter {
       console.log(`✅ Got ${serverFrames.length} perfect quality frames from server`);
       
       // Convert base64 frames back to blobs
+      console.log('🔄 Converting server frames to blobs for WebM creation...');
       const frameBlobs: Blob[] = [];
       for (let i = 0; i < serverFrames.length; i++) {
         const binaryString = atob(serverFrames[i]);
@@ -352,6 +353,7 @@ export class CoinExporter {
       console.log('🔄 Converted server frames to blobs for WebM creation');
       
       // Create WebM using existing serverless pipeline
+      console.log('📦 Creating WebM via serverless pipeline...');
       const webmBlob = await this.createWebMViaServerless(frameBlobs, settings);
       
       console.log('✅ Perfect quality WebM created via server-side rendering:', { size: webmBlob.size });
