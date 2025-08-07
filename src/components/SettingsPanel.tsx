@@ -122,29 +122,37 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     handleFileSelect(file, blobUrl, type);
   }, [handleFileSelect]);
 
-  // Mode toggle handlers
-  const toggleTextureMode = (type: 'bodyTexture' | 'overlay' | 'overlay2') => {
-    if (type === 'bodyTexture') {
-      const newMode = settings.bodyTextureMode === 'url' ? 'upload' : 'url';
-      updateSetting('bodyTextureMode', newMode);
-      if (newMode === 'url') {
-        // Clear file data when switching to URL mode
-        if (settings.bodyTextureBlobUrl && settings.bodyTextureBlobUrl.startsWith('blob:')) {
-          URL.revokeObjectURL(settings.bodyTextureBlobUrl);
-        }
-        updateSetting('bodyTextureFile', null);
-        updateSetting('bodyTextureBlobUrl', '');
-        if (bodyTextureFileRef.current) {
-          bodyTextureFileRef.current.value = '';
-        }
-      } else {
-        // Clear URL when switching to upload mode
-        setTempBodyTextureUrl('');
+  // Mode change handlers
+  const handleBodyTextureModeChange = (mode: 'url' | 'upload') => {
+    if (mode === settings.bodyTextureMode) return;
+    
+    updateSetting('bodyTextureMode', mode);
+    
+    if (mode === 'url') {
+      // Clear file data when switching to URL mode
+      if (settings.bodyTextureBlobUrl && settings.bodyTextureBlobUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(settings.bodyTextureBlobUrl);
       }
-    } else if (type === 'overlay') {
-      const newMode = settings.overlayMode === 'url' ? 'upload' : 'url';
-      updateSetting('overlayMode', newMode);
-      if (newMode === 'url') {
+      updateSetting('bodyTextureFile', null);
+      updateSetting('bodyTextureBlobUrl', '');
+      if (bodyTextureFileRef.current) {
+        bodyTextureFileRef.current.value = '';
+      }
+    } else {
+      // Clear URL when switching to upload mode
+      setTempBodyTextureUrl('');
+    }
+  };
+
+  const handleOverlayModeChange = (mode: 'url' | 'upload', overlayNum: 1 | 2 = 1) => {
+    const currentMode = overlayNum === 1 ? settings.overlayMode : settings.overlayMode2;
+    if (mode === currentMode) return;
+    
+    if (overlayNum === 1) {
+      updateSetting('overlayMode', mode);
+      
+      if (mode === 'url') {
+        // Clear file data when switching to URL mode
         if (settings.overlayBlobUrl && settings.overlayBlobUrl.startsWith('blob:')) {
           URL.revokeObjectURL(settings.overlayBlobUrl);
         }
@@ -158,9 +166,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
         setTempOverlayUrl('');
       }
     } else {
-      const newMode = settings.overlayMode2 === 'url' ? 'upload' : 'url';
-      updateSetting('overlayMode2', newMode);
-      if (newMode === 'url') {
+      updateSetting('overlayMode2', mode);
+      
+      if (mode === 'url') {
+        // Clear file data when switching to URL mode
         if (settings.overlayBlobUrl2 && settings.overlayBlobUrl2.startsWith('blob:')) {
           URL.revokeObjectURL(settings.overlayBlobUrl2);
         }
@@ -385,16 +394,28 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <label className="block text-sm font-medium text-gray-700">Body Texture (Optional)</label>
-              <button
-                onClick={() => toggleTextureMode('bodyTexture')}
-                className={`px-3 py-1 text-xs font-medium rounded-full border ${
-                  settings.bodyTextureMode === 'url' 
-                    ? 'bg-blue-50 text-blue-600 border-blue-200' 
-                    : 'bg-green-50 text-green-600 border-green-200'
-                }`}
-              >
-                {settings.bodyTextureMode === 'url' ? '🔗 URL' : '📁 Upload'}
-              </button>
+              <div className="grid grid-cols-2 gap-1">
+                <button
+                  onClick={() => handleBodyTextureModeChange('url')}
+                  className={`px-3 py-1 text-xs font-medium rounded-l-lg border-2 transition-all ${
+                    settings.bodyTextureMode === 'url'
+                      ? 'bg-blue-500 text-white border-blue-500'
+                      : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                  }`}
+                >
+                  URL
+                </button>
+                <button
+                  onClick={() => handleBodyTextureModeChange('upload')}
+                  className={`px-3 py-1 text-xs font-medium rounded-r-lg border-2 border-l-0 transition-all ${
+                    settings.bodyTextureMode === 'upload'
+                      ? 'bg-blue-500 text-white border-blue-500'
+                      : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                  }`}
+                >
+                  Upload
+                </button>
+              </div>
             </div>
             
             {settings.bodyTextureMode === 'url' ? (
@@ -584,16 +605,28 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                   <label className="block text-sm font-medium text-gray-700">
                     {settings.dualOverlay ? 'Front Image' : 'Face Image'}
                   </label>
-                  <button
-                    onClick={() => toggleTextureMode('overlay')}
-                    className={`px-3 py-1 text-xs font-medium rounded-full border ${
-                      settings.overlayMode === 'url' 
-                        ? 'bg-blue-50 text-blue-600 border-blue-200' 
-                        : 'bg-green-50 text-green-600 border-green-200'
-                    }`}
-                  >
-                    {settings.overlayMode === 'url' ? '🔗 URL' : '📁 Upload'}
-                  </button>
+                  <div className="grid grid-cols-2 gap-1">
+                    <button
+                      onClick={() => handleOverlayModeChange('url', 1)}
+                      className={`px-3 py-1 text-xs font-medium rounded-l-lg border-2 transition-all ${
+                        settings.overlayMode === 'url'
+                          ? 'bg-blue-500 text-white border-blue-500'
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                      }`}
+                    >
+                      URL
+                    </button>
+                    <button
+                      onClick={() => handleOverlayModeChange('upload', 1)}
+                      className={`px-3 py-1 text-xs font-medium rounded-r-lg border-2 border-l-0 transition-all ${
+                        settings.overlayMode === 'upload'
+                          ? 'bg-blue-500 text-white border-blue-500'
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                      }`}
+                    >
+                      Upload
+                    </button>
+                  </div>
                 </div>
                 
                 {settings.overlayMode === 'url' ? (
@@ -646,16 +679,28 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <label className="block text-sm font-medium text-gray-700">Back Image</label>
-                    <button
-                      onClick={() => toggleTextureMode('overlay2')}
-                      className={`px-3 py-1 text-xs font-medium rounded-full border ${
-                        settings.overlayMode2 === 'url' 
-                          ? 'bg-blue-50 text-blue-600 border-blue-200' 
-                          : 'bg-green-50 text-green-600 border-green-200'
-                      }`}
-                    >
-                      {settings.overlayMode2 === 'url' ? '🔗 URL' : '📁 Upload'}
-                    </button>
+                    <div className="grid grid-cols-2 gap-1">
+                      <button
+                        onClick={() => handleOverlayModeChange('url', 2)}
+                        className={`px-3 py-1 text-xs font-medium rounded-l-lg border-2 transition-all ${
+                          settings.overlayMode2 === 'url'
+                            ? 'bg-blue-500 text-white border-blue-500'
+                            : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                        }`}
+                      >
+                        URL
+                      </button>
+                      <button
+                        onClick={() => handleOverlayModeChange('upload', 2)}
+                        className={`px-3 py-1 text-xs font-medium rounded-r-lg border-2 border-l-0 transition-all ${
+                          settings.overlayMode2 === 'upload'
+                            ? 'bg-blue-500 text-white border-blue-500'
+                            : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                        }`}
+                      >
+                        Upload
+                      </button>
+                    </div>
                   </div>
                   
                   {settings.overlayMode2 === 'url' ? (
