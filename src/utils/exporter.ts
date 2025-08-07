@@ -69,6 +69,12 @@ export class CoinExporter {
       estimatedFrameSize: `${(targetFileSize / actualFrames / 1024).toFixed(1)}KB per frame`
     });
 
+    // 🔧 CRITICAL: Wait for animated textures to be ready before starting frame export
+    console.log('⏳ Checking texture readiness before frame export...');
+    await new Promise(resolve => setTimeout(resolve, 500)); // Give textures time to initialize
+    
+    console.log('🎬 All textures should be ready, starting frame capture...');
+
     // Store original rotation
     const originalRotation = this.turntable.rotation.y;
     console.log('💾 Stored original rotation:', originalRotation);
@@ -164,8 +170,14 @@ export class CoinExporter {
       
       return frames;
     } catch (error) {
-      const errorMsg = `Frame export failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      console.error('❌', errorMsg);
+      console.error('❌ DETAILED EXPORT ERROR:', {
+        error,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        errorStack: error instanceof Error ? error.stack : undefined,
+        currentSettings: this.currentSettings,
+        sceneObjectsCount: this.scene.children.length,
+        turntableRotation: this.turntable.rotation.y
+      });
       throw error;
     } finally {
       this.scene.background = prevBackground;
