@@ -412,9 +412,30 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     console.log('🎞️ Loading animated GIF texture:', url);
     
     try {
-      // Fetch the GIF as a buffer
-      const response = await fetch(url);
-      const buffer = await response.arrayBuffer();
+      let buffer: ArrayBuffer;
+      
+      // 🔧 FIX: Handle data URLs directly to avoid fetch size limitations
+      if (url.startsWith('data:')) {
+        console.log('📦 Processing data URL (uploaded GIF)...');
+        // Extract base64 data from data URL and convert to ArrayBuffer
+        const base64Data = url.split(',')[1];
+        const binaryString = atob(base64Data);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        buffer = bytes.buffer;
+        console.log(`✅ Data URL converted to buffer: ${buffer.byteLength} bytes`);
+      } else {
+        console.log('🌐 Fetching GIF from URL...');
+        // Fetch the GIF as a buffer (for regular URLs)
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch GIF: ${response.status}`);
+        }
+        buffer = await response.arrayBuffer();
+        console.log(`✅ GIF fetched: ${buffer.byteLength} bytes`);
+      }
       
       // Parse GIF using gifuct-js
       const gif = parseGIF(buffer);
@@ -530,15 +551,27 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
   };
 
   // Helper to create texture from URL with proper GIF animation support
-  const createTextureFromUrl = (url: string): Promise<THREE.Texture | THREE.VideoTexture | THREE.CanvasTexture> => {
+  const createTextureFromUrl = (url: string, fileType?: string): Promise<THREE.Texture | THREE.VideoTexture | THREE.CanvasTexture> => {
     return new Promise((resolve, reject) => {
-      const isGif = /\.gif$/i.test(url);
-      const isWebM = /\.webm$/i.test(url);
+      // 🔧 ENHANCED: Smart GIF detection using URL patterns, data URL MIME types, and file type info
+      const isGif = /\.gif$/i.test(url) || // Traditional URL ending in .gif
+                    /data:image\/gif/i.test(url) || // Data URL with GIF MIME type
+                    fileType === 'image/gif'; // File type from uploaded File object
+                    
+      const isWebM = /\.webm$/i.test(url) || 
+                     /data:video\/webm/i.test(url) ||
+                     fileType === 'video/webm';
       
       if (isGif) {
         // Use proper GIF frame parsing
         (async () => {
           try {
+            console.log('🎞️ Detected animated GIF, using gifUrlToVideoTexture:', {
+              url: url.substring(0, 50) + '...',
+              fileType,
+              detectedVia: fileType === 'image/gif' ? 'fileType' : 
+                          /data:image\/gif/i.test(url) ? 'dataURL' : 'urlPattern'
+            });
             const tex = await gifUrlToVideoTexture(url);
             resolve(tex);
           } catch (e) {
@@ -783,7 +816,10 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
 
     if (currentSettings.bodyTextureUrl && currentSettings.bodyTextureUrl.trim() !== '') {
       // Apply body texture with proper face UV mapping
-      createTextureFromUrl(currentSettings.bodyTextureUrl)
+      // Pass file type for uploaded files to enable proper GIF detection
+      const fileType = currentSettings.bodyTextureMode === 'upload' && currentSettings.bodyTextureFile ? 
+                      currentSettings.bodyTextureFile.type : undefined;
+      createTextureFromUrl(currentSettings.bodyTextureUrl, fileType)
         .then((texture) => {
           // Dispose of previous textures first
           (rimMat.map as any)?.userData?.dispose?.();
@@ -936,10 +972,10 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
   }, [currentSettings.lightColor, currentSettings.lightStrength]);
 
   // Apply overlay textures with animation support
-  const applyOverlay = (url: string, isSecond = false, requestId = overlayReqIdRef.current) => {
+  const applyOverlay = (url: string, isSecond = false, requestId = overlayReqIdRef.current, fileType?: string) => {
     if (!sceneRef.current || !url) return;
 
-    createTextureFromUrl(url)
+    createTextureFromUrl(url, fileType)
       .then((texture) => {
         // Bail if a newer request superseded this one
         if (requestId !== overlayReqIdRef.current) {
@@ -1118,10 +1154,16 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     clearOverlays(false);
     // Apply overlays for this request
     if (currentSettings.overlayUrl && currentSettings.overlayUrl.trim() !== '') {
-      applyOverlay(currentSettings.overlayUrl, false, reqId);
+      // Pass file type for uploaded files to enable proper GIF detection
+      const fileType = currentSettings.overlayMode === 'upload' && currentSettings.overlayFile ? 
+                      currentSettings.overlayFile.type : undefined;
+      applyOverlay(currentSettings.overlayUrl, false, reqId, fileType);
     }
     if (currentSettings.dualOverlay && currentSettings.overlayUrl2 && currentSettings.overlayUrl2.trim() !== '') {
-      applyOverlay(currentSettings.overlayUrl2, true, reqId);
+      // Pass file type for uploaded files to enable proper GIF detection  
+      const fileType2 = currentSettings.overlayMode2 === 'upload' && currentSettings.overlayFile2 ? 
+                       currentSettings.overlayFile2.type : undefined;
+      applyOverlay(currentSettings.overlayUrl2, true, reqId, fileType2);
     }
   }, [currentSettings.overlayUrl, currentSettings.overlayUrl2, currentSettings.dualOverlay]);
 
