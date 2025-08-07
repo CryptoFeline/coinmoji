@@ -359,6 +359,10 @@ export const handler: Handler = async (event) => {
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.setPixelRatio(1);
       
+      // FIXED: Add tone mapping to reduce harsh highlights and improve color balance
+      renderer.toneMapping = THREE.LinearToneMapping;
+      renderer.toneMappingExposure = 0.8; // Slightly reduce exposure to avoid washed-out appearance
+      
       // Append to DOM (required for WebGL context)
       document.body.appendChild(renderer.domElement);
       renderer.domElement.style.position = 'absolute';
@@ -412,7 +416,7 @@ export const handler: Handler = async (event) => {
       const rimMat = new THREE.MeshStandardMaterial({
         color: 0xcecece,
         metalness: 0.8, // Metalness 1 is too much
-        roughness: 0.5,
+        roughness: 0.34, // FIXED: Match client-side default roughness for smooth highlights
         envMapIntensity: 1
       });
       const faceMat = rimMat.clone();
@@ -496,7 +500,7 @@ export const handler: Handler = async (event) => {
       scene.add(dirLight);
       
       // Add additional lights to compensate for missing environment map (matching client-side)
-      const fillLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      const fillLight = new THREE.DirectionalLight(0xffffff, 0.6); // FIXED: Reduced from 0.8 to temper highlights
       fillLight.position.set(-2, -3, -1);
       scene.add(fillLight);
       
@@ -504,8 +508,8 @@ export const handler: Handler = async (event) => {
       rimLight.position.set(-3, 1, 4);
       scene.add(rimLight);
       
-      // 🎯 FIXED: Increased ambient light from 0.8 to 0.9 to match client-side exactly
-      const broadLight = new THREE.AmbientLight(0xffffff, 0.9);
+      // 🎯 FIXED: Reduced ambient light from 0.9 to 0.7 to avoid washed-out appearance
+      const broadLight = new THREE.AmbientLight(0xffffff, 0.7);
       scene.add(broadLight);
       
       console.log('✅ Enhanced lighting setup complete (client-server parity achieved)');
