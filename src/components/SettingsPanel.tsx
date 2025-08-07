@@ -111,7 +111,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await fetch('/.netlify/functions/upload-temp-file', {
+    const response = await fetch(`${window.location.origin}/.netlify/functions/upload-temp-file`, {
       method: 'POST',
       body: formData
     });

@@ -91,9 +91,25 @@ interface RenderFramesRequest {
 }
 
 export const handler: Handler = async (event) => {
+  // CORS headers for cross-origin requests
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Telegram-InitData',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  };
+
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: '',
+    };
+  }
+
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
+      headers: corsHeaders,
       body: JSON.stringify({ error: 'Method not allowed' }),
     };
   }
@@ -108,6 +124,7 @@ export const handler: Handler = async (event) => {
     console.error('❌ Payload too large:', payloadSize, 'bytes');
     return {
       statusCode: 413,
+      headers: corsHeaders,
       body: JSON.stringify({
         success: false,
         error: `Request too large: ${(payloadSize / 1024 / 1024).toFixed(2)}MB. Maximum: 5MB`,
@@ -174,6 +191,7 @@ export const handler: Handler = async (event) => {
         console.error('❌ JSON parsing failed:', parseError);
         return {
           statusCode: 400,
+          headers: corsHeaders,
           body: JSON.stringify({
             success: false,
             error: `Invalid JSON: ${parseError instanceof Error ? parseError.message : 'Unknown JSON error'}`,
@@ -387,8 +405,8 @@ export const handler: Handler = async (event) => {
       const shapeMap = { thin: 0.01, normal: 0.15, thick: 0.25 }; // Fixed: 0.0 -> 0.01 to prevent geometry issues
       const bulge = settings.coinShape ? shapeMap[settings.coinShape] : 0.15; // Default fallback
       
-      const radialSegments = 64; // Reduced from 128 for faster processing
-      const capSegments = 16;    // Reduced from 32 for faster processing
+      const radialSegments = 128; // FIXED: Match client-side geometry for smooth highlights
+      const capSegments = 32;    // FIXED: Match client-side geometry for smooth highlights
 
       // Materials (identical to CoinEditor.tsx)
       const rimMat = new THREE.MeshStandardMaterial({
@@ -1069,6 +1087,7 @@ export const handler: Handler = async (event) => {
     return {
       statusCode: 200,
       headers: {
+        ...corsHeaders,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -1084,6 +1103,7 @@ export const handler: Handler = async (event) => {
     
     return {
       statusCode: 500,
+      headers: corsHeaders,
       body: JSON.stringify({
         success: false,
         error: error instanceof Error ? error.message : 'Unknown rendering error',

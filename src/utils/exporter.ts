@@ -452,7 +452,7 @@ export class CoinExporter {
     
     console.log(`🚀 Streaming request with ${fileIndex} binary files (no base64 overhead)`);
     
-    const response = await fetch('/.netlify/functions/render-frames', {
+    const response = await fetch(`${window.location.origin}/.netlify/functions/render-frames`, {
       method: 'POST',
       body: formData, // No Content-Type header - let browser set multipart boundary
     });
@@ -526,7 +526,7 @@ export class CoinExporter {
       }
     };
     
-    const response = await fetch('/.netlify/functions/render-frames', {
+    const response = await fetch(`${window.location.origin}/.netlify/functions/render-frames`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -743,7 +743,7 @@ export class CoinExporter {
       console.log('� Sending WebM creation request to serverless function...');
       console.log(`📊 Payload: ${framesBase64.length} frames, ${payload.framerate} fps, ${payload.duration}s duration`);
       
-      const response = await fetch('/.netlify/functions/make-webm', {
+      const response = await fetch(`${window.location.origin}/.netlify/functions/make-webm`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -826,7 +826,7 @@ export const sendToTelegram = async (blob: Blob, initData: string) => {
   console.log('🔄 Converted to base64:', { originalSize: blob.size, base64Length: base64.length });
 
   try {
-    const response = await fetch(`/.netlify/functions/send-file?user_id=${userId}`, {
+    const response = await fetch(`${window.location.origin}/.netlify/functions/send-file?user_id=${userId}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/octet-stream',
@@ -862,7 +862,7 @@ export const sendInstallationMessage = async (installUrl: string, initData: stri
   const message = `🎉 Your Coinmoji emoji is ready!\n\nClick this link to install it:\n${installUrl}`;
 
   try {
-    const response = await fetch('/.netlify/functions/send-message', {
+    const response = await fetch(`${window.location.origin}/.netlify/functions/send-message`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -950,7 +950,7 @@ export const createCustomEmoji = async (
 
   try {
     console.log('📡 Sending emoji creation request...');
-    const response = await fetch('/.netlify/functions/create-emoji', {
+    const response = await fetch(`${window.location.origin}/.netlify/functions/create-emoji`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1042,7 +1042,7 @@ export const sendWebMFile = async (
 
   try {
     console.log('📡 Sending file via Telegram API...');
-    const response = await fetch('/.netlify/functions/send-file', {
+    const response = await fetch(`${window.location.origin}/.netlify/functions/send-file`, {
       method: 'POST',
       headers: {
         'Content-Type': 'text/plain',

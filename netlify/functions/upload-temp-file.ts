@@ -75,6 +75,21 @@ const getMimetype = (filename: string): string => {
 };
 
 export const handler: Handler = async (event) => {
+  // CORS headers for cross-origin requests
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  };
+
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: '',
+    };
+  }
+
   console.log('📤 Upload temp file function called:', {
     httpMethod: event.httpMethod,
     headers: Object.keys(event.headers),
@@ -85,7 +100,7 @@ export const handler: Handler = async (event) => {
     console.log('❌ Method not allowed:', event.httpMethod);
     return {
       statusCode: 405,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify({ error: 'Method not allowed' })
     };
   }
