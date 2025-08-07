@@ -275,25 +275,29 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
   const handleClearBodyTexture = () => {
     console.log('Clearing body texture, current mode:', settings.bodyTextureMode);
     
-    // Always clear the body texture URL - this will trigger the CoinEditor to remove the body texture
-    updateSetting('bodyTextureUrl', '');
-    
     // Clear temp URL
     setTempBodyTextureUrl('');
     
-    // Always cleanup blob URL and file data regardless of mode
+    // Cleanup blob URL to prevent memory leaks
     if (settings.bodyTextureBlobUrl && settings.bodyTextureBlobUrl.startsWith('blob:')) {
       URL.revokeObjectURL(settings.bodyTextureBlobUrl);
     }
-    updateSetting('bodyTextureFile', null);
-    updateSetting('bodyTextureBlobUrl', '');
     
     // Clear file input
     if (bodyTextureFileRef.current) {
       bodyTextureFileRef.current.value = '';
     }
     
-    // Don't reset the mode - keep the current mode but clear the content
+    // Single state update to clear both applied texture and file data
+    const clearedSettings = {
+      ...settings,
+      bodyTextureUrl: '',          // Clear the applied texture (this removes it from the coin)
+      bodyTextureFile: null,       // Clear the uploaded file
+      bodyTextureBlobUrl: ''       // Clear the blob URL
+      // Keep the current mode - don't reset it
+    };
+    
+    onSettingsChange(clearedSettings);
   };
 
   const Toggle: React.FC<{ checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }> = ({ 
