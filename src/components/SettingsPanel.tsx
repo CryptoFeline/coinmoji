@@ -122,26 +122,32 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     handleFileSelect(file, blobUrl, type);
   }, [handleFileSelect]);
 
-  // Mode change handlers - simplified direct approach
+  // Mode change handlers - use single state update to ensure re-render
   const handleBodyTextureModeChange = (mode: 'url' | 'upload') => {
     console.log('Body texture mode change:', mode, 'current:', settings.bodyTextureMode);
     
-    // Always update mode first
-    updateSetting('bodyTextureMode', mode);
-    
     if (mode === 'url') {
-      // Clear file data when switching to URL mode
+      // Switching to URL mode - clear file data
       if (settings.bodyTextureBlobUrl && settings.bodyTextureBlobUrl.startsWith('blob:')) {
         URL.revokeObjectURL(settings.bodyTextureBlobUrl);
       }
-      updateSetting('bodyTextureFile', null);
-      updateSetting('bodyTextureBlobUrl', '');
       if (bodyTextureFileRef.current) {
         bodyTextureFileRef.current.value = '';
       }
+      
+      // Single state update with all changes
+      onSettingsChange({
+        ...settings,
+        bodyTextureMode: mode,
+        bodyTextureFile: null,
+        bodyTextureBlobUrl: ''
+      });
     } else {
-      // Clear URL when switching to upload mode
+      // Switching to upload mode - clear URL
       setTempBodyTextureUrl('');
+      
+      // Single state update
+      updateSetting('bodyTextureMode', mode);
     }
   };
 
@@ -149,40 +155,48 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     console.log('Overlay mode change:', mode, 'overlay:', overlayNum);
     
     if (overlayNum === 1) {
-      // Always update mode first
-      updateSetting('overlayMode', mode);
-      
       if (mode === 'url') {
-        // Clear file data when switching to URL mode
+        // Switching to URL mode - clear file data
         if (settings.overlayBlobUrl && settings.overlayBlobUrl.startsWith('blob:')) {
           URL.revokeObjectURL(settings.overlayBlobUrl);
         }
-        updateSetting('overlayFile', null);
-        updateSetting('overlayBlobUrl', '');
         if (overlayFileRef.current) {
           overlayFileRef.current.value = '';
         }
+        
+        // Single state update with all changes
+        onSettingsChange({
+          ...settings,
+          overlayMode: mode,
+          overlayFile: null,
+          overlayBlobUrl: ''
+        });
       } else {
-        // Clear URL when switching to upload mode
+        // Switching to upload mode - clear URL
         setTempOverlayUrl('');
+        updateSetting('overlayMode', mode);
       }
     } else {
-      // Always update mode first
-      updateSetting('overlayMode2', mode);
-      
       if (mode === 'url') {
-        // Clear file data when switching to URL mode
+        // Switching to URL mode - clear file data
         if (settings.overlayBlobUrl2 && settings.overlayBlobUrl2.startsWith('blob:')) {
           URL.revokeObjectURL(settings.overlayBlobUrl2);
         }
-        updateSetting('overlayFile2', null);
-        updateSetting('overlayBlobUrl2', '');
         if (overlayFileRef2.current) {
           overlayFileRef2.current.value = '';
         }
+        
+        // Single state update with all changes
+        onSettingsChange({
+          ...settings,
+          overlayMode2: mode,
+          overlayFile2: null,
+          overlayBlobUrl2: ''
+        });
       } else {
-        // Clear URL when switching to upload mode
+        // Switching to upload mode - clear URL
         setTempOverlayUrl2('');
+        updateSetting('overlayMode2', mode);
       }
     }
   };
@@ -251,10 +265,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
       overlayFile: null,
       overlayBlobUrl: '',
       overlayFile2: null,
-      overlayBlobUrl2: '',
-      // Reset modes to URL after clearing
-      overlayMode: 'url' as const,
-      overlayMode2: 'url' as const
+      overlayBlobUrl2: ''
+      // Don't reset modes - keep current modes but clear content
     };
     
     onSettingsChange(clearedSettings);
@@ -281,8 +293,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
       bodyTextureFileRef.current.value = '';
     }
     
-    // Reset to URL mode after clearing
-    updateSetting('bodyTextureMode', 'url');
+    // Don't reset the mode - keep the current mode but clear the content
   };
 
   const Toggle: React.FC<{ checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }> = ({ 
