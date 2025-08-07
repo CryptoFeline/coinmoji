@@ -318,8 +318,19 @@ export class CoinExporter {
       // Get current coin settings from the scene
       const coinSettings = this.extractCoinSettings();
       
-      // Send settings to server for identical recreation
-      const serverFrames = await this.renderFramesOnServer(coinSettings, settings);
+      // 🚀 NEW: Choose streaming method based on file uploads
+      const hasUploadedFiles = (coinSettings.bodyTextureMode === 'upload' && coinSettings.bodyTextureFile) ||
+                              (coinSettings.overlayMode === 'upload' && coinSettings.overlayFile) ||
+                              (coinSettings.overlayMode2 === 'upload' && coinSettings.overlayFile2);
+      
+      let serverFrames: string[];
+      if (hasUploadedFiles) {
+        console.log('📡 Using binary streaming for uploaded files (eliminates base64 overhead)');
+        serverFrames = await this.renderFramesOnServerWithStreaming(coinSettings, settings);
+      } else {
+        console.log('📡 Using JSON method for URL-based assets (no files to stream)');  
+        serverFrames = await this.renderFramesOnServer(coinSettings, settings);
+      }
       
       if (serverFrames.length === 0) {
         throw new Error('No frames rendered on server');
@@ -392,6 +403,86 @@ export class CoinExporter {
   }
 
   // Server-side rendering call
+  // 🚀 NEW: Stream binary files directly to server (no base64 overhead)
+  private async renderFramesOnServerWithStreaming(coinSettings: any, exportSettings: ExportSettings): Promise<string[]> {
+    console.log('🎬 Server-side rendering with direct binary streaming...');
+    
+    // Create FormData for multipart streaming
+    const formData = new FormData();
+    
+    // Add settings as JSON (small, no base64 needed)
+    const serverSettings = { ...coinSettings };
+    
+    // Handle uploaded files: add them as binary blobs, not base64
+    let fileIndex = 0;
+    if (coinSettings.bodyTextureMode === 'upload' && coinSettings.bodyTextureFile) {
+      formData.append(`file_${fileIndex}`, coinSettings.bodyTextureFile);
+      serverSettings.bodyTextureFileIndex = fileIndex;
+      delete serverSettings.bodyTextureBase64; // Remove base64 data
+      fileIndex++;
+      console.log('📎 Added body texture file for binary streaming');
+    }
+    
+    if (coinSettings.overlayMode === 'upload' && coinSettings.overlayFile) {
+      formData.append(`file_${fileIndex}`, coinSettings.overlayFile);
+      serverSettings.overlayFileIndex = fileIndex;
+      delete serverSettings.overlayBase64; // Remove base64 data
+      fileIndex++;
+      console.log('📎 Added overlay file for binary streaming');
+    }
+    
+    if (coinSettings.overlayMode2 === 'upload' && coinSettings.overlayFile2) {
+      formData.append(`file_${fileIndex}`, coinSettings.overlayFile2);
+      serverSettings.overlayFileIndex2 = fileIndex;
+      delete serverSettings.overlayBase64_2; // Remove base64 data
+      fileIndex++;
+      console.log('📎 Added overlay2 file for binary streaming');
+    }
+    
+    // Add settings and export settings as JSON fields
+    formData.append('settings', JSON.stringify(serverSettings));
+    formData.append('exportSettings', JSON.stringify({
+      fps: exportSettings.fps,
+      duration: exportSettings.duration,
+      frames: Math.round(exportSettings.fps * exportSettings.duration),
+      qualityMode: exportSettings.qualityMode || 'balanced'
+    }));
+    
+    console.log(`🚀 Streaming request with ${fileIndex} binary files (no base64 overhead)`);
+    
+    const response = await fetch('/.netlify/functions/render-frames', {
+      method: 'POST',
+      body: formData, // No Content-Type header - let browser set multipart boundary
+    });
+    
+    if (!response.ok) {
+      let errorResult;
+      try {
+        errorResult = await response.json();
+      } catch {
+        // If JSON parsing fails, get raw text
+        const errorText = await response.text();
+        throw new Error(`Server rendering failed (${response.status}): ${errorText}`);
+      }
+      throw new Error(`Server rendering failed: ${errorResult.error || response.statusText}`);
+    }
+    
+    const result = await response.json();
+    
+    if (!result.success || !result.frames) {
+      throw new Error(result.error || 'Server response missing frames');
+    }
+    
+    console.log('✅ Server-side binary streaming successful:', {
+      frames_count: result.frames_count,
+      environment: result.rendering_environment,
+      files_streamed: fileIndex
+    });
+    
+    return result.frames;
+  }
+
+  // Original method with base64 encoding (fallback for URLs)
   private async renderFramesOnServer(coinSettings: any, exportSettings: ExportSettings): Promise<string[]> {
     console.log('📡 Sending render request to server...');
     

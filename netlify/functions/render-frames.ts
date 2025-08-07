@@ -4,6 +4,55 @@ import chromium from '@sparticuz/chromium';
 import * as fs from 'fs';
 import * as path from 'path';
 
+// Helper function to parse multipart form data (same as upload-temp-file)
+interface ParsedFile {
+  filename: string;
+  mimetype: string;
+  data: Buffer;
+}
+
+function parseMultipartData(body: string, boundary: string): { fields: Record<string, string>, files: ParsedFile[] } {
+  const parts = body.split(`--${boundary}`);
+  const fields: Record<string, string> = {};
+  const files: ParsedFile[] = [];
+
+  for (const part of parts) {
+    if (!part.trim() || part === '--') continue;
+
+    const [headerSection, ...bodyParts] = part.split('\r\n\r\n');
+    if (!headerSection || bodyParts.length === 0) continue;
+
+    const headers = headerSection.split('\r\n').reduce((acc, line) => {
+      const [key, value] = line.split(': ');
+      if (key && value) acc[key.toLowerCase()] = value;
+      return acc;
+    }, {} as Record<string, string>);
+
+    const contentDisposition = headers['content-disposition'];
+    if (!contentDisposition) continue;
+
+    const nameMatch = contentDisposition.match(/name="([^"]+)"/);
+    if (!nameMatch) continue;
+
+    const fieldName = nameMatch[1];
+    const bodyContent = bodyParts.join('\r\n\r\n').replace(/\r\n--$/, '');
+
+    const filenameMatch = contentDisposition.match(/filename="([^"]+)"/);
+    if (filenameMatch) {
+      // This is a file
+      const filename = filenameMatch[1];
+      const mimetype = headers['content-type'] || 'application/octet-stream';
+      const data = Buffer.from(bodyContent, 'binary');
+      files.push({ filename, mimetype, data });
+    } else {
+      // This is a regular field
+      fields[fieldName] = bodyContent;
+    }
+  }
+
+  return { fields, files };
+}
+
 interface RenderFramesRequest {
   settings: {
     fillMode: 'solid' | 'gradient';
@@ -13,15 +62,18 @@ interface RenderFramesRequest {
     bodyTextureUrl?: string;
     bodyTextureMode?: 'url' | 'upload';
     bodyTextureTempId?: string; // Server-side temp file ID for uploaded body texture
+    bodyTextureFileIndex?: number; // NEW: Index of file in multipart data
     metallic: boolean;
     rotationSpeed: 'slow' | 'medium' | 'fast';
     overlayUrl?: string;
     overlayMode?: 'url' | 'upload';
     overlayTempId?: string; // Server-side temp file ID for uploaded overlay
+    overlayFileIndex?: number; // NEW: Index of file in multipart data
     dualOverlay?: boolean;
     overlayUrl2?: string;
     overlayMode2?: 'url' | 'upload';
     overlayTempId2?: string; // Server-side temp file ID for uploaded overlay2
+    overlayFileIndex2?: number; // NEW: Index of file in multipart data
     gifAnimationSpeed: 'slow' | 'medium' | 'fast';
     lightColor: string;
     lightStrength: 'low' | 'medium' | 'high';
@@ -66,22 +118,55 @@ export const handler: Handler = async (event) => {
 
   let browser;
   try {
-    console.log('🔍 Parsing request JSON...');
+    console.log('🔍 Parsing request data...');
     let request: RenderFramesRequest;
+    let uploadedFiles: ParsedFile[] = [];
     
-    try {
-      request = JSON.parse(event.body || '{}');
-      console.log('✅ JSON parsed successfully');
-    } catch (parseError) {
-      console.error('❌ JSON parsing failed:', parseError);
-      return {
-        statusCode: 400,
-        body: JSON.stringify({
-          success: false,
-          error: `Invalid JSON: ${parseError instanceof Error ? parseError.message : 'Unknown JSON error'}`,
-          details: 'Request body must be valid JSON'
-        }),
-      };
+    // 🚀 NEW: Detect content type and parse accordingly
+    const contentType = event.headers['content-type'] || '';
+    
+    if (contentType.includes('multipart/form-data')) {
+      console.log('📡 Processing multipart form data (binary streaming)...');
+      
+      // Extract boundary from content type
+      const boundaryMatch = contentType.match(/boundary=(.+)/);
+      if (!boundaryMatch) {
+        throw new Error('Invalid multipart data: no boundary found');
+      }
+      
+      const boundary = boundaryMatch[1];
+      const { fields, files } = parseMultipartData(event.body || '', boundary);
+      
+      uploadedFiles = files;
+      console.log(`📎 Parsed ${files.length} uploaded files:`, files.map(f => ({ name: f.filename, type: f.mimetype, size: `${(f.data.length/1024).toFixed(1)}KB` })));
+      
+      // Parse JSON fields
+      try {
+        const settings = JSON.parse(fields.settings || '{}');
+        const exportSettings = JSON.parse(fields.exportSettings || '{}');
+        request = { settings, exportSettings };
+        console.log('✅ Multipart data parsed successfully');
+      } catch (parseError) {
+        throw new Error(`Invalid JSON in multipart fields: ${parseError}`);
+      }
+    } else {
+      console.log('📡 Processing JSON data (URL-based assets)...');
+      
+      // Original JSON parsing
+      try {
+        request = JSON.parse(event.body || '{}');
+        console.log('✅ JSON parsed successfully');
+      } catch (parseError) {
+        console.error('❌ JSON parsing failed:', parseError);
+        return {
+          statusCode: 400,
+          body: JSON.stringify({
+            success: false,
+            error: `Invalid JSON: ${parseError instanceof Error ? parseError.message : 'Unknown JSON error'}`,
+            details: 'Request body must be valid JSON'
+          }),
+        };
+      }
     }
     
     // CRITICAL: Cap FPS to 20 to prevent Chrome timeouts in serverless environment
@@ -98,8 +183,43 @@ export const handler: Handler = async (event) => {
       exportSettings: request.exportSettings
     });
 
-    // All uploaded files are now sent as data URLs - no need for local file processing
-    const processedSettings = request.settings;
+    // All uploaded files are now sent as either data URLs (JSON) or binary files (multipart)
+    const processedSettings = { ...request.settings };
+    
+    // 🚀 NEW: Convert uploaded binary files to data URLs for processing
+    if (uploadedFiles.length > 0) {
+      console.log('🔄 Converting uploaded binary files to data URLs...');
+      
+      // Handle body texture file
+      if (typeof processedSettings.bodyTextureFileIndex === 'number') {
+        const file = uploadedFiles[processedSettings.bodyTextureFileIndex];
+        if (file) {
+          const base64Data = file.data.toString('base64');
+          processedSettings.bodyTextureUrl = `data:${file.mimetype};base64,${base64Data}`;
+          console.log(`✅ Body texture: ${file.filename} (${file.mimetype}) → data URL`);
+        }
+      }
+      
+      // Handle overlay file
+      if (typeof processedSettings.overlayFileIndex === 'number') {
+        const file = uploadedFiles[processedSettings.overlayFileIndex];
+        if (file) {
+          const base64Data = file.data.toString('base64');
+          processedSettings.overlayUrl = `data:${file.mimetype};base64,${base64Data}`;
+          console.log(`✅ Overlay: ${file.filename} (${file.mimetype}) → data URL`);
+        }
+      }
+      
+      // Handle overlay2 file
+      if (typeof processedSettings.overlayFileIndex2 === 'number') {
+        const file = uploadedFiles[processedSettings.overlayFileIndex2];
+        if (file) {
+          const base64Data = file.data.toString('base64');
+          processedSettings.overlayUrl2 = `data:${file.mimetype};base64,${base64Data}`;
+          console.log(`✅ Overlay2: ${file.filename} (${file.mimetype}) → data URL`);
+        }
+      }
+    }
 
     console.log('🚀 Launching Chrome via @sparticuz/chromium...');
     console.log('🔍 Environment check:', {
