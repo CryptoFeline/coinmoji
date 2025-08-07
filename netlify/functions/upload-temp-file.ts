@@ -151,7 +151,7 @@ export const handler: Handler = async (event) => {
       expiresIn: '5 minutes'
     });
 
-    // Return temporary file info
+    // Return temporary file info with base64 data for cross-function access
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -164,6 +164,7 @@ export const handler: Handler = async (event) => {
         mimetype,
         size: file.length,
         expiresAt,
+        base64Data: file.toString('base64'), // Include base64 for cross-function access
         message: 'File uploaded successfully'
       })
     };

@@ -4,31 +4,6 @@ import chromium from '@sparticuz/chromium';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// Helper function to create data URLs from local files for server-side rendering
-const createDataUrlFromFile = async (filePath: string): Promise<string> => {
-  const fileBuffer = await fs.promises.readFile(filePath);
-  const ext = path.extname(filePath).toLowerCase();
-  
-  // Map file extensions to MIME types
-  const mimeTypes: Record<string, string> = {
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg', 
-    '.png': 'image/png',
-    '.gif': 'image/gif',
-    '.webm': 'video/webm'
-  };
-  
-  const mimeType = mimeTypes[ext] || 'application/octet-stream';
-  const base64Data = fileBuffer.toString('base64');
-  
-  return `data:${mimeType};base64,${base64Data}`;
-};
-
-// Helper to check if a path is a local file vs URL
-const isLocalFile = (pathOrUrl: string): boolean => {
-  return pathOrUrl.startsWith('/') || pathOrUrl.includes('\\');
-};
-
 interface RenderFramesRequest {
   settings: {
     fillMode: 'solid' | 'gradient';
@@ -91,41 +66,8 @@ export const handler: Handler = async (event) => {
       exportSettings: request.exportSettings
     });
 
-    // Pre-process any local files to data URLs before passing to browser context
-    const processedSettings = { ...request.settings };
-    
-    if (processedSettings.bodyTextureUrl && isLocalFile(processedSettings.bodyTextureUrl)) {
-      console.log('🔄 Converting body texture local file to data URL:', processedSettings.bodyTextureUrl);
-      try {
-        processedSettings.bodyTextureUrl = await createDataUrlFromFile(processedSettings.bodyTextureUrl);
-        console.log('✅ Body texture converted to data URL');
-      } catch (error) {
-        console.error('❌ Failed to convert body texture:', error);
-        processedSettings.bodyTextureUrl = ''; // Clear invalid file
-      }
-    }
-    
-    if (processedSettings.overlayUrl && isLocalFile(processedSettings.overlayUrl)) {
-      console.log('🔄 Converting overlay 1 local file to data URL:', processedSettings.overlayUrl);
-      try {
-        processedSettings.overlayUrl = await createDataUrlFromFile(processedSettings.overlayUrl);
-        console.log('✅ Overlay 1 converted to data URL');
-      } catch (error) {
-        console.error('❌ Failed to convert overlay 1:', error);
-        processedSettings.overlayUrl = ''; // Clear invalid file
-      }
-    }
-    
-    if (processedSettings.overlayUrl2 && isLocalFile(processedSettings.overlayUrl2)) {
-      console.log('🔄 Converting overlay 2 local file to data URL:', processedSettings.overlayUrl2);
-      try {
-        processedSettings.overlayUrl2 = await createDataUrlFromFile(processedSettings.overlayUrl2);
-        console.log('✅ Overlay 2 converted to data URL');
-      } catch (error) {
-        console.error('❌ Failed to convert overlay 2:', error);
-        processedSettings.overlayUrl2 = ''; // Clear invalid file
-      }
-    }
+    // All uploaded files are now sent as data URLs - no need for local file processing
+    const processedSettings = request.settings;
 
     console.log('🚀 Launching Chrome via @sparticuz/chromium...');
     console.log('🔍 Environment check:', {

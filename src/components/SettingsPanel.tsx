@@ -18,6 +18,7 @@ export interface CoinSettings {
   bodyTextureFile: File | null;
   bodyTextureBlobUrl: string;
   bodyTextureTempId?: string; // Server-side temp file ID for uploaded body texture
+  bodyTextureBase64?: string; // Base64 data for server-side rendering ← NEW
   metallic: boolean;
   rotationSpeed: 'slow' | 'medium' | 'fast';
   overlayUrl: string;
@@ -26,12 +27,14 @@ export interface CoinSettings {
   overlayFile: File | null;
   overlayBlobUrl: string;
   overlayTempId?: string; // Server-side temp file ID for uploaded overlay
+  overlayBase64?: string; // Base64 data for server-side rendering ← NEW
   dualOverlay: boolean;
   overlayUrl2: string;
   overlayMode2: 'url' | 'upload';
   overlayFile2: File | null;
   overlayBlobUrl2: string;
   overlayTempId2?: string; // Server-side temp file ID for uploaded overlay2
+  overlayBase64_2?: string; // Base64 data for server-side rendering ← NEW
   lightColor: string;
   lightStrength: 'low' | 'medium' | 'strong';
   gifAnimationSpeed: 'slow' | 'medium' | 'fast';
@@ -104,7 +107,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
   }, []);
 
   // Upload file to server for server-side rendering
-  const uploadFileToServer = useCallback(async (file: File): Promise<string> => {
+  const uploadFileToServer = useCallback(async (file: File): Promise<{tempId: string, base64Data: string, mimetype: string}> => {
     const formData = new FormData();
     formData.append('file', file);
 
@@ -119,11 +122,15 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     }
 
     const result = await response.json();
-    if (!result.success || !result.tempId) {
-      throw new Error(result.message || 'Upload response missing temp ID');
+    if (!result.success || !result.tempId || !result.base64Data) {
+      throw new Error(result.message || 'Upload response missing temp ID or base64 data');
     }
 
-    return result.tempId;
+    return {
+      tempId: result.tempId,
+      base64Data: result.base64Data,
+      mimetype: result.mimetype
+    };
   }, []);
 
   // File size helper with progressive warnings
@@ -162,8 +169,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
 
     // Start server upload in the background (non-blocking)
     let tempId: string | undefined;
+    let base64Data: string | undefined;
     try {
-      tempId = await uploadFileToServer(file);
+      const uploadResult = await uploadFileToServer(file);
+      tempId = uploadResult.tempId;
+      base64Data = uploadResult.base64Data;
       console.log(`✅ File uploaded to server with temp ID: ${tempId}`);
     } catch (error) {
       console.error('⚠️ Server upload failed (will fallback to client-side only):', error);
@@ -178,16 +188,19 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
       updates.bodyTextureBlobUrl = blobUrl;
       updates.bodyTextureMode = 'upload';
       updates.bodyTextureTempId = tempId;
+      updates.bodyTextureBase64 = base64Data;
     } else if (type === 'overlay') {
       updates.overlayFile = file;
       updates.overlayBlobUrl = blobUrl;
       updates.overlayMode = 'upload';
       updates.overlayTempId = tempId;
+      updates.overlayBase64 = base64Data;
     } else {
       updates.overlayFile2 = file;
       updates.overlayBlobUrl2 = blobUrl;
       updates.overlayMode2 = 'upload';
       updates.overlayTempId2 = tempId;
+      updates.overlayBase64_2 = base64Data;
     }
 
     onSettingsChange({
@@ -287,7 +300,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
         bodyTextureMode: mode,
         bodyTextureFile: null,
         bodyTextureBlobUrl: '',
-        bodyTextureTempId: undefined
+        bodyTextureTempId: undefined,
+        bodyTextureBase64: undefined
       });
     } else {
       // Switching to upload mode - clear URL
@@ -318,7 +332,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
           overlayMode: mode,
           overlayFile: null,
           overlayBlobUrl: '',
-          overlayTempId: undefined
+          overlayTempId: undefined,
+          overlayBase64: undefined
         });
       } else {
         // Switching to upload mode - clear URL
@@ -342,7 +357,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
           overlayMode2: mode,
           overlayFile2: null,
           overlayBlobUrl2: '',
-          overlayTempId2: undefined
+          overlayTempId2: undefined,
+          overlayBase64_2: undefined
         });
       } else {
         // Switching to upload mode - clear URL
@@ -439,7 +455,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
       overlayFile2: null,
       overlayBlobUrl2: '',
       overlayTempId: undefined,
-      overlayTempId2: undefined
+      overlayTempId2: undefined,
+      overlayBase64: undefined,
+      overlayBase64_2: undefined
       // Don't reset modes - keep current modes but clear content
     };
     
@@ -470,7 +488,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
       bodyTextureUrl: '',          // Clear the applied texture (this removes it from the coin)
       bodyTextureFile: null,       // Clear the uploaded file
       bodyTextureBlobUrl: '',      // Clear the blob URL
-      bodyTextureTempId: undefined // Clear the server temp ID
+      bodyTextureTempId: undefined,// Clear the server temp ID
+      bodyTextureBase64: undefined // Clear the base64 data
       // Keep the current mode - don't reset it
     };
     

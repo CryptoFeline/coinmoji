@@ -380,25 +380,31 @@ export class CoinExporter {
     console.log('📡 Sending render request to server...');
     
     // Prepare settings for server-side rendering
-    // Convert blob URLs to temp file paths for uploaded files
+    // Use base64 data URLs for uploaded files instead of temp file paths
     const serverSettings = { ...coinSettings };
     
-    // Handle body texture: use temp ID if available, otherwise keep URL
-    if (coinSettings.bodyTextureMode === 'upload' && coinSettings.bodyTextureTempId) {
-      serverSettings.bodyTextureUrl = `/tmp/temp_${coinSettings.bodyTextureTempId}${this.getFileExtension(coinSettings.bodyTextureFile)}`;
-      console.log('🔄 Using server temp file for body texture:', serverSettings.bodyTextureUrl);
+    // Handle body texture: use base64 data if available, otherwise keep URL
+    if (coinSettings.bodyTextureMode === 'upload' && coinSettings.bodyTextureBase64) {
+      const ext = this.getFileExtension(coinSettings.bodyTextureFile);
+      const mimeType = this.getMimeType(ext);
+      serverSettings.bodyTextureUrl = `data:${mimeType};base64,${coinSettings.bodyTextureBase64}`;
+      console.log('🔄 Using base64 data URL for body texture');
     }
     
-    // Handle primary overlay: use temp ID if available, otherwise keep URL
-    if (coinSettings.overlayMode === 'upload' && coinSettings.overlayTempId) {
-      serverSettings.overlayUrl = `/tmp/temp_${coinSettings.overlayTempId}${this.getFileExtension(coinSettings.overlayFile)}`;
-      console.log('🔄 Using server temp file for overlay 1:', serverSettings.overlayUrl);
+    // Handle primary overlay: use base64 data if available, otherwise keep URL
+    if (coinSettings.overlayMode === 'upload' && coinSettings.overlayBase64) {
+      const ext = this.getFileExtension(coinSettings.overlayFile);
+      const mimeType = this.getMimeType(ext);
+      serverSettings.overlayUrl = `data:${mimeType};base64,${coinSettings.overlayBase64}`;
+      console.log('🔄 Using base64 data URL for overlay 1');
     }
     
-    // Handle secondary overlay: use temp ID if available, otherwise keep URL
-    if (coinSettings.overlayMode2 === 'upload' && coinSettings.overlayTempId2) {
-      serverSettings.overlayUrl2 = `/tmp/temp_${coinSettings.overlayTempId2}${this.getFileExtension(coinSettings.overlayFile2)}`;
-      console.log('🔄 Using server temp file for overlay 2:', serverSettings.overlayUrl2);
+    // Handle secondary overlay: use base64 data if available, otherwise keep URL
+    if (coinSettings.overlayMode2 === 'upload' && coinSettings.overlayBase64_2) {
+      const ext = this.getFileExtension(coinSettings.overlayFile2);
+      const mimeType = this.getMimeType(ext);
+      serverSettings.overlayUrl2 = `data:${mimeType};base64,${coinSettings.overlayBase64_2}`;
+      console.log('🔄 Using base64 data URL for overlay 2');
     }
     
     const payload = {
@@ -443,6 +449,18 @@ export class CoinExporter {
     if (!file) return '';
     const ext = file.name.split('.').pop();
     return ext ? `.${ext}` : '';
+  }
+
+  // Helper to get MIME type from file extension
+  private getMimeType(ext: string): string {
+    const mimeTypes: Record<string, string> = {
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.gif': 'image/gif',
+      '.webm': 'video/webm'
+    };
+    return mimeTypes[ext.toLowerCase()] || 'application/octet-stream';
   }
 
   // Fallback to original client-side method (renamed)
