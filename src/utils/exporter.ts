@@ -342,10 +342,14 @@ export class CoinExporter {
       return webmBlob;
       
     } catch (error) {
-      console.error('❌ Server-side rendering failed, falling back to client-side:', error);
+      console.error('❌ Server-side rendering failed:', error);
       
-      // Fallback to original client-side method
-      return this.exportAsWebMClientSide(settings, autoDownload);
+      // CLIENT-SIDE FALLBACK DISABLED - Force server-only processing for testing
+      // NOTE: Original client-side fallback method is preserved but disconnected
+      // To re-enable fallback, uncomment the line below:
+      // return this.exportAsWebMClientSide(settings, autoDownload);
+      
+      throw new Error(`Server-side rendering failed: ${error instanceof Error ? error.message : 'Unknown error'}. Client-side fallback is temporarily disabled for server testing.`);
     }
   }
 
