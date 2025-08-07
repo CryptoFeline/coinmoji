@@ -127,6 +127,12 @@ export const handler: Handler = async (event) => {
     
     if (contentType.includes('multipart/form-data')) {
       console.log('📡 Processing multipart form data (binary streaming)...');
+      console.log('🔍 Request debug info:', {
+        contentType,
+        isBase64Encoded: event.isBase64Encoded,
+        bodyLength: event.body?.length || 0,
+        hasBody: !!event.body
+      });
       
       // Extract boundary from content type
       const boundaryMatch = contentType.match(/boundary=(.+)/);
@@ -135,7 +141,15 @@ export const handler: Handler = async (event) => {
       }
       
       const boundary = boundaryMatch[1];
-      const { fields, files } = parseMultipartData(event.body || '', boundary);
+      
+      // Handle binary data properly - Netlify might base64-encode the body
+      let bodyData = event.body || '';
+      if (event.isBase64Encoded) {
+        console.log('📦 Decoding base64-encoded binary body...');
+        bodyData = Buffer.from(bodyData, 'base64').toString('binary');
+      }
+      
+      const { fields, files } = parseMultipartData(bodyData, boundary);
       
       uploadedFiles = files;
       console.log(`📎 Parsed ${files.length} uploaded files:`, files.map(f => ({ name: f.filename, type: f.mimetype, size: `${(f.data.length/1024).toFixed(1)}KB` })));
