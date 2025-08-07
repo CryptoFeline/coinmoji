@@ -134,6 +134,12 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
         }
         updateSetting('bodyTextureFile', null);
         updateSetting('bodyTextureBlobUrl', '');
+        if (bodyTextureFileRef.current) {
+          bodyTextureFileRef.current.value = '';
+        }
+      } else {
+        // Clear URL when switching to upload mode
+        setTempBodyTextureUrl('');
       }
     } else if (type === 'overlay') {
       const newMode = settings.overlayMode === 'url' ? 'upload' : 'url';
@@ -144,6 +150,12 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
         }
         updateSetting('overlayFile', null);
         updateSetting('overlayBlobUrl', '');
+        if (overlayFileRef.current) {
+          overlayFileRef.current.value = '';
+        }
+      } else {
+        // Clear URL when switching to upload mode
+        setTempOverlayUrl('');
       }
     } else {
       const newMode = settings.overlayMode2 === 'url' ? 'upload' : 'url';
@@ -154,6 +166,12 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
         }
         updateSetting('overlayFile2', null);
         updateSetting('overlayBlobUrl2', '');
+        if (overlayFileRef2.current) {
+          overlayFileRef2.current.value = '';
+        }
+      } else {
+        // Clear URL when switching to upload mode
+        setTempOverlayUrl2('');
       }
     }
   };
@@ -239,6 +257,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     }
     updateSetting('bodyTextureFile', null);
     updateSetting('bodyTextureBlobUrl', '');
+    
+    // Clear file input
     if (bodyTextureFileRef.current) {
       bodyTextureFileRef.current.value = '';
     }
@@ -378,29 +398,13 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
             </div>
             
             {settings.bodyTextureMode === 'url' ? (
-              <div className="space-y-2">
-                <input
-                  type="url"
-                  value={tempBodyTextureUrl}
-                  onChange={(e) => setTempBodyTextureUrl(e.target.value)}
-                  placeholder="https://example.com/txtr.jpg/png/gif/webm"
-                  className="w-full px-3 py-2 bg-gray-50 border-2 border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                />
-                <div className="flex space-x-2">
-                  <button 
-                    onClick={handleApplyBodyTexture}
-                    className="flex-1 bg-white border-2 border-blue-500 text-blue-500 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-blue-50 text-sm"
-                  >
-                    Apply Texture
-                  </button>
-                  <button 
-                    onClick={handleClearBodyTexture}
-                    className="flex-1 bg-white border-2 border-gray-300 text-gray-700 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-gray-50 text-sm"
-                  >
-                    Clear
-                  </button>
-                </div>
-              </div>
+              <input
+                type="url"
+                value={tempBodyTextureUrl}
+                onChange={(e) => setTempBodyTextureUrl(e.target.value)}
+                placeholder="https://example.com/texture.jpg/png/gif/webm"
+                className="w-full px-3 py-2 bg-gray-50 border-2 border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+              />
             ) : (
               <div className="space-y-2">
                 <input
@@ -434,39 +438,23 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                     </div>
                   )}
                 </div>
-                {settings.bodyTextureFile && (
-                  <button 
-                    onClick={() => {
-                      if (settings.bodyTextureBlobUrl && settings.bodyTextureBlobUrl.startsWith('blob:')) {
-                        URL.revokeObjectURL(settings.bodyTextureBlobUrl);
-                      }
-                      updateSetting('bodyTextureFile', null);
-                      updateSetting('bodyTextureBlobUrl', '');
-                      if (bodyTextureFileRef.current) {
-                        bodyTextureFileRef.current.value = '';
-                      }
-                    }}
-                    className="w-full bg-white border-2 border-gray-300 text-gray-700 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-gray-50 text-sm"
-                  >
-                    Clear File
-                  </button>
-                )}
-                <div className="flex space-x-2">
-                  <button 
-                    onClick={handleApplyBodyTexture}
-                    className="flex-1 bg-white border-2 border-blue-500 text-blue-500 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-blue-50 text-sm"
-                  >
-                    Apply Texture
-                  </button>
-                  <button 
-                    onClick={handleClearBodyTexture}
-                    className="flex-1 bg-white border-2 border-gray-300 text-gray-700 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-gray-50 text-sm"
-                  >
-                    Clear
-                  </button>
-                </div>
               </div>
             )}
+            
+            <div className="flex space-x-2">
+              <button 
+                onClick={handleApplyBodyTexture}
+                className="flex-1 bg-white border-2 border-blue-500 text-blue-500 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-blue-50 text-sm"
+              >
+                Apply Texture
+              </button>
+              <button 
+                onClick={handleClearBodyTexture}
+                className="flex-1 bg-white border-2 border-gray-300 text-gray-700 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-gray-50 text-sm"
+              >
+                Clear
+              </button>
+            </div>
           </div>
           
           {/* Coin Shape */}
@@ -649,23 +637,6 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                         </div>
                       )}
                     </div>
-                    {settings.overlayFile && (
-                      <button 
-                        onClick={() => {
-                          if (settings.overlayBlobUrl && settings.overlayBlobUrl.startsWith('blob:')) {
-                            URL.revokeObjectURL(settings.overlayBlobUrl);
-                          }
-                          updateSetting('overlayFile', null);
-                          updateSetting('overlayBlobUrl', '');
-                          if (overlayFileRef.current) {
-                            overlayFileRef.current.value = '';
-                          }
-                        }}
-                        className="w-full bg-white border-2 border-gray-300 text-gray-700 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-gray-50 text-sm"
-                      >
-                        Clear File
-                      </button>
-                    )}
                   </div>
                 )}
               </div>
@@ -728,23 +699,6 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                           </div>
                         )}
                       </div>
-                      {settings.overlayFile2 && (
-                        <button 
-                          onClick={() => {
-                            if (settings.overlayBlobUrl2 && settings.overlayBlobUrl2.startsWith('blob:')) {
-                              URL.revokeObjectURL(settings.overlayBlobUrl2);
-                            }
-                            updateSetting('overlayFile2', null);
-                            updateSetting('overlayBlobUrl2', '');
-                            if (overlayFileRef2.current) {
-                              overlayFileRef2.current.value = '';
-                            }
-                          }}
-                          className="w-full bg-white border-2 border-gray-300 text-gray-700 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-gray-50 text-sm"
-                        >
-                          Clear File
-                        </button>
-                      )}
                     </div>
                   )}
                 </div>
