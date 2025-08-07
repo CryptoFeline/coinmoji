@@ -685,14 +685,23 @@ export const handler: Handler = async (event) => {
         let currentFrame = 0;
         let frameCounter = 0;
         
-        // Frame-rate-based speed mapping (identical to client-side)
+        // Frame-rate-based speed mapping (adjusted for export FPS)
         const getFrameInterval = () => {
-          const intervalMap = {
-            slow: 4,    // Change frame every 4 renders (15fps effective)
-            medium: 2,  // Change frame every 2 renders (30fps effective)  
-            fast: 1     // Change frame every render (60fps effective)
+          // Base intervals for 60fps (client-side)
+          const baseIntervals = {
+            slow: 4,    // 15fps effective at 60fps
+            medium: 2,  // 30fps effective at 60fps
+            fast: 1     // 60fps effective at 60fps
           };
-          return intervalMap[renderRequest.settings.gifAnimationSpeed];
+          
+          // Scale interval based on export FPS vs 60fps
+          const baseInterval = baseIntervals[renderRequest.settings.gifAnimationSpeed];
+          const fpsRatio = 60 / renderRequest.exportSettings.fps;
+          const scaledInterval = Math.max(1, Math.round(baseInterval / fpsRatio));
+          
+          console.log(`🎞️ GIF animation: ${renderRequest.settings.gifAnimationSpeed} speed, base interval: ${baseInterval}, export fps: ${renderRequest.exportSettings.fps}, scaled interval: ${scaledInterval}`);
+          
+          return scaledInterval;
         };
         
         // Helper to draw frame to canvas (identical to client-side)
