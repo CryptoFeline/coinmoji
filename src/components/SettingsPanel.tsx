@@ -17,6 +17,7 @@ export interface CoinSettings {
   bodyTextureMode: 'url' | 'upload';
   bodyTextureFile: File | null;
   bodyTextureBlobUrl: string;
+  bodyTextureTempId?: string; // Server-side temp file ID for uploaded body texture
   metallic: boolean;
   rotationSpeed: 'slow' | 'medium' | 'fast';
   overlayUrl: string;
@@ -24,11 +25,13 @@ export interface CoinSettings {
   overlayMode: 'url' | 'upload';
   overlayFile: File | null;
   overlayBlobUrl: string;
+  overlayTempId?: string; // Server-side temp file ID for uploaded overlay
   dualOverlay: boolean;
   overlayUrl2: string;
   overlayMode2: 'url' | 'upload';
   overlayFile2: File | null;
   overlayBlobUrl2: string;
+  overlayTempId2?: string; // Server-side temp file ID for uploaded overlay2
   lightColor: string;
   lightStrength: 'low' | 'medium' | 'strong';
   gifAnimationSpeed: 'slow' | 'medium' | 'fast';
@@ -100,6 +103,29 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     }, 4000); // Auto-hide after 4 seconds
   }, []);
 
+  // Upload file to server for server-side rendering
+  const uploadFileToServer = useCallback(async (file: File): Promise<string> => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch('/.netlify/functions/upload-temp-file', {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!response.ok) {
+      const errorResult = await response.json();
+      throw new Error(`Upload failed: ${errorResult.error || response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (!result.success || !result.tempId) {
+      throw new Error(result.message || 'Upload response missing temp ID');
+    }
+
+    return result.tempId;
+  }, []);
+
   // File size helper with progressive warnings
   const getFileSizeWarning = (size: number): string | null => {
     const mb = size / (1024 * 1024);
@@ -114,7 +140,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
   };
 
   // File upload handlers
-  const handleFileSelect = useCallback((
+  const handleFileSelect = useCallback(async (
     file: File,
     blobUrl: string,
     type: 'bodyTexture' | 'overlay' | 'overlay2'
@@ -134,6 +160,16 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     // Track new blob URL for cleanup
     activeBlobUrls.current.add(blobUrl);
 
+    // Start server upload in the background (non-blocking)
+    let tempId: string | undefined;
+    try {
+      tempId = await uploadFileToServer(file);
+      console.log(`✅ File uploaded to server with temp ID: ${tempId}`);
+    } catch (error) {
+      console.error('⚠️ Server upload failed (will fallback to client-side only):', error);
+      showNotification('Server upload failed - using client-side only', 'warning');
+    }
+
     // Update settings with new file and blob URL
     const updates: Partial<CoinSettings> = {};
     
@@ -141,21 +177,24 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
       updates.bodyTextureFile = file;
       updates.bodyTextureBlobUrl = blobUrl;
       updates.bodyTextureMode = 'upload';
+      updates.bodyTextureTempId = tempId;
     } else if (type === 'overlay') {
       updates.overlayFile = file;
       updates.overlayBlobUrl = blobUrl;
       updates.overlayMode = 'upload';
+      updates.overlayTempId = tempId;
     } else {
       updates.overlayFile2 = file;
       updates.overlayBlobUrl2 = blobUrl;
       updates.overlayMode2 = 'upload';
+      updates.overlayTempId2 = tempId;
     }
 
     onSettingsChange({
       ...settings,
       ...updates
     });
-  }, [settings, onSettingsChange]);
+  }, [settings, onSettingsChange, uploadFileToServer, showNotification]);
 
   const validateAndSelectFile = useCallback((
     event: React.ChangeEvent<HTMLInputElement>,
@@ -247,7 +286,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
         ...settings,
         bodyTextureMode: mode,
         bodyTextureFile: null,
-        bodyTextureBlobUrl: ''
+        bodyTextureBlobUrl: '',
+        bodyTextureTempId: undefined
       });
     } else {
       // Switching to upload mode - clear URL
@@ -277,7 +317,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
           ...settings,
           overlayMode: mode,
           overlayFile: null,
-          overlayBlobUrl: ''
+          overlayBlobUrl: '',
+          overlayTempId: undefined
         });
       } else {
         // Switching to upload mode - clear URL
@@ -300,7 +341,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
           ...settings,
           overlayMode2: mode,
           overlayFile2: null,
-          overlayBlobUrl2: ''
+          overlayBlobUrl2: '',
+          overlayTempId2: undefined
         });
       } else {
         // Switching to upload mode - clear URL
@@ -395,7 +437,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
       overlayFile: null,
       overlayBlobUrl: '',
       overlayFile2: null,
-      overlayBlobUrl2: ''
+      overlayBlobUrl2: '',
+      overlayTempId: undefined,
+      overlayTempId2: undefined
       // Don't reset modes - keep current modes but clear content
     };
     
@@ -425,7 +469,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
       ...settings,
       bodyTextureUrl: '',          // Clear the applied texture (this removes it from the coin)
       bodyTextureFile: null,       // Clear the uploaded file
-      bodyTextureBlobUrl: ''       // Clear the blob URL
+      bodyTextureBlobUrl: '',      // Clear the blob URL
+      bodyTextureTempId: undefined // Clear the server temp ID
       // Keep the current mode - don't reset it
     };
     

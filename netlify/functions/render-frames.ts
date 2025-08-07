@@ -4,6 +4,31 @@ import chromium from '@sparticuz/chromium';
 import * as fs from 'fs';
 import * as path from 'path';
 
+// Helper function to create data URLs from local files for server-side rendering
+const createDataUrlFromFile = async (filePath: string): Promise<string> => {
+  const fileBuffer = await fs.promises.readFile(filePath);
+  const ext = path.extname(filePath).toLowerCase();
+  
+  // Map file extensions to MIME types
+  const mimeTypes: Record<string, string> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg', 
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.webm': 'video/webm'
+  };
+  
+  const mimeType = mimeTypes[ext] || 'application/octet-stream';
+  const base64Data = fileBuffer.toString('base64');
+  
+  return `data:${mimeType};base64,${base64Data}`;
+};
+
+// Helper to check if a path is a local file vs URL
+const isLocalFile = (pathOrUrl: string): boolean => {
+  return pathOrUrl.startsWith('/') || pathOrUrl.includes('\\');
+};
+
 interface RenderFramesRequest {
   settings: {
     fillMode: 'solid' | 'gradient';
@@ -11,11 +36,17 @@ interface RenderFramesRequest {
     gradientStart?: string;
     gradientEnd?: string;
     bodyTextureUrl?: string;
+    bodyTextureMode?: 'url' | 'upload';
+    bodyTextureTempId?: string; // Server-side temp file ID for uploaded body texture
     metallic: boolean;
     rotationSpeed: 'slow' | 'medium' | 'fast';
     overlayUrl?: string;
+    overlayMode?: 'url' | 'upload';
+    overlayTempId?: string; // Server-side temp file ID for uploaded overlay
     dualOverlay?: boolean;
     overlayUrl2?: string;
+    overlayMode2?: 'url' | 'upload';
+    overlayTempId2?: string; // Server-side temp file ID for uploaded overlay2
     gifAnimationSpeed: 'slow' | 'medium' | 'fast';
     lightColor: string;
     lightStrength: 'low' | 'medium' | 'high';
@@ -430,26 +461,38 @@ export const handler: Handler = async (event) => {
 
         console.log('🎞️ Processing animated GIF with gifuct-js (matching client):', url);
         
-        // Fetch the GIF and check size FIRST to prevent memory crashes
-        const response = await fetch(url);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch GIF: ${response.status} ${response.statusText}`);
-        }
+        let buffer: ArrayBuffer;
         
-        // Check Content-Length header if available
-        const contentLength = response.headers.get('Content-Length');
-        if (contentLength) {
-          const sizeInMB = parseInt(contentLength) / (1024 * 1024);
-          console.log(`📏 GIF size from headers: ${sizeInMB.toFixed(2)}MB`);
-          
-          // CRITICAL: Reject large GIFs to prevent Lambda memory crashes
-          if (sizeInMB > 15) { // 15MB limit for safety (Lambda has 1GB total)
-            throw new Error(`GIF file is too large, please use a smaller file.`);
-            console.log(`❌ GIF too large: ${sizeInMB.toFixed(2)}MB exceeds 15MB limit`);
+        // Check if this is a local file or URL
+        if (isLocalFile(url)) {
+          console.log('📁 Loading GIF from local file:', url);
+          // Load from local filesystem
+          const fileBuffer = await fs.promises.readFile(url);
+          buffer = fileBuffer.buffer.slice(fileBuffer.byteOffset, fileBuffer.byteOffset + fileBuffer.byteLength);
+        } else {
+          console.log('🌐 Fetching GIF from URL:', url);
+          // Fetch the GIF and check size FIRST to prevent memory crashes
+          const response = await fetch(url);
+          if (!response.ok) {
+            throw new Error(`Failed to fetch GIF: ${response.status} ${response.statusText}`);
           }
+          
+          // Check Content-Length header if available
+          const contentLength = response.headers.get('Content-Length');
+          if (contentLength) {
+            const sizeInMB = parseInt(contentLength) / (1024 * 1024);
+            console.log(`📏 GIF size from headers: ${sizeInMB.toFixed(2)}MB`);
+            
+            // CRITICAL: Reject large GIFs to prevent Lambda memory crashes
+            if (sizeInMB > 15) { // 15MB limit for safety (Lambda has 1GB total)
+              throw new Error(`GIF file is too large, please use a smaller file.`);
+              console.log(`❌ GIF too large: ${sizeInMB.toFixed(2)}MB exceeds 15MB limit`);
+            }
+          }
+          
+          buffer = await response.arrayBuffer();
         }
         
-        const buffer = await response.arrayBuffer();
         const actualSizeInMB = buffer.byteLength / (1024 * 1024);
         console.log(`📏 Actual GIF size: ${actualSizeInMB.toFixed(2)}MB`);
         
@@ -569,6 +612,35 @@ export const handler: Handler = async (event) => {
         return { texture, isAnimated: true, frames: frames.length };
       };
 
+      // Helper function to load images from URLs or local files
+      const loadImageTexture = async (pathOrUrl: string): Promise<THREE.Texture> => {
+        const img = document.createElement('img');
+        img.crossOrigin = 'anonymous';
+        
+        if (isLocalFile(pathOrUrl)) {
+          console.log('📁 Loading static image from local file:', pathOrUrl);
+          // Convert local file to data URL
+          const dataUrl = await createDataUrlFromFile(pathOrUrl);
+          img.src = dataUrl;
+        } else {
+          console.log('🌐 Loading static image from URL:', pathOrUrl);
+          img.src = pathOrUrl;
+        }
+        
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = (error) => {
+            console.error('❌ Failed to load image:', pathOrUrl, error);
+            reject(new Error(`Failed to load image: ${pathOrUrl}`));
+          };
+        });
+        
+        const texture = new THREE.Texture(img);
+        texture.needsUpdate = true;
+        texture.flipY = true; // FIXED: Match client-side flipY = false for static images
+        return texture;
+      };
+
       // Apply front overlay (FIXED: use overlayUrl directly)
       if (settings.overlayUrl) {
         console.log('� Applying front overlay');
@@ -583,18 +655,8 @@ export const handler: Handler = async (event) => {
             console.log('✅ Animated GIF overlay applied with gifuct-js');
           }
         } else {
-          // Process static image
-          const img = document.createElement('img');
-          img.crossOrigin = 'anonymous';
-          img.src = settings.overlayUrl;
-          await new Promise(resolve => {
-            img.onload = resolve;
-            img.onerror = resolve;
-          });
-          const texture = new THREE.Texture(img);
-          texture.needsUpdate = true;
-          texture.flipY = true; // FIXED: Match client-side flipY = false for static images
-          overlayTexture = texture;
+          // Process static image (URLs or local files)
+          overlayTexture = await loadImageTexture(settings.overlayUrl);
         }
         
         if (overlayTexture) {
@@ -660,18 +722,8 @@ export const handler: Handler = async (event) => {
             console.log('✅ Animated GIF overlay applied with gifuct-js');
           }
         } else {
-          // Process static image
-          const img = document.createElement('img');
-          img.crossOrigin = 'anonymous';
-          img.src = settings.overlayUrl2;
-          await new Promise(resolve => {
-            img.onload = resolve;
-            img.onerror = resolve;
-          });
-          const texture = new THREE.Texture(img);
-          texture.needsUpdate = true;
-          texture.flipY = false; // FIXED: Match client-side flipY = false for static images
-          overlayTexture = texture;
+          // Process static image (URLs or local files)
+          overlayTexture = await loadImageTexture(settings.overlayUrl2);
         }
         
         if (overlayTexture) {
@@ -689,6 +741,42 @@ export const handler: Handler = async (event) => {
           
           overlayBot.material.opacity = 1;
           overlayBot.material.needsUpdate = true;
+        }
+      }
+
+      // Apply body texture if provided (new feature - matching client-side)
+      if (settings.bodyTextureUrl) {
+        console.log('🎨 Applying body texture:', settings.bodyTextureUrl);
+        
+        try {
+          let bodyTexture: THREE.Texture | null = null;
+          
+          if (settings.bodyTextureUrl.toLowerCase().includes('.gif')) {
+            // Process GIF body texture
+            const gifResult = await processGIF(settings.bodyTextureUrl);
+            if (gifResult && gifResult.texture) {
+              bodyTexture = gifResult.texture;
+              console.log('✅ Animated GIF body texture applied');
+            }
+          } else {
+            // Process static body texture (URLs or local files)
+            bodyTexture = await loadImageTexture(settings.bodyTextureUrl);
+            console.log('✅ Static body texture applied');
+          }
+          
+          if (bodyTexture) {
+            // Apply texture to both rim and face materials (overriding previous colors/gradients)
+            rimMat.map = bodyTexture.clone();
+            faceMat.map = bodyTexture.clone();
+            rimMat.color.set('#ffffff'); // Base white for texture
+            faceMat.color.set('#ffffff');
+            rimMat.needsUpdate = true;
+            faceMat.needsUpdate = true;
+            console.log('✅ Body texture applied to rim and face materials');
+          }
+        } catch (error) {
+          console.error('❌ Failed to load body texture:', error);
+          // Continue without body texture
         }
       }
 
@@ -722,6 +810,14 @@ export const handler: Handler = async (event) => {
         }
         if (overlayBot.material && overlayBot.material.map && overlayBot.material.map.userData?.update) {
           overlayBot.material.map.userData.update();
+        }
+        
+        // Update animated body texture (if any)
+        if (rimMat.map && rimMat.map.userData?.update) {
+          rimMat.map.userData.update();
+        }
+        if (faceMat.map && faceMat.map.userData?.update && faceMat.map !== rimMat.map) {
+          faceMat.map.userData.update();
         }
 
         // Render frame

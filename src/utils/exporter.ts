@@ -379,8 +379,30 @@ export class CoinExporter {
   private async renderFramesOnServer(coinSettings: any, exportSettings: ExportSettings): Promise<string[]> {
     console.log('📡 Sending render request to server...');
     
+    // Prepare settings for server-side rendering
+    // Convert blob URLs to temp file paths for uploaded files
+    const serverSettings = { ...coinSettings };
+    
+    // Handle body texture: use temp ID if available, otherwise keep URL
+    if (coinSettings.bodyTextureMode === 'upload' && coinSettings.bodyTextureTempId) {
+      serverSettings.bodyTextureUrl = `/tmp/temp_${coinSettings.bodyTextureTempId}${this.getFileExtension(coinSettings.bodyTextureFile)}`;
+      console.log('🔄 Using server temp file for body texture:', serverSettings.bodyTextureUrl);
+    }
+    
+    // Handle primary overlay: use temp ID if available, otherwise keep URL
+    if (coinSettings.overlayMode === 'upload' && coinSettings.overlayTempId) {
+      serverSettings.overlayUrl = `/tmp/temp_${coinSettings.overlayTempId}${this.getFileExtension(coinSettings.overlayFile)}`;
+      console.log('🔄 Using server temp file for overlay 1:', serverSettings.overlayUrl);
+    }
+    
+    // Handle secondary overlay: use temp ID if available, otherwise keep URL
+    if (coinSettings.overlayMode2 === 'upload' && coinSettings.overlayTempId2) {
+      serverSettings.overlayUrl2 = `/tmp/temp_${coinSettings.overlayTempId2}${this.getFileExtension(coinSettings.overlayFile2)}`;
+      console.log('🔄 Using server temp file for overlay 2:', serverSettings.overlayUrl2);
+    }
+    
     const payload = {
-      settings: coinSettings,
+      settings: serverSettings,
       exportSettings: {
         fps: exportSettings.fps,
         duration: exportSettings.duration,
@@ -414,6 +436,13 @@ export class CoinExporter {
     });
     
     return result.frames;
+  }
+  
+  // Helper to get file extension from File object
+  private getFileExtension(file: File | null): string {
+    if (!file) return '';
+    const ext = file.name.split('.').pop();
+    return ext ? `.${ext}` : '';
   }
 
   // Fallback to original client-side method (renamed)
