@@ -122,10 +122,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     handleFileSelect(file, blobUrl, type);
   }, [handleFileSelect]);
 
-  // Mode change handlers
+  // Mode change handlers - simplified direct approach
   const handleBodyTextureModeChange = (mode: 'url' | 'upload') => {
-    if (mode === settings.bodyTextureMode) return;
+    console.log('Body texture mode change:', mode, 'current:', settings.bodyTextureMode);
     
+    // Always update mode first
     updateSetting('bodyTextureMode', mode);
     
     if (mode === 'url') {
@@ -145,10 +146,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
   };
 
   const handleOverlayModeChange = (mode: 'url' | 'upload', overlayNum: 1 | 2 = 1) => {
-    const currentMode = overlayNum === 1 ? settings.overlayMode : settings.overlayMode2;
-    if (mode === currentMode) return;
+    console.log('Overlay mode change:', mode, 'overlay:', overlayNum);
     
     if (overlayNum === 1) {
+      // Always update mode first
       updateSetting('overlayMode', mode);
       
       if (mode === 'url') {
@@ -166,6 +167,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
         setTempOverlayUrl('');
       }
     } else {
+      // Always update mode first
       updateSetting('overlayMode2', mode);
       
       if (mode === 'url') {
@@ -216,7 +218,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
       currentOverlayUrl: settings.overlayUrl,
       currentOverlayUrl2: settings.overlayUrl2,
       tempOverlayUrl,
-      tempOverlayUrl2
+      tempOverlayUrl2,
+      overlayMode: settings.overlayMode,
+      overlayMode2: settings.overlayMode2
     });
     
     // Clear temp fields
@@ -247,20 +251,25 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
       overlayFile: null,
       overlayBlobUrl: '',
       overlayFile2: null,
-      overlayBlobUrl2: ''
+      overlayBlobUrl2: '',
+      // Reset modes to URL after clearing
+      overlayMode: 'url' as const,
+      overlayMode2: 'url' as const
     };
     
     onSettingsChange(clearedSettings);
   };
 
   const handleClearBodyTexture = () => {
+    console.log('Clearing body texture, current mode:', settings.bodyTextureMode);
+    
     // Always clear the body texture URL - this will trigger the CoinEditor to remove the body texture
     updateSetting('bodyTextureUrl', '');
     
     // Clear temp URL
     setTempBodyTextureUrl('');
     
-    // Cleanup blob URL and file if in upload mode
+    // Always cleanup blob URL and file data regardless of mode
     if (settings.bodyTextureBlobUrl && settings.bodyTextureBlobUrl.startsWith('blob:')) {
       URL.revokeObjectURL(settings.bodyTextureBlobUrl);
     }
@@ -271,6 +280,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     if (bodyTextureFileRef.current) {
       bodyTextureFileRef.current.value = '';
     }
+    
+    // Reset to URL mode after clearing
+    updateSetting('bodyTextureMode', 'url');
   };
 
   const Toggle: React.FC<{ checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }> = ({ 
