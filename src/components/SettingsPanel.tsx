@@ -229,7 +229,19 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
   const handleClearBodyTexture = () => {
     // Always clear the body texture URL - this will trigger the CoinEditor to remove the body texture
     updateSetting('bodyTextureUrl', '');
+    
+    // Clear temp URL
     setTempBodyTextureUrl('');
+    
+    // Cleanup blob URL and file if in upload mode
+    if (settings.bodyTextureBlobUrl && settings.bodyTextureBlobUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(settings.bodyTextureBlobUrl);
+    }
+    updateSetting('bodyTextureFile', null);
+    updateSetting('bodyTextureBlobUrl', '');
+    if (bodyTextureFileRef.current) {
+      bodyTextureFileRef.current.value = '';
+    }
   };
 
   const Toggle: React.FC<{ checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }> = ({ 
@@ -439,6 +451,20 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                     Clear File
                   </button>
                 )}
+                <div className="flex space-x-2">
+                  <button 
+                    onClick={handleApplyBodyTexture}
+                    className="flex-1 bg-white border-2 border-blue-500 text-blue-500 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-blue-50 text-sm"
+                  >
+                    Apply Texture
+                  </button>
+                  <button 
+                    onClick={handleClearBodyTexture}
+                    className="flex-1 bg-white border-2 border-gray-300 text-gray-700 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-gray-50 text-sm"
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
             )}
           </div>

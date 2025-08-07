@@ -16,11 +16,22 @@ export interface CoinSettings {
   gradientStart: string;
   gradientEnd: string;
   bodyTextureUrl: string;
+  // Enhanced texture handling for body
+  bodyTextureMode: 'url' | 'upload';
+  bodyTextureFile: File | null;
+  bodyTextureBlobUrl: string;
   metallic: boolean;
   rotationSpeed: 'slow' | 'medium' | 'fast';
   overlayUrl: string;
+  // Enhanced texture handling for overlays
+  overlayMode: 'url' | 'upload';
+  overlayFile: File | null;
+  overlayBlobUrl: string;
   dualOverlay: boolean;
   overlayUrl2: string;
+  overlayMode2: 'url' | 'upload';
+  overlayFile2: File | null;
+  overlayBlobUrl2: string;
   lightColor: string;
   lightStrength: 'low' | 'medium' | 'strong';
   gifAnimationSpeed: 'slow' | 'medium' | 'fast';
@@ -69,11 +80,22 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     gradientStart: '#ffd700',
     gradientEnd: '#ff8c00',
     bodyTextureUrl: '',
+    // Enhanced texture handling for body
+    bodyTextureMode: 'url',
+    bodyTextureFile: null,
+    bodyTextureBlobUrl: '',
     metallic: true,
     rotationSpeed: 'medium',
     overlayUrl: '',
+    // Enhanced texture handling for overlays
+    overlayMode: 'url',
+    overlayFile: null,
+    overlayBlobUrl: '',
     dualOverlay: false,
     overlayUrl2: '',
+    overlayMode2: 'url',
+    overlayFile2: null,
+    overlayBlobUrl2: '',
     lightColor: '#ffffff',
     lightStrength: 'medium',
     gifAnimationSpeed: 'medium',
