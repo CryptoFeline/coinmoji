@@ -12,34 +12,60 @@ const AppContent: React.FC = () => {
   const coinEditorRef = useRef<CoinEditorRef>(null);
   
   const [coinSettings, setCoinSettings] = useState<CoinSettings>({
+    // Coin Shape & Structure
+    coinShape: 'normal',
+    
+    // Body Material Settings
     fillMode: 'solid',
     bodyColor: '#cecece',
     gradientStart: '#00eaff',
     gradientEnd: '#ee00ff',
+    bodyMetallic: true,          // NEW: Separate from overlay metallic
+    bodyMetalness: 'normal',     // NEW: Body metallic intensity
+    bodyRoughness: 'normal',     // NEW: Body roughness control
+    
+    // Body Texture Settings
     bodyTextureUrl: '',
-    // Enhanced texture handling for body
     bodyTextureMode: 'url',
     bodyTextureFile: null,
     bodyTextureBlobUrl: '',
-    metallic: true,
-    rotationSpeed: 'medium',
+    bodyTextureMapping: 'cylindrical',  // NEW: Texture mapping options
+    bodyTextureRotation: 0,      // NEW: 0-360 degrees
+    bodyTextureScale: 1.0,       // NEW: 0.1-5.0 scale multiplier
+    bodyTextureOffsetX: 0,       // NEW: -1 to 1 offset
+    bodyTextureOffsetY: 0,       // NEW: -1 to 1 offset
+    bodyGifSpeed: 'normal',      // NEW: GIF animation speed for body
+    
+    // Face Overlay Settings
     overlayUrl: '',
-    // Enhanced texture handling for overlays
     overlayMode: 'url',
     overlayFile: null,
     overlayBlobUrl: '',
+    overlayMetallic: false,      // NEW: Separate toggle for overlays
+    overlayMetalness: 'normal',  // Body metallic intensity
+    overlayRoughness: 'low',     // Body roughness control
+    overlayGifSpeed: 'normal',   // RENAMED: from gifAnimationSpeed
+    
+    // Dual Overlay Settings
     dualOverlay: false,
     overlayUrl2: '',
     overlayMode2: 'url',
     overlayFile2: null,
     overlayBlobUrl2: '',
-    gifAnimationSpeed: 'medium',
+    
+  // Animation Settings (NEW SYSTEM)
+    animationDirection: 'right', // NEW: Replace rotationSpeed
+    animationEasing: 'linear',   // NEW
+    animationDuration: 3,        // FIXED: Always 3 seconds for Telegram emoji standard
+    
+    // Lighting Settings
     lightColor: '#cecece',
     lightStrength: 'medium',
-    // Default values for new customization settings
-    coinShape: 'normal',         // 0.15 (default)
-    overlayMetalness: 'normal',  // 0.6 (default)
-    overlayRoughness: 'low',     // 0.3 (default)
+    
+    // DEPRECATED: Kept for backward compatibility
+    metallic: true,             // Will map to bodyMetallic
+    rotationSpeed: 'medium',    // Will map to animationDirection
+    gifAnimationSpeed: 'medium' // Will map to overlayGifSpeed
   });
 
   if (isLoading) {
@@ -83,7 +109,7 @@ const AppContent: React.FC = () => {
         fast: 0.035,
       };
       
-      const rotationSpeed = speedMap[coinSettings.rotationSpeed];
+      const rotationSpeed = speedMap[coinSettings.rotationSpeed || 'medium'];
       
       // FIXED: Always use 3 seconds and calculate the appropriate rotation amount
       const targetDuration = 3; // Always 3 seconds for emoji
@@ -158,7 +184,7 @@ const AppContent: React.FC = () => {
         fast: 0.035,
       };
       
-      const rotationSpeed = speedMap[coinSettings.rotationSpeed];
+      const rotationSpeed = speedMap[coinSettings.rotationSpeed || 'medium'];
       // Calculate time for one full rotation (2π radians)
       const timeForFullRotation = (2 * Math.PI) / rotationSpeed / 60; // Convert to seconds (assuming 60fps)
       

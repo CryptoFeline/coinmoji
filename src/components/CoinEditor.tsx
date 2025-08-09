@@ -11,34 +11,68 @@ interface CoinEditorProps {
 }
 
 export interface CoinSettings {
-  fillMode: 'solid' | 'gradient';
+  // Coin Shape & Structure
+  coinShape: 'thin' | 'normal' | 'thick';
+  
+  // Body Material Settings
+  fillMode: 'solid' | 'gradient' | 'texture';
   bodyColor: string;
   gradientStart: string;
   gradientEnd: string;
+  bodyMetallic: boolean;          // NEW: Separate from overlay metallic
+  bodyMetalness: 'low' | 'normal' | 'high';  // NEW: Body metallic intensity
+  bodyRoughness: 'low' | 'normal' | 'high';  // NEW: Body roughness control
+  
+  // Body Texture Settings
   bodyTextureUrl: string;
-  // Enhanced texture handling for body
   bodyTextureMode: 'url' | 'upload';
   bodyTextureFile: File | null;
   bodyTextureBlobUrl: string;
-  metallic: boolean;
-  rotationSpeed: 'slow' | 'medium' | 'fast';
+  bodyTextureMapping: 'planar' | 'cylindrical' | 'spherical';  // NEW: Texture mapping options
+  bodyTextureRotation: number;    // NEW: 0-360 degrees
+  bodyTextureScale: number;       // NEW: 0.1-5.0 scale multiplier
+  bodyTextureOffsetX: number;     // NEW: -1 to 1 offset
+  bodyTextureOffsetY: number;     // NEW: -1 to 1 offset
+  bodyGifSpeed: 'slow' | 'normal' | 'fast';  // NEW: GIF animation speed for body
+  
+  // Face Overlay Settings
   overlayUrl: string;
-  // Enhanced texture handling for overlays
   overlayMode: 'url' | 'upload';
   overlayFile: File | null;
   overlayBlobUrl: string;
+  overlayMetallic: boolean;       // NEW: Separate toggle for overlays
+  overlayMetalness: 'low' | 'normal' | 'high';
+  overlayRoughness: 'low' | 'normal' | 'high';
+  overlayGifSpeed: 'slow' | 'normal' | 'fast';  // RENAMED: from gifAnimationSpeed
+  
+  // Dual Overlay Settings
   dualOverlay: boolean;
   overlayUrl2: string;
   overlayMode2: 'url' | 'upload';
   overlayFile2: File | null;
   overlayBlobUrl2: string;
+  
+  // Animation Settings (NEW SYSTEM)
+  animationDirection: 'right' | 'left' | 'up' | 'down';  // NEW: Replace rotationSpeed
+  animationEasing: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';  // NEW
+  animationDuration: number;      // NEW: Duration in seconds (default: 3)
+  
+  // Lighting Settings
   lightColor: string;
-  lightStrength: 'low' | 'medium' | 'strong';
-  gifAnimationSpeed: 'slow' | 'medium' | 'fast';
-  // New customization settings
-  coinShape: 'thin' | 'normal' | 'thick';
-  overlayMetalness: 'low' | 'normal' | 'high';
-  overlayRoughness: 'low' | 'normal' | 'high';
+  lightStrength: 'low' | 'medium' | 'high';
+  
+  // Server-side processing fields (backward compatibility maintained)
+  bodyTextureTempId?: string;
+  bodyTextureBase64?: string;
+  overlayTempId?: string;
+  overlayBase64?: string;
+  overlayTempId2?: string;
+  overlayBase64_2?: string;
+  
+  // DEPRECATED: Kept for backward compatibility
+  metallic?: boolean;             // Will map to bodyMetallic
+  rotationSpeed?: 'slow' | 'medium' | 'fast';  // Will map to animationDirection
+  gifAnimationSpeed?: 'slow' | 'medium' | 'fast';  // Will map to overlayGifSpeed
 }
 
 export interface CoinEditorRef {
@@ -55,9 +89,31 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
   const [loadingProgress] = useState(100); // No environment map loading needed
   
   // Refs to track current settings for animation loop
-  const rotationSpeedRef = useRef<'slow' | 'medium' | 'fast'>('medium');
+  const animationDirectionRef = useRef<'right' | 'left' | 'up' | 'down'>('right');
+  const animationEasingRef = useRef<'linear' | 'ease-in' | 'ease-out' | 'ease-in-out'>('linear');
+  const animationDurationRef = useRef<number>(3);
+  
   // Guards async overlay loads so clears can't be "undone" by late promises
   const overlayReqIdRef = useRef(0);
+  
+  // Animation configuration
+  const animationConfigs = {
+    right: { axis: 'y' as const, direction: 1 },
+    left: { axis: 'y' as const, direction: -1 },
+    up: { axis: 'x' as const, direction: 1 },
+    down: { axis: 'x' as const, direction: -1 }
+  };
+  
+  // Easing functions
+  const easingFunctions = {
+    linear: (t: number) => t,
+    'ease-in': (t: number) => t * t,
+    'ease-out': (t: number) => 1 - (1 - t) * (1 - t),
+    'ease-in-out': (t: number) => t < 0.5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t)
+  };
+  
+  // Animation timing state
+  const animationTimeRef = useRef(0);
   
   const sceneRef = useRef<{
     scene: THREE.Scene;
@@ -75,38 +131,79 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
   }>();
 
   const [internalSettings] = useState<CoinSettings>({
+    // Coin Shape & Structure
+    coinShape: 'normal',
+    
+    // Body Material Settings
     fillMode: 'solid',
     bodyColor: '#b87333',
     gradientStart: '#ffd700',
     gradientEnd: '#ff8c00',
+    bodyMetallic: true,
+    bodyMetalness: 'normal',
+    bodyRoughness: 'normal',
+    
+    // Body Texture Settings
     bodyTextureUrl: '',
-    // Enhanced texture handling for body
     bodyTextureMode: 'url',
     bodyTextureFile: null,
     bodyTextureBlobUrl: '',
-    metallic: true,
-    rotationSpeed: 'medium',
+    bodyTextureMapping: 'planar',
+    bodyTextureRotation: 0,
+    bodyTextureScale: 1.0,
+    bodyTextureOffsetX: 0,
+    bodyTextureOffsetY: 0,
+    bodyGifSpeed: 'normal',
+    
+    // Face Overlay Settings
     overlayUrl: '',
-    // Enhanced texture handling for overlays
     overlayMode: 'url',
     overlayFile: null,
     overlayBlobUrl: '',
+    overlayMetallic: false,
+    overlayMetalness: 'normal',
+    overlayRoughness: 'low',
+    overlayGifSpeed: 'normal',
+    
+    // Dual Overlay Settings
     dualOverlay: false,
     overlayUrl2: '',
     overlayMode2: 'url',
     overlayFile2: null,
     overlayBlobUrl2: '',
+    
+    // Animation Settings
+    animationDirection: 'right',
+    animationEasing: 'linear',
+    animationDuration: 3,
+    
+    // Lighting Settings
     lightColor: '#ffffff',
     lightStrength: 'medium',
-    gifAnimationSpeed: 'medium',
-    // Default values for new settings
-    coinShape: 'normal',         // 0.15 (default)
-    overlayMetalness: 'normal',  // 0.6 (default)
-    overlayRoughness: 'low',     // 0.3 (default)
+    
+    // Backward compatibility (deprecated fields)
+    metallic: true,             // Maps to bodyMetallic
+    rotationSpeed: 'medium',    // Maps to animationDirection
+    gifAnimationSpeed: 'medium' // Maps to overlayGifSpeed
   });
 
   // Use external settings if provided, otherwise use internal
   const currentSettings = externalSettings || internalSettings;
+  
+  // Backward compatibility helpers
+  const getEffectiveSettings = (settings: CoinSettings) => ({
+    ...settings,
+    // Map old metallic to bodyMetallic if bodyMetallic not explicitly set
+    bodyMetallic: settings.bodyMetallic ?? settings.metallic ?? true,
+    // Map old rotationSpeed to animationDirection if not explicitly set
+    animationDirection: settings.animationDirection || 
+      (settings.rotationSpeed === 'medium' ? 'right' : 
+       settings.rotationSpeed === 'fast' ? 'right' : 'right'),
+    // Map old gifAnimationSpeed to overlayGifSpeed if not explicitly set
+    overlayGifSpeed: settings.overlayGifSpeed || settings.gifAnimationSpeed || 'normal'
+  });
+  
+  const effectiveSettings = getEffectiveSettings(currentSettings);
 
   // Expose methods via ref
   useImperativeHandle(ref, () => ({
@@ -139,16 +236,26 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     getTurntable: () => sceneRef.current?.turntable || null,
   }), []);
 
-  // Update rotation speed ref when settings change
+  // Update animation refs when settings change
   useEffect(() => {
-    rotationSpeedRef.current = currentSettings.rotationSpeed;
-  }, [currentSettings.rotationSpeed]);
-
-  const speedMap = {
-    slow: 0.01,
-    medium: 0.02,
-    fast: 0.035,
-  };
+    const effective = getEffectiveSettings(currentSettings);
+    const oldDirection = animationDirectionRef.current;
+    animationDirectionRef.current = effective.animationDirection;
+    animationEasingRef.current = effective.animationEasing;
+    animationDurationRef.current = 3; // Always 3 seconds
+    
+    // Reset turntable rotation when changing direction to prevent angle issues
+    if (sceneRef.current?.turntable && oldDirection !== effective.animationDirection) {
+      const config = animationConfigs[effective.animationDirection];
+      if (config.axis === 'y') {
+        // Reset X rotation when switching to Y-axis rotation (left/right)
+        sceneRef.current.turntable.rotation.x = 0;
+      } else {
+        // Reset Y rotation when switching to X-axis rotation (up/down)
+        sceneRef.current.turntable.rotation.y = 0;
+      }
+    }
+  }, [currentSettings.animationDirection, currentSettings.animationEasing, currentSettings.animationDuration, currentSettings.rotationSpeed]);
 
   useEffect(() => {
     if (!mountRef.current) return;
@@ -218,11 +325,20 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     const shapeMap = { thin: 0.01, normal: 0.15, thick: 0.25 };
     let currentBulge = shapeMap[currentSettings.coinShape];
 
-    // Materials
+    // Materials with separate metallic controls
+    const effective = getEffectiveSettings(currentSettings);
+    
+    // Body metallic mapping: low=0.3, normal=0.6, high=0.8
+    const bodyMetalnessMap = { low: 0.3, normal: 0.6, high: 0.8 };
+    const bodyRoughnessMap = { low: 0.2, normal: 0.34, high: 0.5 };
+    
+    const bodyMetalness = effective.bodyMetallic ? bodyMetalnessMap[effective.bodyMetalness] : 0;
+    const bodyRoughness = effective.bodyMetallic ? bodyRoughnessMap[effective.bodyRoughness] : 0.8;
+    
     const rimMat = new THREE.MeshStandardMaterial({
       color: 0xcecece,
-      metalness: 0.8, // Metalness 1 is too much
-      roughness: 0.34,
+      metalness: bodyMetalness,
+      roughness: bodyRoughness,
       envMapIntensity: 1
     });
     const faceMat = rimMat.clone();
@@ -310,12 +426,30 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       dirLight
     };
 
-    // Animation loop
-    const animate = () => {
+    // Animation loop with new easing system
+    const animate = (currentTime?: number) => {
       if (!sceneRef.current) return;
       
       sceneRef.current.animationId = requestAnimationFrame(animate);
-      sceneRef.current.turntable.rotation.y += speedMap[rotationSpeedRef.current];
+      
+      // Update animation time
+      if (currentTime === undefined) currentTime = Date.now();
+      const deltaTime = currentTime - (animationTimeRef.current || currentTime);
+      animationTimeRef.current = currentTime;
+      
+      // Calculate rotation based on new animation system
+      const config = animationConfigs[animationDirectionRef.current];
+      
+      // Base rotation speed: Always complete one full rotation (2π) in exactly 3 seconds
+      const baseSpeed = (Math.PI * 2) / (3 * 1000); // per millisecond - FIXED 3 seconds
+      const rotationDelta = baseSpeed * deltaTime * config.direction;
+      
+      // Apply rotation to the correct axis
+      if (config.axis === 'y') {
+        sceneRef.current.turntable.rotation.y += rotationDelta;
+      } else {
+        sceneRef.current.turntable.rotation.x += rotationDelta;
+      }
       
       // Update animated textures
       const updateAnimatedTexture = (material: THREE.MeshStandardMaterial) => {
@@ -385,8 +519,13 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     };
   }, []);
 
-  // Planar UV mapping helper
-  const planarMapUVs = (geometry: THREE.BufferGeometry) => {
+  // Planar UV mapping helper (enhanced with texture transforms)
+  const planarMapUVs = (geometry: THREE.BufferGeometry, settings: {
+    rotation?: number;
+    scale?: number;
+    offsetX?: number;
+    offsetY?: number;
+  } = {}) => {
     geometry.computeBoundingBox();
     const bb = geometry.boundingBox!;
     const r = Math.max(
@@ -399,11 +538,125 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     const position = geometry.attributes.position;
     const uvArray = new Float32Array(position.count * 2);
 
+    const rotation = (settings.rotation || 0) * Math.PI / 180; // Convert to radians
+    const scale = settings.scale || 1.0;
+    const offsetX = settings.offsetX || 0;
+    const offsetY = settings.offsetY || 0;
+    
+    const cos = Math.cos(rotation);
+    const sin = Math.sin(rotation);
+
     for (let i = 0; i < position.count; i++) {
       const x = position.getX(i);
       const z = position.getZ(i);
-      const u = 0.5 + (x / r) * 0.48;
-      const v = 1 - (0.5 + (z / r) * 0.48);
+      
+      // Base UV coordinates
+      let u = 0.5 + (x / r) * 0.48;
+      let v = 1 - (0.5 + (z / r) * 0.48);
+      
+      // Apply rotation around center
+      u -= 0.5; v -= 0.5;
+      const rotatedU = u * cos - v * sin;
+      const rotatedV = u * sin + v * cos;
+      u = rotatedU + 0.5; v = rotatedV + 0.5;
+      
+      // Apply scale and offset
+      u = (u - 0.5) * scale + 0.5 + offsetX;
+      v = (v - 0.5) * scale + 0.5 + offsetY;
+      
+      uvArray[i * 2] = u;
+      uvArray[i * 2 + 1] = v;
+    }
+
+    geometry.setAttribute('uv', new THREE.BufferAttribute(uvArray, 2));
+  };
+  
+  // Cylindrical UV mapping helper
+  const cylindricalMapUVs = (geometry: THREE.BufferGeometry, settings: {
+    rotation?: number;
+    scale?: number;
+    offsetX?: number;
+    offsetY?: number;
+  } = {}) => {
+    geometry.computeBoundingBox();
+    const bb = geometry.boundingBox!;
+    
+    const position = geometry.attributes.position;
+    const uvArray = new Float32Array(position.count * 2);
+
+    const rotation = (settings.rotation || 0) * Math.PI / 180;
+    const scale = settings.scale || 1.0;
+    const offsetX = settings.offsetX || 0;
+    const offsetY = settings.offsetY || 0;
+
+    for (let i = 0; i < position.count; i++) {
+      const x = position.getX(i);
+      const y = position.getY(i);
+      const z = position.getZ(i);
+      
+      // Cylindrical coordinates
+      const angle = Math.atan2(z, x) + rotation;
+      const height = (y - bb.min.y) / (bb.max.y - bb.min.y);
+      
+      let u = (angle + Math.PI) / (2 * Math.PI);
+      let v = height;
+      
+      // Apply scale and offset
+      u = u * scale + offsetX;
+      v = v * scale + offsetY;
+      
+      // Wrap UV coordinates
+      u = ((u % 1) + 1) % 1;
+      v = Math.max(0, Math.min(1, v));
+      
+      uvArray[i * 2] = u;
+      uvArray[i * 2 + 1] = v;
+    }
+
+    geometry.setAttribute('uv', new THREE.BufferAttribute(uvArray, 2));
+  };
+  
+  // Spherical UV mapping helper  
+  const sphericalMapUVs = (geometry: THREE.BufferGeometry, settings: {
+    rotation?: number;
+    scale?: number;
+    offsetX?: number;
+    offsetY?: number;
+  } = {}) => {
+    const position = geometry.attributes.position;
+    const uvArray = new Float32Array(position.count * 2);
+
+    const rotation = (settings.rotation || 0) * Math.PI / 180;
+    const scale = settings.scale || 1.0;
+    const offsetX = settings.offsetX || 0;
+    const offsetY = settings.offsetY || 0;
+
+    for (let i = 0; i < position.count; i++) {
+      const x = position.getX(i);
+      const y = position.getY(i);
+      const z = position.getZ(i);
+      
+      // Normalize to unit sphere
+      const length = Math.sqrt(x * x + y * y + z * z);
+      const nx = x / length;
+      const ny = y / length;
+      const nz = z / length;
+      
+      // Spherical coordinates with rotation
+      const phi = Math.atan2(nz, nx) + rotation;
+      const theta = Math.acos(ny);
+      
+      let u = (phi + Math.PI) / (2 * Math.PI);
+      let v = theta / Math.PI;
+      
+      // Apply scale and offset
+      u = u * scale + offsetX;
+      v = v * scale + offsetY;
+      
+      // Wrap UV coordinates
+      u = ((u % 1) + 1) % 1;
+      v = Math.max(0, Math.min(1, v));
+      
       uvArray[i * 2] = u;
       uvArray[i * 2 + 1] = v;
     }
@@ -411,8 +664,8 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     geometry.setAttribute('uv', new THREE.BufferAttribute(uvArray, 2));
   };
 
-  // ---- GIF Animation Support with Proper Frame Extraction ----
-  const gifUrlToVideoTexture = async (url: string): Promise<THREE.Texture> => {
+  // ---- GIF Animation Support with Proper Frame Extraction and Speed Control ----
+  const gifUrlToVideoTexture = async (url: string, gifSpeed: 'slow' | 'normal' | 'fast' = 'normal'): Promise<THREE.Texture> => {
     console.log('🎞️ Loading animated GIF texture:', url);
     
     try {
@@ -477,10 +730,11 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       const getFrameInterval = () => {
         const intervalMap = {
           slow: 4,      // Change frame every 4 renders (15fps effective)
-          medium: 2,    // Change frame every 2 renders (30fps effective)  
+          normal: 2,    // Change frame every 2 renders (30fps effective)  
           fast: 1       // Change frame every render (60fps effective)
         };
-        return intervalMap[currentSettings.gifAnimationSpeed];
+        // Use the provided gifSpeed parameter for this texture
+        return intervalMap[gifSpeed] || intervalMap.normal;
       };
       
       // Helper to draw frame to canvas
@@ -554,8 +808,8 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     }
   };
 
-  // Helper to create texture from URL with proper GIF animation support
-  const createTextureFromUrl = (url: string, fileType?: string): Promise<THREE.Texture | THREE.VideoTexture | THREE.CanvasTexture> => {
+  // Helper to create texture from URL with proper GIF animation support and speed control
+  const createTextureFromUrl = (url: string, fileType?: string, gifSpeed?: 'slow' | 'normal' | 'fast'): Promise<THREE.Texture | THREE.VideoTexture | THREE.CanvasTexture> => {
     return new Promise((resolve, reject) => {
       // 🔧 ENHANCED: Smart GIF detection using URL patterns, data URL MIME types, and file type info
       const isGif = /\.gif$/i.test(url) || // Traditional URL ending in .gif
@@ -576,7 +830,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
               detectedVia: fileType === 'image/gif' ? 'fileType' : 
                           /data:image\/gif/i.test(url) ? 'dataURL' : 'urlPattern'
             });
-            const tex = await gifUrlToVideoTexture(url);
+            const tex = await gifUrlToVideoTexture(url, gifSpeed || 'normal');
             resolve(tex);
           } catch (e) {
             console.warn('GIF parsing failed, falling back to static image:', e);
@@ -819,11 +1073,11 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     const { rimMat, faceMat } = sceneRef.current;
 
     if (currentSettings.bodyTextureUrl && currentSettings.bodyTextureUrl.trim() !== '') {
-      // Apply body texture with proper face UV mapping
-      // Pass file type for uploaded files to enable proper GIF detection
+      // Apply body texture with enhanced settings support
       const fileType = currentSettings.bodyTextureMode === 'upload' && currentSettings.bodyTextureFile ? 
                       currentSettings.bodyTextureFile.type : undefined;
-      createTextureFromUrl(currentSettings.bodyTextureUrl, fileType)
+      
+      createTextureFromUrl(currentSettings.bodyTextureUrl, fileType, currentSettings.bodyGifSpeed)
         .then((texture) => {
           // Dispose of previous textures first
           (rimMat.map as any)?.userData?.dispose?.();
@@ -831,7 +1085,14 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           rimMat.map?.dispose();
           faceMat.map?.dispose();
           
-          // For body textures on faces, apply planar UV mapping like overlays
+          // Apply texture transformations
+          texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+          texture.repeat.set(currentSettings.bodyTextureScale, currentSettings.bodyTextureScale);
+          texture.offset.set(currentSettings.bodyTextureOffsetX, currentSettings.bodyTextureOffsetY);
+          texture.rotation = (currentSettings.bodyTextureRotation * Math.PI) / 180; // Convert to radians
+          texture.center.set(0.5, 0.5); // Rotate around center
+          
+          // Apply UV mapping based on selected mode
           const { coinGroup } = sceneRef.current!;
           const faces = coinGroup.children.filter(child => 
             child instanceof THREE.Mesh && 
@@ -839,8 +1100,28 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           ) as THREE.Mesh[];
           
           faces.forEach(face => {
-            // Apply planar UV mapping to face geometry for texture
-            planarMapUVs(face.geometry);
+            switch (currentSettings.bodyTextureMapping) {
+              case 'cylindrical':
+                cylindricalMapUVs(face.geometry, {
+                  rotation: currentSettings.bodyTextureRotation,
+                  scale: currentSettings.bodyTextureScale,
+                  offsetX: currentSettings.bodyTextureOffsetX,
+                  offsetY: currentSettings.bodyTextureOffsetY
+                });
+                break;
+              case 'spherical':
+                sphericalMapUVs(face.geometry, {
+                  rotation: currentSettings.bodyTextureRotation,
+                  scale: currentSettings.bodyTextureScale,
+                  offsetX: currentSettings.bodyTextureOffsetX,
+                  offsetY: currentSettings.bodyTextureOffsetY
+                });
+                break;
+              case 'planar':
+              default:
+                planarMapUVs(face.geometry);
+                break;
+            }
           });
           
           // Apply texture to both rim and face materials
@@ -917,7 +1198,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
 
     // Update metallic property
     rimMat.metalness = faceMat.metalness = currentSettings.metallic ? 0.8 : 0.5;
-  }, [currentSettings.fillMode, currentSettings.bodyColor, currentSettings.gradientStart, currentSettings.gradientEnd, currentSettings.metallic, currentSettings.bodyTextureUrl]);
+  }, [currentSettings.fillMode, currentSettings.bodyColor, currentSettings.gradientStart, currentSettings.gradientEnd, currentSettings.metallic, currentSettings.bodyTextureUrl, currentSettings.bodyTextureMapping, currentSettings.bodyTextureRotation, currentSettings.bodyTextureScale, currentSettings.bodyTextureOffsetX, currentSettings.bodyTextureOffsetY, currentSettings.bodyGifSpeed]);
 
   // Update overlay material properties when metalness/roughness settings change
   useEffect(() => {
@@ -964,7 +1245,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     const lightStrengthMap = {
       low: { hemi: 0.3, dir: 0.6 },
       medium: { hemi: 0.8, dir: 1.3 },
-      strong: { hemi: 1.2, dir: 3.0 }
+      high: { hemi: 1.2, dir: 3.0 }  // FIXED: changed 'strong' to 'high' to match the interface
     };
 
     const strength = lightStrengthMap[currentSettings.lightStrength];

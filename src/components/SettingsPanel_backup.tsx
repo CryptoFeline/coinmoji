@@ -134,57 +134,19 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     }, 4000); // Auto-hide after 4 seconds
   }, []);
 
-  // Toggle Component
-  const Toggle: React.FC<{ checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }> = ({ 
-    checked, 
-    onChange, 
-    disabled = false 
-  }) => (
-    <label className={`relative inline-flex items-center ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        disabled={disabled}
-        className="sr-only peer"
-      />
-      <div className={`
-        w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 
-        dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 
-        peer-checked:after:translate-x-full peer-checked:after:border-white 
-        after:content-[''] after:absolute after:top-[2px] after:left-[2px] 
-        after:bg-white after:border-gray-300 after:border after:rounded-full 
-        after:h-5 after:w-5 after:transition-all dark:border-gray-600 
-        ${checked ? 'peer-checked:bg-blue-600' : ''} 
-        ${disabled ? 'cursor-not-allowed' : ''}
-      `} />
-    </label>
-  );
-
-  // Upload file to server for processing
-  const uploadFileToServer = useCallback(async (file: File): Promise<{
-    tempId: string;
-    base64Data: string;
-    mimetype: string;
-  }> => {
+  // Upload file to server for server-side rendering
+  const uploadFileToServer = useCallback(async (file: File): Promise<{tempId: string, base64Data: string, mimetype: string}> => {
     const formData = new FormData();
     formData.append('file', file);
 
-    console.log('📤 Uploading file to server:', {
-      name: file.name,
-      size: file.size,
-      type: file.type
-    });
-
-    const response = await fetch('/.netlify/functions/send-file', {
+    const response = await fetch(`${window.location.origin}/.netlify/functions/upload-temp-file`, {
       method: 'POST',
-      body: formData,
+      body: formData
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Upload failed with status:', response.status, errorText);
-      throw new Error(`Upload failed (${response.status}): ${errorText}`);
+      const errorResult = await response.json();
+      throw new Error(`Upload failed: ${errorResult.error || response.statusText}`);
     }
 
     const result = await response.json();
@@ -236,44 +198,43 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     // Start server upload in the background (non-blocking)
     let tempId: string | undefined;
     let base64Data: string | undefined;
-
     try {
       const uploadResult = await uploadFileToServer(file);
       tempId = uploadResult.tempId;
       base64Data = uploadResult.base64Data;
-      
-      console.log('✅ File uploaded successfully:', {
-        type,
-        tempId,
-        hasBase64: !!base64Data
-      });
+      console.log(`✅ File uploaded to server with temp ID: ${tempId}`);
     } catch (error) {
-      console.warn('⚠️ Background upload failed (preview still available):', error);
-      // Don't show error notification - preview still works
-      // User will see error only if they try to export/download
+      console.error('⚠️ Server upload failed (will fallback to client-side only):', error);
+      showNotification('Server upload failed - using client-side only', 'warning');
     }
 
-    // Build updates object based on type
+    // 🔧 UPDATED: Use blob URLs for client preview (memory efficient)
+    // Base64 data is stored separately for server-side rendering
+    // Client-side GIF processing can now handle both blob URLs and data URLs properly
+    
+    // Update settings with new file and blob URL for client preview
     const updates: Partial<CoinSettings> = {};
     
     if (type === 'bodyTexture') {
       updates.bodyTextureFile = file;
-      updates.bodyTextureBlobUrl = blobUrl;
-      if (tempId) updates.bodyTextureTempId = tempId;
-      if (base64Data) updates.bodyTextureBase64 = base64Data;
+      updates.bodyTextureBlobUrl = blobUrl; // Always use blob URL for client preview
+      updates.bodyTextureMode = 'upload';
+      updates.bodyTextureTempId = tempId;
+      updates.bodyTextureBase64 = base64Data; // Base64 for server rendering
     } else if (type === 'overlay') {
       updates.overlayFile = file;
-      updates.overlayBlobUrl = blobUrl;
-      if (tempId) updates.overlayTempId = tempId;
-      if (base64Data) updates.overlayBase64 = base64Data;
-    } else if (type === 'overlay2') {
+      updates.overlayBlobUrl = blobUrl; // Always use blob URL for client preview
+      updates.overlayMode = 'upload';
+      updates.overlayTempId = tempId;
+      updates.overlayBase64 = base64Data; // Base64 for server rendering
+    } else {
       updates.overlayFile2 = file;
-      updates.overlayBlobUrl2 = blobUrl;
-      if (tempId) updates.overlayTempId2 = tempId;
-      if (base64Data) updates.overlayBase64_2 = base64Data;
+      updates.overlayBlobUrl2 = blobUrl; // Always use blob URL for client preview
+      updates.overlayMode2 = 'upload';
+      updates.overlayTempId2 = tempId;
+      updates.overlayBase64_2 = base64Data; // Base64 for server rendering
     }
 
-    // Single state update for immediate preview
     onSettingsChange({
       ...settings,
       ...updates
@@ -388,7 +349,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     
     if (overlayNum === 1) {
       if (mode === 'url') {
-        // Clear file data for overlay 1
+        // Switching to URL mode - clear file data
         if (settings.overlayBlobUrl && settings.overlayBlobUrl.startsWith('blob:')) {
           URL.revokeObjectURL(settings.overlayBlobUrl);
           activeBlobUrls.current.delete(settings.overlayBlobUrl);
@@ -397,6 +358,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
           overlayFileRef.current.value = '';
         }
         
+        // Single state update with all changes
         onSettingsChange({
           ...settings,
           overlayMode: mode,
@@ -406,13 +368,13 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
           overlayBase64: undefined
         });
       } else {
-        // Clear URL for overlay 1
+        // Switching to upload mode - clear URL
         setTempOverlayUrl('');
         updateSetting('overlayMode', mode);
       }
     } else {
       if (mode === 'url') {
-        // Clear file data for overlay 2
+        // Switching to URL mode - clear file data
         if (settings.overlayBlobUrl2 && settings.overlayBlobUrl2.startsWith('blob:')) {
           URL.revokeObjectURL(settings.overlayBlobUrl2);
           activeBlobUrls.current.delete(settings.overlayBlobUrl2);
@@ -421,6 +383,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
           overlayFileRef2.current.value = '';
         }
         
+        // Single state update with all changes
         onSettingsChange({
           ...settings,
           overlayMode2: mode,
@@ -430,7 +393,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
           overlayBase64_2: undefined
         });
       } else {
-        // Clear URL for overlay 2
+        // Switching to upload mode - clear URL
         setTempOverlayUrl2('');
         updateSetting('overlayMode2', mode);
       }
@@ -438,34 +401,32 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
   };
 
   const handleApplyOverlay = () => {
-    let hasApplied = false;
-    let message = '';
+    let appliedCount = 0;
     
-    // Primary overlay
+    // Handle primary overlay
     if (settings.overlayMode === 'url' && tempOverlayUrl.trim()) {
       updateSetting('overlayUrl', tempOverlayUrl.trim());
-      hasApplied = true;
-      message = 'Face image applied successfully';
+      appliedCount++;
     } else if (settings.overlayMode === 'upload' && settings.overlayFile && settings.overlayBlobUrl) {
       updateSetting('overlayUrl', settings.overlayBlobUrl);
-      hasApplied = true;
-      message = 'Face image applied successfully';
+      appliedCount++;
     }
     
-    // Secondary overlay (if dual overlay is enabled)
+    // Handle secondary overlay if dual is enabled
     if (settings.dualOverlay) {
       if (settings.overlayMode2 === 'url' && tempOverlayUrl2.trim()) {
         updateSetting('overlayUrl2', tempOverlayUrl2.trim());
-        hasApplied = true;
-        message = message.includes('applied') ? 'Face images applied successfully' : 'Back face image applied successfully';
+        appliedCount++;
       } else if (settings.overlayMode2 === 'upload' && settings.overlayFile2 && settings.overlayBlobUrl2) {
         updateSetting('overlayUrl2', settings.overlayBlobUrl2);
-        hasApplied = true;
-        message = message.includes('applied') ? 'Face images applied successfully' : 'Back face image applied successfully';
+        appliedCount++;
       }
     }
     
-    if (hasApplied) {
+    if (appliedCount > 0) {
+      const message = settings.dualOverlay 
+        ? `Applied ${appliedCount} face image${appliedCount > 1 ? 's' : ''}` 
+        : 'Face image applied successfully';
       showNotification(message, 'success');
     } else {
       showNotification('No face images to apply. Please select an image first.', 'warning');
@@ -567,6 +528,34 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     onSettingsChange(clearedSettings);
     showNotification('Body texture cleared successfully', 'success');
   };
+
+  const Toggle: React.FC<{ checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }> = ({ 
+    checked, 
+    onChange, 
+    disabled = false 
+  }) => (
+    <button
+      onClick={() => !disabled && onChange(!checked)}
+      disabled={disabled}
+      className={`
+        relative inline-flex h-6 w-11 items-center rounded-full transition-colors border
+        focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
+        ${checked 
+          ? 'bg-blue-500 border-blue-500' 
+          : disabled 
+            ? 'bg-gray-200 border-gray-200 cursor-not-allowed' 
+            : 'bg-gray-200 border-gray-300'
+        }
+      `}
+    >
+      <span
+        className={`
+          inline-block h-4 w-4 transform rounded-full bg-white transition-transform
+          ${checked ? 'translate-x-5' : 'translate-x-0.5'}
+        `}
+      />
+    </button>
+  );
 
   if (!isOpen) return null;
 
@@ -678,13 +667,22 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                 </div>
               </div>
               
-              {/* Animation Duration - Fixed at 3s */}
+              {/* Animation Duration */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="block text-sm font-medium text-gray-700">Duration</label>
-                  <span className="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded">3s (Fixed)</span>
+                <label className="block text-sm font-medium text-gray-700">Duration: {settings.animationDuration}s</label>
+                <input
+                  type="range"
+                  min="1"
+                  max="10"
+                  step="0.5"
+                  value={settings.animationDuration}
+                  onChange={(e) => updateSetting('animationDuration', parseFloat(e.target.value))}
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider-thumb"
+                />
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span>1s</span>
+                  <span>10s</span>
                 </div>
-                <p className="text-xs text-gray-500">Complete 360° rotation in 3 seconds (Telegram emoji standard)</p>
               </div>
             </div>
           </div>
@@ -756,19 +754,230 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
               <div className="space-y-3">
                 <label className="block text-sm font-medium text-gray-700">Gradient Colors</label>
                 <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="color"
-                    value={settings.gradientStart}
-                    onChange={(e) => updateSetting('gradientStart', e.target.value)}
-                    className="w-full h-10 rounded-lg border-2 border-gray-300 cursor-pointer"
-                  />
-                  <input
-                    type="color"
-                    value={settings.gradientEnd}
-                    onChange={(e) => updateSetting('gradientEnd', e.target.value)}
-                    className="w-full h-10 rounded-lg border-2 border-gray-300 cursor-pointer"
-                  />
+                  <div>
+                    <input
+                      type="color"
+                      value={settings.gradientStart}
+                      onChange={(e) => updateSetting('gradientStart', e.target.value)}
+                      className="w-full h-10 rounded-lg border-2 border-gray-300 cursor-pointer"
+                    />
+                  </div>
+                  <div>
+                    <input
+                      type="color"
+                      value={settings.gradientEnd}
+                      onChange={(e) => updateSetting('gradientEnd', e.target.value)}
+                      className="w-full h-10 rounded-lg border-2 border-gray-300 cursor-pointer"
+                    />
+                  </div>
                 </div>
+              </div>
+            )}
+
+            {/* Body Texture Upload */}
+            {settings.fillMode === 'texture' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="block text-sm font-medium text-gray-700">Body Texture</label>
+                  <div className="grid grid-cols-2 gap-1">
+                    <button
+                      onClick={() => handleBodyTextureModeChange('url')}
+                      className={`px-3 py-1 text-xs font-medium rounded-l-lg border-2 transition-all ${
+                        settings.bodyTextureMode === 'url'
+                          ? 'bg-blue-500 text-white border-blue-500'
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                      }`}
+                    >
+                      URL
+                    </button>
+                    <button
+                      onClick={() => handleBodyTextureModeChange('upload')}
+                      className={`px-3 py-1 text-xs font-medium rounded-r-lg border-2 border-l-0 transition-all ${
+                        settings.bodyTextureMode === 'upload'
+                          ? 'bg-blue-500 text-white border-blue-500'
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                      }`}
+                    >
+                      Upload
+                    </button>
+                  </div>
+                </div>
+                
+                {settings.bodyTextureMode === 'url' ? (
+                  <input
+                    type="url"
+                    value={tempBodyTextureUrl}
+                    onChange={(e) => setTempBodyTextureUrl(e.target.value)}
+                    placeholder="https://example.com/texture.jpg/png/gif/webm"
+                    className="w-full px-3 py-2 bg-gray-50 border-2 border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  />
+                ) : (
+                  <div className="space-y-2">
+                    <input
+                      ref={bodyTextureFileRef}
+                      type="file"
+                      accept="image/jpeg,image/jpg,image/png,image/gif,video/webm"
+                      onChange={(e) => validateAndSelectFile(e, 'bodyTexture')}
+                      className="hidden"
+                    />
+                    <div 
+                      onClick={() => bodyTextureFileRef.current?.click()}
+                      className={`w-full p-4 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors ${
+                        isProcessingFile.bodyTexture ? 'opacity-75 cursor-wait' : ''
+                      }`}
+                    >
+                      {isProcessingFile.bodyTexture ? (
+                        <div className="text-center">
+                          <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+                          <p className="text-sm text-gray-600 mt-2">Processing file...</p>
+                        </div>
+                      ) : settings.bodyTextureFile ? (
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-green-600">✅</span>
+                            <span className="text-sm text-gray-700 truncate">
+                              {settings.bodyTextureFile.name}
+                            </span>
+                          </div>
+                          <span className="text-xs text-gray-500">
+                            {(settings.bodyTextureFile.size / 1024).toFixed(1)}KB
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="text-center">
+                          <span className="text-gray-400 text-2xl">📁</span>
+                          <p className="text-sm text-gray-600">Click to select file</p>
+                          <p className="text-xs text-gray-400">JPG, PNG, GIF, WebM (max 5MB)</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                <div className="flex space-x-2">
+                  <button 
+                    onClick={handleApplyBodyTexture}
+                    className="flex-1 bg-white border-2 border-blue-500 text-blue-500 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-blue-50 text-sm"
+                  >
+                    Apply Texture
+                  </button>
+                  <button 
+                    onClick={handleClearBodyTexture}
+                    className="flex-1 bg-white border-2 border-gray-300 text-gray-700 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-gray-50 text-sm"
+                  >
+                    Clear
+                  </button>
+                </div>
+
+                {/* NEW: Texture Mapping Options */}
+                {(settings.bodyTextureUrl || settings.bodyTextureBlobUrl) && (
+                  <div className="space-y-3 pt-2 border-t border-gray-100">
+                    <div>
+                      <h4 className="text-sm font-medium text-gray-900">Texture Mapping</h4>
+                      <p className="text-xs text-gray-500">Control how texture is applied</p>
+                    </div>
+                    
+                    {/* Mapping Type */}
+                    <div className="space-y-2">
+                      <label className="block text-xs font-medium text-gray-600">Type</label>
+                      <div className="grid grid-cols-3 gap-1">
+                        {(['planar', 'cylindrical', 'spherical'] as const).map((mapping) => (
+                          <button
+                            key={mapping}
+                            onClick={() => updateSetting('bodyTextureMapping', mapping)}
+                            className={`p-2 rounded-lg border text-xs font-medium transition-all capitalize ${
+                              settings.bodyTextureMapping === mapping
+                                ? 'border-blue-500 bg-blue-50 text-blue-500'
+                                : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
+                            }`}
+                          >
+                            {mapping}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Texture Rotation */}
+                    <div className="space-y-2">
+                      <label className="block text-xs font-medium text-gray-600">Rotation: {settings.bodyTextureRotation}°</label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="360"
+                        step="15"
+                        value={settings.bodyTextureRotation}
+                        onChange={(e) => updateSetting('bodyTextureRotation', parseInt(e.target.value))}
+                        className="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Texture Scale */}
+                    <div className="space-y-2">
+                      <label className="block text-xs font-medium text-gray-600">Scale: {settings.bodyTextureScale}x</label>
+                      <input
+                        type="range"
+                        min="0.1"
+                        max="5.0"
+                        step="0.1"
+                        value={settings.bodyTextureScale}
+                        onChange={(e) => updateSetting('bodyTextureScale', parseFloat(e.target.value))}
+                        className="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Texture Offset */}
+                    <div className="space-y-2">
+                      <label className="block text-xs font-medium text-gray-600">Offset X: {settings.bodyTextureOffsetX}</label>
+                      <input
+                        type="range"
+                        min="-1"
+                        max="1"
+                        step="0.05"
+                        value={settings.bodyTextureOffsetX}
+                        onChange={(e) => updateSetting('bodyTextureOffsetX', parseFloat(e.target.value))}
+                        className="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                      />
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <label className="block text-xs font-medium text-gray-600">Offset Y: {settings.bodyTextureOffsetY}</label>
+                      <input
+                        type="range"
+                        min="-1"
+                        max="1"
+                        step="0.05"
+                        value={settings.bodyTextureOffsetY}
+                        onChange={(e) => updateSetting('bodyTextureOffsetY', parseFloat(e.target.value))}
+                        className="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* NEW: Body GIF Speed Control */}
+                {(settings.bodyTextureUrl?.includes('.gif') || settings.bodyTextureFile?.type === 'image/gif') && (
+                  <div className="space-y-3 pt-2 border-t border-gray-100">
+                    <div>
+                      <h4 className="text-sm font-medium text-gray-900">GIF Animation Speed</h4>
+                      <p className="text-xs text-gray-500">Control texture animation speed</p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(['slow', 'normal', 'fast'] as const).map((speed) => (
+                        <button
+                          key={speed}
+                          onClick={() => updateSetting('bodyGifSpeed', speed)}
+                          className={`p-2 rounded-lg text-sm font-medium transition-all capitalize border-2 ${
+                            settings.bodyGifSpeed === speed
+                              ? 'bg-blue-50 text-blue-500 border-blue-500'
+                              : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                          }`}
+                        >
+                          {speed}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -831,199 +1040,6 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                   </div>
                 </div>
               )}
-            </div>
-
-            {/* Body Texture Section (Enhanced) */}
-            {settings.fillMode === 'texture' && (
-              <div className="space-y-4 p-4 bg-gray-50 rounded-lg border">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-base font-medium text-gray-900">Body Texture</h3>
-                  <div className="flex space-x-2">
-                    <button 
-                      onClick={handleApplyBodyTexture}
-                      className="bg-white border-2 border-blue-500 text-blue-500 font-medium py-1 px-3 rounded-lg transition-colors hover:bg-blue-50 text-sm"
-                    >
-                      Apply
-                    </button>
-                    <button 
-                      onClick={handleClearBodyTexture}
-                      className="bg-white border-2 border-gray-300 text-gray-700 font-medium py-1 px-3 rounded-lg transition-colors hover:bg-gray-50 text-sm"
-                    >
-                      Clear
-                    </button>
-                  </div>
-                </div>
-
-                {/* Texture Source Selection */}
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => handleBodyTextureModeChange('url')}
-                    className={`p-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                      settings.bodyTextureMode === 'url'
-                        ? 'border-blue-500 bg-blue-50 text-blue-500'
-                        : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
-                    }`}
-                  >
-                    URL
-                  </button>
-                  <button
-                    onClick={() => handleBodyTextureModeChange('upload')}
-                    className={`p-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                      settings.bodyTextureMode === 'upload'
-                        ? 'border-blue-500 bg-blue-50 text-blue-500'
-                        : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
-                    }`}
-                  >
-                    Upload
-                  </button>
-                </div>
-
-                {/* URL Input */}
-                {settings.bodyTextureMode === 'url' && (
-                  <div className="space-y-2">
-                    <label className="block text-sm font-medium text-gray-700">Texture URL</label>
-                    <input
-                      type="url"
-                      value={tempBodyTextureUrl}
-                      onChange={(e) => setTempBodyTextureUrl(e.target.value)}
-                      placeholder="https://example.com/texture.png"
-                      className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                    />
-                    {settings.bodyTextureUrl && (
-                      <p className="text-xs text-green-600">✓ Applied: {settings.bodyTextureUrl.substring(0, 50)}...</p>
-                    )}
-                  </div>
-                )}
-
-                {/* File Upload */}
-                {settings.bodyTextureMode === 'upload' && (
-                  <div className="space-y-2">
-                    <label className="block text-sm font-medium text-gray-700">Select File</label>
-                    <input
-                      ref={bodyTextureFileRef}
-                      type="file"
-                      accept="image/*,video/webm"
-                      onChange={(e) => validateAndSelectFile(e, 'bodyTexture')}
-                      disabled={isProcessingFile.bodyTexture}
-                      className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 disabled:opacity-50"
-                    />
-                    {isProcessingFile.bodyTexture && (
-                      <div className="flex items-center text-blue-500 text-xs">
-                        <div className="animate-spin rounded-full h-3 w-3 border-2 border-blue-500 border-t-transparent mr-2"></div>
-                        Processing file...
-                      </div>
-                    )}
-                    {settings.bodyTextureFile && (
-                      <p className="text-xs text-green-600">✓ Selected: {settings.bodyTextureFile.name}</p>
-                    )}
-                  </div>
-                )}
-
-                {/* GIF Speed Control for Body Textures */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">GIF Speed</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(['slow', 'normal', 'fast'] as const).map((speed) => (
-                      <button
-                        key={speed}
-                        onClick={() => updateSetting('bodyGifSpeed', speed)}
-                        className={`p-2 rounded-lg border-2 text-sm font-medium transition-all capitalize ${
-                          settings.bodyGifSpeed === speed
-                            ? 'border-blue-500 bg-blue-50 text-blue-500'
-                            : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
-                        }`}
-                      >
-                        {speed}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Texture Mapping Mode */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">Mapping Mode</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(['planar', 'cylindrical', 'spherical'] as const).map((mode) => (
-                      <button
-                        key={mode}
-                        onClick={() => updateSetting('bodyTextureMapping', mode)}
-                        className={`p-2 rounded-lg border-2 text-sm font-medium transition-all capitalize ${
-                          settings.bodyTextureMapping === mode
-                            ? 'border-blue-500 bg-blue-50 text-blue-500'
-                            : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
-                        }`}
-                      >
-                        {mode}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Advanced Texture Controls */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Rotation: {settings.bodyTextureRotation}°
-                    </label>
-                    <input
-                      type="range"
-                      min="0"
-                      max="360"
-                      value={settings.bodyTextureRotation}
-                      onChange={(e) => updateSetting('bodyTextureRotation', parseInt(e.target.value))}
-                      className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Scale: {settings.bodyTextureScale}x
-                    </label>
-                    <input
-                      type="range"
-                      min="0.1"
-                      max="5"
-                      step="0.1"
-                      value={settings.bodyTextureScale}
-                      onChange={(e) => updateSetting('bodyTextureScale', parseFloat(e.target.value))}
-                      className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Offset X: {settings.bodyTextureOffsetX.toFixed(2)}
-                    </label>
-                    <input
-                      type="range"
-                      min="-1"
-                      max="1"
-                      step="0.05"
-                      value={settings.bodyTextureOffsetX}
-                      onChange={(e) => updateSetting('bodyTextureOffsetX', parseFloat(e.target.value))}
-                      className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Offset Y: {settings.bodyTextureOffsetY.toFixed(2)}
-                    </label>
-                    <input
-                      type="range"
-                      min="-1"
-                      max="1"
-                      step="0.05"
-                      value={settings.bodyTextureOffsetY}
-                      onChange={(e) => updateSetting('bodyTextureOffsetY', parseFloat(e.target.value))}
-                      className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
           {/* ===== FACE OVERLAYS SECTION ===== */}
           <div className="space-y-4">
             <div className="border-b border-gray-200 pb-2">
@@ -1045,178 +1061,173 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                 onChange={(checked) => updateSetting('dualOverlay', checked)} 
               />
             </div>
-
-            {/* Overlay Input Sections */}
+            
             <div className="space-y-4">
               {/* Primary Overlay */}
-              <div className="space-y-3 p-4 bg-gray-50 rounded-lg border">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-base font-medium text-gray-900">
-                    {settings.dualOverlay ? 'Front Face' : 'Face Image'}
-                  </h3>
-                </div>
-
-                {/* Overlay Mode Selection */}
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => handleOverlayModeChange('url', 1)}
-                    className={`p-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                      settings.overlayMode === 'url'
-                        ? 'border-blue-500 bg-blue-50 text-blue-500'
-                        : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
-                    }`}
-                  >
-                    URL
-                  </button>
-                  <button
-                    onClick={() => handleOverlayModeChange('upload', 1)}
-                    className={`p-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                      settings.overlayMode === 'upload'
-                        ? 'border-blue-500 bg-blue-50 text-blue-500'
-                        : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
-                    }`}
-                  >
-                    Upload
-                  </button>
-                </div>
-
-                {/* URL Input */}
-                {settings.overlayMode === 'url' && (
-                  <div className="space-y-2">
-                    <label className="block text-sm font-medium text-gray-700">Image URL</label>
-                    <input
-                      type="url"
-                      value={tempOverlayUrl}
-                      onChange={(e) => setTempOverlayUrl(e.target.value)}
-                      placeholder="https://example.com/image.png"
-                      className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                    />
-                    {settings.overlayUrl && (
-                      <p className="text-xs text-green-600">✓ Applied: {settings.overlayUrl.substring(0, 50)}...</p>
-                    )}
-                  </div>
-                )}
-
-                {/* File Upload */}
-                {settings.overlayMode === 'upload' && (
-                  <div className="space-y-2">
-                    <label className="block text-sm font-medium text-gray-700">Select File</label>
-                    <input
-                      ref={overlayFileRef}
-                      type="file"
-                      accept="image/*,video/webm"
-                      onChange={(e) => validateAndSelectFile(e, 'overlay')}
-                      disabled={isProcessingFile.overlay}
-                      className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 disabled:opacity-50"
-                    />
-                    {isProcessingFile.overlay && (
-                      <div className="flex items-center text-blue-500 text-xs">
-                        <div className="animate-spin rounded-full h-3 w-3 border-2 border-blue-500 border-t-transparent mr-2"></div>
-                        Processing file...
-                      </div>
-                    )}
-                    {settings.overlayFile && (
-                      <p className="text-xs text-green-600">✓ Selected: {settings.overlayFile.name}</p>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Secondary Overlay (only if dual overlay is enabled) */}
-              {settings.dualOverlay && (
-                <div className="space-y-3 p-4 bg-gray-50 rounded-lg border">
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-base font-medium text-gray-900">Back Face</h3>
-                  </div>
-
-                  {/* Overlay 2 Mode Selection */}
-                  <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="block text-sm font-medium text-gray-700">
+                    {settings.dualOverlay ? 'Front Image' : 'Face Image'}
+                  </label>
+                  <div className="grid grid-cols-2 gap-1">
                     <button
-                      onClick={() => handleOverlayModeChange('url', 2)}
-                      className={`p-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                        settings.overlayMode2 === 'url'
-                          ? 'border-blue-500 bg-blue-50 text-blue-500'
-                          : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
+                      onClick={() => handleOverlayModeChange('url', 1)}
+                      className={`px-3 py-1 text-xs font-medium rounded-l-lg border-2 transition-all ${
+                        settings.overlayMode === 'url'
+                          ? 'bg-blue-500 text-white border-blue-500'
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
                       }`}
                     >
                       URL
                     </button>
                     <button
-                      onClick={() => handleOverlayModeChange('upload', 2)}
-                      className={`p-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                        settings.overlayMode2 === 'upload'
-                          ? 'border-blue-500 bg-blue-50 text-blue-500'
-                          : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
+                      onClick={() => handleOverlayModeChange('upload', 1)}
+                      className={`px-3 py-1 text-xs font-medium rounded-r-lg border-2 border-l-0 transition-all ${
+                        settings.overlayMode === 'upload'
+                          ? 'bg-blue-500 text-white border-blue-500'
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
                       }`}
                     >
                       Upload
                     </button>
                   </div>
-
-                  {/* URL Input for Overlay 2 */}
-                  {settings.overlayMode2 === 'url' && (
-                    <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">Image URL</label>
-                      <input
-                        type="url"
-                        value={tempOverlayUrl2}
-                        onChange={(e) => setTempOverlayUrl2(e.target.value)}
-                        placeholder="https://example.com/image.png"
-                        className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                      />
-                      {settings.overlayUrl2 && (
-                        <p className="text-xs text-green-600">✓ Applied: {settings.overlayUrl2.substring(0, 50)}...</p>
+                </div>
+                
+                {settings.overlayMode === 'url' ? (
+                  <input
+                    type="url"
+                    value={tempOverlayUrl}
+                    onChange={(e) => setTempOverlayUrl(e.target.value)}
+                    placeholder="https://example.com/img.jpg/png/gif/webm"
+                    className="w-full px-3 py-2 bg-gray-50 border-2 border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  />
+                ) : (
+                  <div className="space-y-2">
+                    <input
+                      ref={overlayFileRef}
+                      type="file"
+                      accept="image/jpeg,image/jpg,image/png,image/gif,video/webm"
+                      onChange={(e) => validateAndSelectFile(e, 'overlay')}
+                      className="hidden"
+                    />
+                    <div 
+                      onClick={() => overlayFileRef.current?.click()}
+                      className={`w-full p-4 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors ${
+                        isProcessingFile.overlay ? 'opacity-75 cursor-wait' : ''
+                      }`}
+                    >
+                      {isProcessingFile.overlay ? (
+                        <div className="text-center">
+                          <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+                          <p className="text-sm text-gray-600 mt-2">Processing file...</p>
+                        </div>
+                      ) : settings.overlayFile ? (
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-green-600">✅</span>
+                            <span className="text-sm text-gray-700 truncate">
+                              {settings.overlayFile.name}
+                            </span>
+                          </div>
+                          <span className="text-xs text-gray-500">
+                            {(settings.overlayFile.size / 1024).toFixed(1)}KB
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="text-center">
+                          <span className="text-gray-400 text-2xl">📁</span>
+                          <p className="text-sm text-gray-600">Click to select file</p>
+                          <p className="text-xs text-gray-400">JPG, PNG, GIF, WebM (max 5MB)</p>
+                        </div>
                       )}
                     </div>
-                  )}
-
-                  {/* File Upload for Overlay 2 */}
-                  {settings.overlayMode2 === 'upload' && (
+                  </div>
+                )}
+              </div>
+              
+              {/* Secondary Overlay (if dual overlay enabled) */}
+              {settings.dualOverlay && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-sm font-medium text-gray-700">Back Image</label>
+                    <div className="grid grid-cols-2 gap-1">
+                      <button
+                        onClick={() => handleOverlayModeChange('url', 2)}
+                        className={`px-3 py-1 text-xs font-medium rounded-l-lg border-2 transition-all ${
+                          settings.overlayMode2 === 'url'
+                            ? 'bg-blue-500 text-white border-blue-500'
+                            : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                        }`}
+                      >
+                        URL
+                      </button>
+                      <button
+                        onClick={() => handleOverlayModeChange('upload', 2)}
+                        className={`px-3 py-1 text-xs font-medium rounded-r-lg border-2 border-l-0 transition-all ${
+                          settings.overlayMode2 === 'upload'
+                            ? 'bg-blue-500 text-white border-blue-500'
+                            : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                        }`}
+                      >
+                        Upload
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {settings.overlayMode2 === 'url' ? (
+                    <input
+                      type="url"
+                      value={tempOverlayUrl2}
+                      onChange={(e) => setTempOverlayUrl2(e.target.value)}
+                      placeholder="https://example.com/img2.jpg/png/gif/webm"
+                      className="w-full px-3 py-2 bg-gray-50 border-2 border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    />
+                  ) : (
                     <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">Select File</label>
                       <input
                         ref={overlayFileRef2}
                         type="file"
-                        accept="image/*,video/webm"
+                        accept="image/jpeg,image/jpg,image/png,image/gif,video/webm"
                         onChange={(e) => validateAndSelectFile(e, 'overlay2')}
-                        disabled={isProcessingFile.overlay2}
-                        className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 disabled:opacity-50"
+                        className="hidden"
                       />
-                      {isProcessingFile.overlay2 && (
-                        <div className="flex items-center text-blue-500 text-xs">
-                          <div className="animate-spin rounded-full h-3 w-3 border-2 border-blue-500 border-t-transparent mr-2"></div>
-                          Processing file...
-                        </div>
-                      )}
-                      {settings.overlayFile2 && (
-                        <p className="text-xs text-green-600">✓ Selected: {settings.overlayFile2.name}</p>
-                      )}
+                      <div 
+                        onClick={() => overlayFileRef2.current?.click()}
+                        className={`w-full p-4 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors ${
+                          isProcessingFile.overlay2 ? 'opacity-75 cursor-wait' : ''
+                        }`}
+                      >
+                        {isProcessingFile.overlay2 ? (
+                          <div className="text-center">
+                            <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+                            <p className="text-sm text-gray-600 mt-2">Processing file...</p>
+                          </div>
+                        ) : settings.overlayFile2 ? (
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <span className="text-green-600">✅</span>
+                              <span className="text-sm text-gray-700 truncate">
+                                {settings.overlayFile2.name}
+                              </span>
+                            </div>
+                            <span className="text-xs text-gray-500">
+                              {(settings.overlayFile2.size / 1024).toFixed(1)}KB
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="text-center">
+                            <span className="text-gray-400 text-2xl">📁</span>
+                            <p className="text-sm text-gray-600">Click to select file</p>
+                            <p className="text-xs text-gray-400">JPG, PNG, GIF, WebM (max 5MB)</p>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
               )}
             </div>
-
-            {/* Overlay GIF Speed Control */}
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">GIF Animation Speed</label>
-              <div className="grid grid-cols-3 gap-2">
-                {(['slow', 'normal', 'fast'] as const).map((speed) => (
-                  <button
-                    key={speed}
-                    onClick={() => updateSetting('overlayGifSpeed', speed)}
-                    className={`p-2 rounded-lg border-2 text-sm font-medium transition-all capitalize ${
-                      settings.overlayGifSpeed === speed
-                        ? 'border-blue-500 bg-blue-50 text-blue-500'
-                        : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
-                    }`}
-                  >
-                    {speed}
-                  </button>
-                ))}
-              </div>
-            </div>
-
+            
             <div className="flex space-x-2">
               <button 
                 onClick={handleApplyOverlay}
@@ -1292,6 +1303,34 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                 </div>
               )}
             </div>
+
+            {/* Overlay GIF Speed Control */}
+            {((settings.overlayUrl && settings.overlayUrl.includes('.gif')) || 
+              settings.overlayFile?.type === 'image/gif' ||
+              (settings.overlayUrl2 && settings.overlayUrl2.includes('.gif')) || 
+              settings.overlayFile2?.type === 'image/gif') && (
+              <div className="space-y-3">
+                <div>
+                  <h4 className="text-sm font-medium text-gray-900">Overlay GIF Speed</h4>
+                  <p className="text-xs text-gray-500">Control overlay animation speed</p>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['slow', 'normal', 'fast'] as const).map((speed) => (
+                    <button
+                      key={speed}
+                      onClick={() => updateSetting('overlayGifSpeed', speed)}
+                      className={`p-2 rounded-lg text-sm font-medium transition-all capitalize border-2 ${
+                        settings.overlayGifSpeed === speed
+                          ? 'bg-blue-50 text-blue-500 border-blue-500'
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                      }`}
+                    >
+                      {speed}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ===== LIGHTING SECTION ===== */}

@@ -55,32 +55,60 @@ function parseMultipartData(body: string, boundary: string): { fields: Record<st
 
 interface RenderFramesRequest {
   settings: {
-    fillMode: 'solid' | 'gradient';
+    // Coin Shape & Structure
+    coinShape: 'thin' | 'normal' | 'thick';
+    
+    // Body Material Settings
+    fillMode: 'solid' | 'gradient' | 'texture';
     bodyColor: string;
-    gradientStart?: string;
-    gradientEnd?: string;
-    bodyTextureUrl?: string;
-    bodyTextureMode?: 'url' | 'upload';
-    bodyTextureTempId?: string; // Server-side temp file ID for uploaded body texture
-    bodyTextureFileIndex?: number; // NEW: Index of file in multipart data
-    metallic: boolean;
-    rotationSpeed: 'slow' | 'medium' | 'fast';
+    gradientStart: string;
+    gradientEnd: string;
+    bodyMetallic: boolean;          // NEW: Separate from overlay metallic
+    bodyMetalness: 'low' | 'normal' | 'high';  // NEW: Body metallic intensity
+    bodyRoughness: 'low' | 'normal' | 'high';  // NEW: Body roughness control
+    
+    // Body Texture Settings
+    bodyTextureUrl: string;
+    bodyTextureMode: 'url' | 'upload';
+    bodyTextureTempId?: string;
+    bodyTextureFileIndex?: number; // Index of file in multipart data
+    bodyTextureMapping: 'planar' | 'cylindrical' | 'spherical';  // NEW: Texture mapping options
+    bodyTextureRotation: number;    // NEW: 0-360 degrees
+    bodyTextureScale: number;       // NEW: 0.1-5.0 scale multiplier
+    bodyTextureOffsetX: number;     // NEW: -1 to 1 offset
+    bodyTextureOffsetY: number;     // NEW: -1 to 1 offset
+    bodyGifSpeed: 'slow' | 'normal' | 'fast';  // NEW: GIF animation speed for body
+    
+    // Face Overlay Settings
     overlayUrl?: string;
     overlayMode?: 'url' | 'upload';
-    overlayTempId?: string; // Server-side temp file ID for uploaded overlay
-    overlayFileIndex?: number; // NEW: Index of file in multipart data
+    overlayTempId?: string;
+    overlayFileIndex?: number;
+    overlayMetallic: boolean;       // NEW: Separate toggle for overlays
+    overlayMetalness: 'low' | 'normal' | 'high';
+    overlayRoughness: 'low' | 'normal' | 'high';
+    overlayGifSpeed: 'slow' | 'normal' | 'fast';  // RENAMED: from gifAnimationSpeed
+    
+    // Dual Overlay Settings
     dualOverlay?: boolean;
     overlayUrl2?: string;
     overlayMode2?: 'url' | 'upload';
-    overlayTempId2?: string; // Server-side temp file ID for uploaded overlay2
-    overlayFileIndex2?: number; // NEW: Index of file in multipart data
-    gifAnimationSpeed: 'slow' | 'medium' | 'fast';
+    overlayTempId2?: string;
+    overlayFileIndex2?: number;
+    
+    // Animation Settings (NEW SYSTEM)
+    animationDirection: 'right' | 'left' | 'up' | 'down';  // NEW: Replace rotationSpeed
+    animationEasing: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';  // NEW
+    animationDuration: number;      // NEW: Duration in seconds (default: 3)
+    
+    // Lighting Settings
     lightColor: string;
     lightStrength: 'low' | 'medium' | 'high';
-    // New customization settings
-    coinShape?: 'thin' | 'normal' | 'thick';
-    overlayMetalness?: 'low' | 'normal' | 'high';
-    overlayRoughness?: 'low' | 'normal' | 'high';
+    
+    // DEPRECATED: Kept for backward compatibility
+    metallic?: boolean;             // Will map to bodyMetallic
+    rotationSpeed?: 'slow' | 'medium' | 'fast';  // Will map to animationDirection
+    gifAnimationSpeed?: 'slow' | 'medium' | 'fast';  // Will map to overlayGifSpeed
   };
   exportSettings: {
     fps: number;
@@ -207,8 +235,11 @@ export const handler: Handler = async (event) => {
     if (request.exportSettings.fps > maxSafeFPS) {
       console.log(`⚠️ Capping FPS from ${request.exportSettings.fps} to ${maxSafeFPS} for serverless stability`);
       request.exportSettings.fps = maxSafeFPS;
-      request.exportSettings.frames = Math.round(maxSafeFPS * request.exportSettings.duration);
     }
+    
+    // FIXED: Always use exactly 3 seconds for Telegram emoji standard
+    request.exportSettings.duration = 3;
+    request.exportSettings.frames = Math.round(maxSafeFPS * 3); // Always 60 frames at 20 FPS
     
     console.log('📋 Render request (after FPS cap):', {
       settings: request.settings,
