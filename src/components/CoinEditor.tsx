@@ -175,10 +175,14 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.setClearColor(0x000000, 0); // Transparent background
+    
+    // Add tone mapping to match server-side rendering (render-frames.ts)
+    renderer.toneMapping = THREE.LinearToneMapping;
+    renderer.toneMappingExposure = 0.8; // Match server-side exposure setting
 
     mountRef.current.appendChild(renderer.domElement);
 
-    // Lighting setup (IDENTICAL to server-side for perfect visual parity)
+    // Lighting setup (IDENTICAL to server-side with tone mapping for perfect visual parity)
     const hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.45);
     scene.add(hemiLight);
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -216,7 +220,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
 
     // Materials
     const rimMat = new THREE.MeshStandardMaterial({
-      color: 0xb87333,
+      color: 0xcecece,
       metalness: 0.8, // Metalness 1 is too much
       roughness: 0.34,
       envMapIntensity: 1
@@ -912,7 +916,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     }
 
     // Update metallic property
-    rimMat.metalness = faceMat.metalness = currentSettings.metallic ? 1 : 0.1;
+    rimMat.metalness = faceMat.metalness = currentSettings.metallic ? 0.8 : 0.5;
   }, [currentSettings.fillMode, currentSettings.bodyColor, currentSettings.gradientStart, currentSettings.gradientEnd, currentSettings.metallic, currentSettings.bodyTextureUrl]);
 
   // Update overlay material properties when metalness/roughness settings change
