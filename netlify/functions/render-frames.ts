@@ -79,17 +79,19 @@ interface RenderFramesRequest {
     bodyTextureOffsetY: number;     // NEW: -1 to 1 offset
     bodyGifSpeed: 'slow' | 'normal' | 'fast';  // NEW: GIF animation speed for body
     
-    // Face Overlay Settings
-    overlayUrl?: string;
-    overlayMode?: 'url' | 'upload';
-    overlayTempId?: string;
-    overlayFileIndex?: number;
-    overlayMetallic: boolean;       // NEW: Separate toggle for overlays
-    overlayMetalness: 'low' | 'normal' | 'high';
-    overlayRoughness: 'low' | 'normal' | 'high';
-    overlayGifSpeed: 'slow' | 'normal' | 'fast';  // RENAMED: from gifAnimationSpeed
-    
-    // Dual Overlay Settings
+  // Face Overlay Settings
+  overlayUrl?: string;
+  overlayMode?: 'url' | 'upload';
+  overlayTempId?: string;
+  overlayFileIndex?: number;
+  overlayMetallic: boolean;       // NEW: Separate toggle for overlays
+  overlayMetalness: 'low' | 'normal' | 'high';
+  overlayRoughness: 'low' | 'normal' | 'high';
+  overlayGifSpeed: 'slow' | 'normal' | 'fast';  // RENAMED: from gifAnimationSpeed
+  overlayRotation: number;        // NEW: 0-360 degrees overlay rotation
+  overlayScale: number;           // NEW: 0.1-5.0 overlay scale multiplier
+  overlayOffsetX: number;         // NEW: -1 to 1 overlay offset X
+  overlayOffsetY: number;         // NEW: -1 to 1 overlay offset Y    // Dual Overlay Settings
     dualOverlay?: boolean;
     overlayUrl2?: string;
     overlayMode2?: 'url' | 'upload';
@@ -849,9 +851,105 @@ export const handler: Handler = async (event) => {
         return { texture, isAnimated: true, frames: frames.length };
       };
 
-      // Helper to detect if URL is a GIF (supports both URLs and data URIs)
+      // Helper function to process WebM videos server-side (matching client implementation)
+      const processWebM = async (url: string): Promise<{ texture: THREE.Texture, isAnimated: boolean }> => {
+        console.log('🎥 Processing WebM video for server-side rendering:', url);
+        
+        try {
+          // For server-side rendering, we'll treat WebM as a static image fallback
+          // Since we can't play video in headless Chrome during frame capture,
+          // we'll use the first frame or a static representation
+          console.log('⚠️ WebM detected - using static fallback for server-side rendering');
+          
+          // Try to load as static image first (some WebM might have poster frames)
+          try {
+            const texture = await loadImageTexture(url);
+            texture.flipY = false; // Match client-side for static images
+            console.log('✅ WebM loaded as static image');
+            return { texture, isAnimated: false };
+          } catch (staticError) {
+            console.warn('WebM static fallback failed, creating placeholder:', staticError);
+            
+            // Create a placeholder texture for WebM that can't be loaded statically
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d')!;
+            canvas.width = 256;
+            canvas.height = 256;
+            
+            // Create a gradient placeholder
+            const gradient = ctx.createLinearGradient(0, 0, 256, 256);
+            gradient.addColorStop(0, '#4F46E5');
+            gradient.addColorStop(1, '#7C3AED');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 256, 256);
+            
+            // Add WebM indicator text
+            ctx.fillStyle = 'white';
+            ctx.font = '24px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('WebM', 128, 120);
+            ctx.fillText('Video', 128, 150);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.colorSpace = THREE.SRGBColorSpace;
+            texture.flipY = true; // CanvasTexture uses flipY = true
+            texture.needsUpdate = true;
+            
+            console.log('✅ WebM placeholder texture created');
+            return { texture, isAnimated: false };
+          }
+        } catch (error) {
+          console.error('❌ WebM processing failed:', error);
+          throw new Error(`Failed to process WebM: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      };
+
+      // Helper to detect if URL is a GIF or WebM (supports both URLs and data URIs)
       const isGifUrl = (url: string): boolean => {
-        return /\.gif$/i.test(url) || url.startsWith('data:image/gif');
+        return /\.gif$/i.test(url) || 
+               /data:image\/gif/i.test(url) ||
+               url.includes('gif');
+      };
+
+      const isWebMUrl = (url: string): boolean => {
+        return /\.webm$/i.test(url) || 
+               /data:video\/webm/i.test(url) ||
+               url.includes('webm');
+      };
+
+      // Enhanced texture type detection that also considers MIME types
+      const detectTextureType = (url: string): 'gif' | 'webm' | 'static' => {
+        if (isGifUrl(url)) return 'gif';
+        if (isWebMUrl(url)) return 'webm';
+        return 'static';
+      };
+
+      // Helper function to apply texture transformations (rotation, scale, offset)
+      const applyTextureTransformations = (
+        texture: THREE.Texture, 
+        rotation: number = 0, 
+        scale: number = 1, 
+        offsetX: number = 0, 
+        offsetY: number = 0
+      ) => {
+        // Texture rotation
+        if (rotation !== undefined && rotation !== 0) {
+          const rotationRadians = (rotation * Math.PI) / 180;
+          texture.center.set(0.5, 0.5);
+          texture.rotation = rotationRadians;
+        }
+        
+        // Texture scale
+        if (scale !== undefined && scale !== 1) {
+          texture.repeat.set(scale, scale);
+        }
+        
+        // Texture offset
+        if (offsetX !== undefined || offsetY !== undefined) {
+          texture.offset.set(offsetX || 0, offsetY || 0);
+        }
+        
+        texture.needsUpdate = true;
       };
 
       // Helper function to load images (URLs and data URLs - local files pre-converted)
@@ -872,26 +970,38 @@ export const handler: Handler = async (event) => {
         
         const texture = new THREE.Texture(img);
         texture.needsUpdate = true;
-        texture.flipY = true; // FIXED: Match client-side flipY = false for static images
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.flipY = false; // FIXED: Match client-side flipY = false for static images
         return texture;
       };
 
-      // Apply front overlay (FIXED: use overlayUrl directly)
+      // Apply front overlay (FIXED: use overlayUrl directly with enhanced type detection)
       if (settings.overlayUrl) {
-        console.log('� Applying front overlay');
+        console.log('🖼️ Applying front overlay');
         
         let overlayTexture: THREE.Texture | null = null;
+        const textureType = detectTextureType(settings.overlayUrl);
         
-        if (isGifUrl(settings.overlayUrl)) {
+        console.log(`🔍 Detected overlay texture type: ${textureType} for URL: ${settings.overlayUrl.substring(0, 50)}...`);
+        
+        if (textureType === 'gif') {
           // Process GIF with gifuct-js (identical to client-side)
           const gifResult = await processGIF(settings.overlayUrl, settings.overlayGifSpeed || 'normal');
           if (gifResult && gifResult.texture) {
             overlayTexture = gifResult.texture;
             console.log('✅ Animated GIF overlay applied with gifuct-js');
           }
+        } else if (textureType === 'webm') {
+          // Process WebM video (with fallback handling)
+          const webmResult = await processWebM(settings.overlayUrl);
+          if (webmResult && webmResult.texture) {
+            overlayTexture = webmResult.texture;
+            console.log('✅ WebM overlay applied with fallback');
+          }
         } else {
           // Process static image (URLs or local files)
           overlayTexture = await loadImageTexture(settings.overlayUrl);
+          console.log('✅ Static overlay applied');
         }
         
         if (overlayTexture) {
@@ -899,8 +1009,20 @@ export const handler: Handler = async (event) => {
           if (overlayTexture instanceof THREE.CanvasTexture) {
             overlayTexture.flipY = true; // FIXED: CanvasTexture should use flipY = true
           } else {
-            overlayTexture.flipY = true; // FIXED: Regular Texture should use flipY = false
+            overlayTexture.flipY = false; // FIXED: Regular Texture should use flipY = false
           }
+
+          // Apply overlay transformations (matching client-side)
+          applyTextureTransformations(
+            overlayTexture,
+            settings.overlayRotation || 0,
+            settings.overlayScale || 1,
+            settings.overlayOffsetX || 0,
+            settings.overlayOffsetY || 0
+          );
+          
+          console.log(`🔧 Applied overlay transformations: rotation=${settings.overlayRotation || 0}°, scale=${settings.overlayScale || 1}, offset=(${settings.overlayOffsetX || 0}, ${settings.overlayOffsetY || 0})`);
+          
           
           if (settings.dualOverlay) {
             // DUAL MODE: Apply first overlay ONLY to top face
@@ -927,13 +1049,22 @@ export const handler: Handler = async (event) => {
               // CRITICAL: Share the EXACT SAME userData object for synchronized animation (matching client-side)
               bottomTexture.userData = overlayTexture.userData;
             } else {
-              // For static images, clone and flip (FIXED: match client-side flipY = true)
+              // For static images, clone and flip (FIXED: match client-side flipY = true for bottom face)
               bottomTexture = overlayTexture.clone();
-              bottomTexture.flipY = true; // FIXED: Match client-side flipY = true for static images on bottom face
+              bottomTexture.flipY = true; // FIXED: Match client-side flipY = true for bottom face
               bottomTexture.wrapS = THREE.RepeatWrapping;
               bottomTexture.repeat.x = -1; // Horizontal flip to fix mirroring
               bottomTexture.needsUpdate = true;
             }
+            
+            // Apply same transformations to bottom texture (matching client-side)
+            applyTextureTransformations(
+              bottomTexture,
+              settings.overlayRotation || 0,
+              settings.overlayScale || 1,
+              settings.overlayOffsetX || 0,
+              settings.overlayOffsetY || 0
+            );
             
             overlayBot.material.map = bottomTexture;
             overlayBot.material.opacity = 1;
@@ -948,17 +1079,28 @@ export const handler: Handler = async (event) => {
         console.log('🎨 Applying back overlay from URL2:', settings.overlayUrl2);
         
         let overlayTexture: THREE.Texture | null = null;
+        const textureType = detectTextureType(settings.overlayUrl2);
         
-        if (isGifUrl(settings.overlayUrl2)) {
+        console.log(`🔍 Detected back overlay texture type: ${textureType} for URL: ${settings.overlayUrl2.substring(0, 50)}...`);
+        
+        if (textureType === 'gif') {
           // Process GIF with gifuct-js (identical to client-side)
           const gifResult = await processGIF(settings.overlayUrl2, settings.overlayGifSpeed || 'normal');
           if (gifResult && gifResult.texture) {
             overlayTexture = gifResult.texture;
-            console.log('✅ Animated GIF overlay applied with gifuct-js');
+            console.log('✅ Animated GIF back overlay applied with gifuct-js');
+          }
+        } else if (textureType === 'webm') {
+          // Process WebM video (with fallback handling)
+          const webmResult = await processWebM(settings.overlayUrl2);
+          if (webmResult && webmResult.texture) {
+            overlayTexture = webmResult.texture;
+            console.log('✅ WebM back overlay applied with fallback');
           }
         } else {
           // Process static image (URLs or local files)
           overlayTexture = await loadImageTexture(settings.overlayUrl2);
+          console.log('✅ Static back overlay applied');
         }
         
         if (overlayTexture) {
@@ -968,6 +1110,18 @@ export const handler: Handler = async (event) => {
           } else {
             overlayTexture.flipY = false; // FIXED: Regular Texture should use flipY = false
           }
+
+          // Apply overlay transformations to back overlay (matching client-side)
+          applyTextureTransformations(
+            overlayTexture,
+            settings.overlayRotation || 0,
+            settings.overlayScale || 1,
+            settings.overlayOffsetX || 0,
+            settings.overlayOffsetY || 0
+          );
+          
+          console.log(`🔧 Applied back overlay transformations: rotation=${settings.overlayRotation || 0}°, scale=${settings.overlayScale || 1}, offset=(${settings.overlayOffsetX || 0}, ${settings.overlayOffsetY || 0})`);
+          
           
           // DUAL MODE: Apply second overlay to bottom face with proper texture cloning for animations
           let bottomTexture;
@@ -986,6 +1140,15 @@ export const handler: Handler = async (event) => {
             console.log('✅ Back overlay (static) applied to BOTTOM face without cloning');
           }
           
+          // Apply same transformations to bottom texture in dual mode (matching client-side)
+          applyTextureTransformations(
+            bottomTexture,
+            settings.overlayRotation || 0,
+            settings.overlayScale || 1,
+            settings.overlayOffsetX || 0,
+            settings.overlayOffsetY || 0
+          );
+          
           overlayBot.material.map = bottomTexture;
           
           overlayBot.material.opacity = 1;
@@ -999,13 +1162,23 @@ export const handler: Handler = async (event) => {
         
         try {
           let bodyTexture: THREE.Texture | null = null;
+          const textureType = detectTextureType(settings.bodyTextureUrl);
           
-          if (isGifUrl(settings.bodyTextureUrl)) {
+          console.log(`🔍 Detected body texture type: ${textureType} for URL: ${settings.bodyTextureUrl.substring(0, 50)}...`);
+          
+          if (textureType === 'gif') {
             // Process GIF body texture
             const gifResult = await processGIF(settings.bodyTextureUrl, settings.bodyGifSpeed || 'normal');
             if (gifResult && gifResult.texture) {
               bodyTexture = gifResult.texture;
               console.log('✅ Animated GIF body texture applied');
+            }
+          } else if (textureType === 'webm') {
+            // Process WebM body texture (with fallback handling)
+            const webmResult = await processWebM(settings.bodyTextureUrl);
+            if (webmResult && webmResult.texture) {
+              bodyTexture = webmResult.texture;
+              console.log('✅ WebM body texture applied with fallback');
             }
           } else {
             // Process static body texture (URLs or local files)
