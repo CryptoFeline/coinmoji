@@ -64,8 +64,8 @@ const AppContent: React.FC = () => {
     overlayBlobUrl2: '',
     
   // Animation Settings (NEW SYSTEM)
-    animationDirection: 'right', // NEW: Replace rotationSpeed
-    animationPreset: 'smooth',   // NEW: Replace easing with presets
+    animationDirection: 'right', 
+    animationPreset: 'smooth',   
     animationDuration: 3,        // FIXED: Always 3 seconds for Telegram emoji standard
     
     // Lighting Settings
