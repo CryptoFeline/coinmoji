@@ -261,8 +261,11 @@ export const handler: Handler = async (event) => {
         const file = uploadedFiles[processedSettings.bodyTextureFileIndex];
         if (file) {
           const base64Data = file.data.toString('base64');
+          // CRITICAL: Override body texture URL to ensure data URL is used
           processedSettings.bodyTextureUrl = `data:${file.mimetype};base64,${base64Data}`;
-          console.log(`✅ Body texture: ${file.filename} (${file.mimetype}) → data URL`);
+          // Clear temp ID that can't be accessed server-side
+          delete processedSettings.bodyTextureTempId;
+          console.log(`✅ Body texture: ${file.filename} (${file.mimetype}) → data URL (size: ${(base64Data.length / 1024).toFixed(1)}KB)`);
         }
       }
       
@@ -271,8 +274,11 @@ export const handler: Handler = async (event) => {
         const file = uploadedFiles[processedSettings.overlayFileIndex];
         if (file) {
           const base64Data = file.data.toString('base64');
+          // CRITICAL: Override overlay URL to ensure data URL is used
           processedSettings.overlayUrl = `data:${file.mimetype};base64,${base64Data}`;
-          console.log(`✅ Overlay: ${file.filename} (${file.mimetype}) → data URL`);
+          // Clear temp ID that can't be accessed server-side
+          delete processedSettings.overlayTempId;
+          console.log(`✅ Overlay: ${file.filename} (${file.mimetype}) → data URL (size: ${(base64Data.length / 1024).toFixed(1)}KB)`);
         }
       }
       
@@ -281,8 +287,11 @@ export const handler: Handler = async (event) => {
         const file = uploadedFiles[processedSettings.overlayFileIndex2];
         if (file) {
           const base64Data = file.data.toString('base64');
+          // CRITICAL: Override overlay2 URL to ensure data URL is used
           processedSettings.overlayUrl2 = `data:${file.mimetype};base64,${base64Data}`;
-          console.log(`✅ Overlay2: ${file.filename} (${file.mimetype}) → data URL`);
+          // Clear temp ID that can't be accessed server-side
+          delete processedSettings.overlayTempId2;
+          console.log(`✅ Overlay2: ${file.filename} (${file.mimetype}) → data URL (size: ${(base64Data.length / 1024).toFixed(1)}KB)`);
         }
       }
     }
@@ -292,6 +301,16 @@ export const handler: Handler = async (event) => {
       NODE_ENV: process.env.NODE_ENV,
       AWS_LAMBDA_JS_RUNTIME: process.env.AWS_LAMBDA_JS_RUNTIME,
       chromeExecutable: 'from @sparticuz/chromium'
+    });
+
+    // Debug: Log final processed settings to ensure data URLs are being used
+    console.log('🔧 Final processed settings preview:', {
+      bodyTextureUrl: processedSettings.bodyTextureUrl ? 
+        (processedSettings.bodyTextureUrl.startsWith('data:') ? 
+          `data URL (${Math.round(processedSettings.bodyTextureUrl.length/1024)}KB)` : 
+          processedSettings.bodyTextureUrl) : 'none',
+      overlayUrl: processedSettings.overlayUrl || 'none',
+      overlayUrl2: processedSettings.overlayUrl2 || 'none'
     });
 
     console.log('✅ Using @sparticuz/chromium for serverless Chrome');
@@ -325,7 +344,10 @@ export const handler: Handler = async (event) => {
     console.log('✅ Browser-bundled gifuct-js injected into page');
 
     // Inject Three.js and create identical scene with browser-bundled gifuct-js
-    const framesBase64 = await page.evaluate(async (renderRequest) => {
+    let framesBase64: string[];
+    try {
+      console.log('🎬 Starting browser page evaluation...');
+      framesBase64 = await page.evaluate(async (renderRequest) => {
       console.log('⏱️ Starting Three.js setup with performance monitoring...');
       const setupStart = Date.now();
       
@@ -1158,30 +1180,38 @@ export const handler: Handler = async (event) => {
 
       // Apply body texture if provided (new feature - matching client-side)
       if (settings.bodyTextureUrl) {
-        console.log('🎨 Applying body texture:', settings.bodyTextureUrl);
+        console.log('🎨 Applying body texture:', settings.bodyTextureUrl.substring(0, 100) + '...');
+        console.log('🔍 Body texture URL type:', settings.bodyTextureUrl.startsWith('data:') ? 'data URL' : 'external URL');
         
         try {
           let bodyTexture: THREE.Texture | null = null;
           const textureType = detectTextureType(settings.bodyTextureUrl);
           
-          console.log(`🔍 Detected body texture type: ${textureType} for URL: ${settings.bodyTextureUrl.substring(0, 50)}...`);
+          console.log(`🔍 Detected body texture type: ${textureType} for URL`);
           
           if (textureType === 'gif') {
             // Process GIF body texture
+            console.log('🎞️ Processing GIF body texture...');
             const gifResult = await processGIF(settings.bodyTextureUrl, settings.bodyGifSpeed || 'normal');
             if (gifResult && gifResult.texture) {
               bodyTexture = gifResult.texture;
               console.log('✅ Animated GIF body texture applied');
+            } else {
+              console.warn('⚠️ GIF processing returned null result');
             }
           } else if (textureType === 'webm') {
             // Process WebM body texture (with fallback handling)
+            console.log('🎥 Processing WebM body texture...');
             const webmResult = await processWebM(settings.bodyTextureUrl);
             if (webmResult && webmResult.texture) {
               bodyTexture = webmResult.texture;
               console.log('✅ WebM body texture applied with fallback');
+            } else {
+              console.warn('⚠️ WebM processing returned null result');
             }
           } else {
             // Process static body texture (URLs or local files)
+            console.log('🖼️ Processing static body texture...');
             bodyTexture = await loadImageTexture(settings.bodyTextureUrl);
             console.log('✅ Static body texture applied');
           }
@@ -1427,6 +1457,11 @@ export const handler: Handler = async (event) => {
       return frames;
 
     }, { ...request, settings: processedSettings });
+      console.log('✅ Browser page evaluation completed successfully');
+    } catch (evalError) {
+      console.error('❌ Page evaluation failed:', evalError);
+      throw new Error(`Frame rendering failed: ${evalError instanceof Error ? evalError.message : 'Unknown evaluation error'}`);
+    }
 
     console.log(`✅ Server-side rendering complete: ${framesBase64.length} frames captured`);
 

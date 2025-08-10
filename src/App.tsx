@@ -176,6 +176,7 @@ const AppContent: React.FC = () => {
     if (!coinEditorRef.current || !initData) return;
     
     setIsExporting(true);
+    console.log('🚀 Starting emoji creation process...');
     try {
       const scene = coinEditorRef.current.getScene();
       const camera = coinEditorRef.current.getCamera();
@@ -237,9 +238,9 @@ const AppContent: React.FC = () => {
       
     } catch (error) {
       console.error('Frame export failed:', error);
-      // Don't override the detailed error message from exporter
-      // const errorMessage = error instanceof Error ? error.message : 'Failed to export frames. Please try again.';
-      alert(`Frame export failed!`); // add : ${errorMessage} to debug.
+      // Enable detailed error message to debug server/client issues
+      const errorMessage = error instanceof Error ? error.message : 'Failed to export frames. Please try again.';
+      alert(`Frame export failed: ${errorMessage}`);
     } finally {
       setIsExporting(false);
     }

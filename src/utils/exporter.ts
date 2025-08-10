@@ -478,9 +478,13 @@ export class CoinExporter {
     console.log('✅ Server-side binary streaming successful:', {
       frames_count: result.frames_count,
       environment: result.rendering_environment,
-      files_streamed: fileIndex
+      files_streamed: fileIndex,
+      first_frame_length: result.frames[0]?.length,
+      has_all_frames: result.frames.length === result.frames_count
     });
     
+    console.log('🎞️ Starting client-side frame processing...');
+
     return result.frames;
   }
 
@@ -547,9 +551,13 @@ export class CoinExporter {
     
     console.log('✅ Server-side rendering successful:', {
       frames_count: result.frames_count,
-      environment: result.rendering_environment
+      environment: result.rendering_environment,
+      first_frame_length: result.frames[0]?.length,
+      has_all_frames: result.frames.length === result.frames_count
     });
     
+    console.log('🎞️ Starting client-side frame processing...');
+
     return result.frames;
   }
   
