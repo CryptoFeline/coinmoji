@@ -1,13 +1,19 @@
 import React, { useState, useRef } from 'react';
 import { TelegramProvider, useTelegram } from './providers/TelegramProvider';
-import NotInTelegram from './components/NotInTelegram';
+// import NotInTelegram from './components/NotInTelegram';
 import CoinEditor, { CoinEditorRef } from './components/CoinEditor';
 import SettingsPanel, { CoinSettings } from './components/SettingsPanel';
+import FaqTab from './components/FaqTab';
 import { CoinExporter, createCustomEmoji, sendWebMFile } from './utils/exporter';
+
+// MUI Icons
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 
 const AppContent: React.FC = () => {
   const { isInTelegram, initData, isLoading } = useTelegram();
   const [showSettings, setShowSettings] = useState(false);
+  const [showFaq, setShowFaq] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const coinEditorRef = useRef<CoinEditorRef>(null);
   
@@ -45,6 +51,10 @@ const AppContent: React.FC = () => {
     overlayMetalness: 'normal',  // Body metallic intensity
     overlayRoughness: 'low',     // Body roughness control
     overlayGifSpeed: 'normal',   // RENAMED: from gifAnimationSpeed
+    overlayRotation: 0,          // NEW: Overlay transformation controls
+    overlayScale: 1.0,           // NEW: Overlay scale multiplier
+    overlayOffsetX: 0,           // NEW: Overlay offset X
+    overlayOffsetY: 0,           // NEW: Overlay offset Y
     
     // Dual Overlay Settings
     dualOverlay: false,
@@ -55,12 +65,13 @@ const AppContent: React.FC = () => {
     
   // Animation Settings (NEW SYSTEM)
     animationDirection: 'right', // NEW: Replace rotationSpeed
-    animationEasing: 'linear',   // NEW
+    animationPreset: 'smooth',   // NEW: Replace easing with presets
     animationDuration: 3,        // FIXED: Always 3 seconds for Telegram emoji standard
     
     // Lighting Settings
     lightColor: '#cecece',
     lightStrength: 'medium',
+    lightMode: 'studioLight',    // NEW: Light position presets
     
     // DEPRECATED: Kept for backward compatibility
     metallic: true,             // Will map to bodyMetallic
@@ -240,12 +251,10 @@ const AppContent: React.FC = () => {
       <div className="p-4 flex space-x-4 mb-2">
         {/* infoIcon button */}
         <button
-          onClick={() => alert('Info feature coming soon!')}
+          onClick={() => setShowFaq(true)}
           className="bg-white border-2 text-gray-700 font-medium py-3 px-6 rounded-lg hover:border-blue-500 hover:bg-gray-50 transition-all duration-200 flex items-center justify-center space-x-3 shadow-sm"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
+          <HelpOutlineIcon className="w-5 h-5" />
         </button>
         <button
           onClick={() => setShowSettings(true)}
@@ -264,9 +273,7 @@ const AppContent: React.FC = () => {
           onClick={() => alert('Wallet feature coming soon!')}
           className="bg-white border-2 text-gray-700 font-medium py-3 px-6 rounded-lg hover:border-blue-500 hover:bg-gray-50 transition-all duration-200 flex items-center justify-center space-x-3 shadow-sm"
         >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path d="M0 3a2 2 0 0 1 2-2h13.5a.5.5 0 0 1 0 1H15v2a1 1 0 0 1 1 1v8.5a1.5 1.5 0 0 1-1.5 1.5h-12A2.5 2.5 0 0 1 0 12.5zm1 1.732V12.5A1.5 1.5 0 0 0 2.5 14h12a.5.5 0 0 0 .5-.5V5H2a2 2 0 0 1-1-.268M1 3a1 1 0 0 0 1 1h12V2H2a1 1 0 0 0-1 1"/>
-          </svg>
+          <AccountBalanceWalletIcon className="w-6 h-6" />
         </button>
       </div>
 
@@ -328,6 +335,13 @@ const AppContent: React.FC = () => {
         onClose={() => setShowSettings(false)}
         settings={coinSettings}
         onSettingsChange={setCoinSettings}
+      />
+
+      {/* FAQ Panel */}
+      <FaqTab 
+        isOpen={showFaq}
+        isVisible={showFaq}
+        onClose={() => setShowFaq(false)}
       />
     </div>
   );

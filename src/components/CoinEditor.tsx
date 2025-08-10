@@ -44,6 +44,10 @@ export interface CoinSettings {
   overlayMetalness: 'low' | 'normal' | 'high';
   overlayRoughness: 'low' | 'normal' | 'high';
   overlayGifSpeed: 'slow' | 'normal' | 'fast';  // RENAMED: from gifAnimationSpeed
+  overlayRotation: number;        // NEW: 0-360 degrees overlay rotation
+  overlayScale: number;           // NEW: 0.1-5.0 overlay scale multiplier
+  overlayOffsetX: number;         // NEW: -1 to 1 overlay offset X
+  overlayOffsetY: number;         // NEW: -1 to 1 overlay offset Y
   
   // Dual Overlay Settings
   dualOverlay: boolean;
@@ -54,12 +58,13 @@ export interface CoinSettings {
   
   // Animation Settings (NEW SYSTEM)
   animationDirection: 'right' | 'left' | 'up' | 'down';  // NEW: Replace rotationSpeed
-  animationEasing: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';  // NEW
+  animationPreset: 'smooth' | 'fast-slow' | 'bounce';  // NEW: Replace easing with presets (bounce restored)
   animationDuration: number;      // NEW: Duration in seconds (default: 3)
   
   // Lighting Settings
   lightColor: string;
   lightStrength: 'low' | 'medium' | 'high';
+  lightMode: 'studioLight' | 'naturalLight'; // NEW: Light position presets
   
   // Server-side processing fields (backward compatibility maintained)
   bodyTextureTempId?: string;
@@ -90,30 +95,65 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
   
   // Refs to track current settings for animation loop
   const animationDirectionRef = useRef<'right' | 'left' | 'up' | 'down'>('right');
-  const animationEasingRef = useRef<'linear' | 'ease-in' | 'ease-out' | 'ease-in-out'>('linear');
+  const animationPresetRef = useRef<'smooth' | 'fast-slow' | 'bounce'>('smooth');
   const animationDurationRef = useRef<number>(3);
   
   // Guards async overlay loads so clears can't be "undone" by late promises
   const overlayReqIdRef = useRef(0);
   
+  // Refs for lights (needed for position updates)
+  const lightsRef = useRef<{
+    dirLight?: THREE.DirectionalLight;
+    fillLight?: THREE.DirectionalLight;
+    rimLight?: THREE.DirectionalLight;
+  }>({});
+  
   // Animation configuration
   const animationConfigs = {
     right: { axis: 'y' as const, direction: 1 },
     left: { axis: 'y' as const, direction: -1 },
-    up: { axis: 'x' as const, direction: 1 },
-    down: { axis: 'x' as const, direction: -1 }
+    up: { axis: 'x' as const, direction: -1 }, // FIXED: was direction: 1
+    down: { axis: 'x' as const, direction: 1 } // FIXED: was direction: -1
   };
   
-  // Easing functions
-  const easingFunctions = {
-    linear: (t: number) => t,
-    'ease-in': (t: number) => t * t,
-    'ease-out': (t: number) => 1 - (1 - t) * (1 - t),
-    'ease-in-out': (t: number) => t < 0.5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t)
+  // Animation preset functions - replace easing with preset behaviors
+  const animationPresets = {
+    smooth: (progress: number) => {
+      // Smooth 360° rotation over full duration
+      return progress;
+    },
+    'fast-slow': (progress: number) => {
+      // Fast spin for first 1.5s, then slow static display for remaining 1.5s
+      if (progress < 0.5) {
+        // First half - complete full rotation
+        return progress * 2;
+      } else {
+        // Second half - hold at full rotation (static)
+        return 1;
+      }
+    },
+    bounce: (progress: number) => {
+      // Bounce effect: slight back rotation, fast flip, bounce, calm for 1s
+      if (progress < 0.1) {
+        // First 0.3s - slight back rotation (-10°)
+        return -0.028 * Math.sin(progress * 10 * Math.PI); // Slight back movement
+      } else if (progress < 0.4) {
+        // Next 0.9s - fast forward rotation to 380° (overshoot)
+        const fastProgress = (progress - 0.1) / 0.3;
+        return fastProgress * 1.056; // 380° = 1.056 rotations
+      } else if (progress < 0.6) {
+        // Next 0.6s - bounce back to 360° with elastic effect
+        const bounceProgress = (progress - 0.4) / 0.2;
+        const elasticOut = 1 + Math.pow(2, -10 * bounceProgress) * Math.sin((bounceProgress * 10 - 0.75) * (2 * Math.PI) / 3);
+        return 1.056 - (0.056 * elasticOut); // Settle to exactly 1 rotation
+      } else {
+        // Final 1.2s - stay calm at 360°
+        return 1;
+      }
+    }
   };
   
-  // Animation timing state
-  const animationTimeRef = useRef(0);
+  // Animation timing state (no longer needed with preset system)
   
   const sceneRef = useRef<{
     scene: THREE.Scene;
@@ -164,6 +204,10 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     overlayMetalness: 'normal',
     overlayRoughness: 'low',
     overlayGifSpeed: 'normal',
+    overlayRotation: 0,          // NEW: Default overlay rotation
+    overlayScale: 1.0,           // NEW: Default overlay scale  
+    overlayOffsetX: 0,           // NEW: Default overlay offset X
+    overlayOffsetY: 0,           // NEW: Default overlay offset Y
     
     // Dual Overlay Settings
     dualOverlay: false,
@@ -174,12 +218,13 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     
     // Animation Settings
     animationDirection: 'right',
-    animationEasing: 'linear',
+    animationPreset: 'smooth',
     animationDuration: 3,
     
     // Lighting Settings
     lightColor: '#ffffff',
     lightStrength: 'medium',
+    lightMode: 'studioLight',
     
     // Backward compatibility (deprecated fields)
     metallic: true,             // Maps to bodyMetallic
@@ -203,7 +248,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     overlayGifSpeed: settings.overlayGifSpeed || settings.gifAnimationSpeed || 'normal'
   });
   
-  const effectiveSettings = getEffectiveSettings(currentSettings);
+  // Expose methods via ref (removed unused effectiveSettings)
 
   // Expose methods via ref
   useImperativeHandle(ref, () => ({
@@ -241,7 +286,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     const effective = getEffectiveSettings(currentSettings);
     const oldDirection = animationDirectionRef.current;
     animationDirectionRef.current = effective.animationDirection;
-    animationEasingRef.current = effective.animationEasing;
+    animationPresetRef.current = effective.animationPreset;
     animationDurationRef.current = 3; // Always 3 seconds
     
     // Reset turntable rotation when changing direction to prevent angle issues
@@ -255,7 +300,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
         sceneRef.current.turntable.rotation.y = 0;
       }
     }
-  }, [currentSettings.animationDirection, currentSettings.animationEasing, currentSettings.animationDuration, currentSettings.rotationSpeed]);
+  }, [currentSettings.animationDirection, currentSettings.animationPreset, currentSettings.animationDuration, currentSettings.rotationSpeed]);
 
   useEffect(() => {
     if (!mountRef.current) return;
@@ -293,21 +338,45 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     const hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.45);
     scene.add(hemiLight);
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    dirLight.position.set(3, 5, 2);
     scene.add(dirLight);
 
     // Add additional lights to compensate for missing environment map
     const fillLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    fillLight.position.set(-2, -3, -1);
     scene.add(fillLight);
     
     const rimLight = new THREE.DirectionalLight(0xffffff, 0.4);
-    rimLight.position.set(-3, 1, 4);
     scene.add(rimLight);
+
+    // Store light references for position updates
+    lightsRef.current = { dirLight, fillLight, rimLight };
 
     // Add stronger broad ambient light to brighten overall appearance
     const broadLight = new THREE.AmbientLight(0xffffff, 0.9);
     scene.add(broadLight);
+
+    // Function to apply light positioning presets
+    const applyLightMode = (mode: 'studioLight' | 'naturalLight') => {
+      const lights = lightsRef.current;
+      if (!lights.dirLight || !lights.fillLight || !lights.rimLight) return;
+      
+      if (mode === 'studioLight') {
+        // Studio setup: Multiple controlled directional lights with defined shadows
+        lights.dirLight.position.set(3, 5, 2);        // Main key light (top-right)
+        lights.fillLight.position.set(-2, -3, -1);    // Fill light (bottom-left) 
+        lights.rimLight.position.set(-3, 1, 4);       // Rim light (back-left)
+      } else if (mode === 'naturalLight') {
+        // Natural setup: Softer, more ambient positioning
+        lights.dirLight.position.set(2, 4, 3);        // Softer main light
+        lights.fillLight.position.set(-1, -2, -2);    // Gentler fill
+        lights.rimLight.position.set(-2, 2, 3);       // Subtle rim light
+      }
+    };
+
+    // Apply initial light mode
+    applyLightMode(internalSettings.lightMode);
+
+    // Store light setup function for later use - remove this line
+    // sceneRef.current.applyLightMode = applyLightMode;
 
     // Skip environment map for performance and visual parity with server-side
     console.log('⚡ Using enhanced lighting setup for optimal performance and server parity');
@@ -374,8 +443,8 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     // Roughness mapping: low=0.3, normal=0.5, high=0.7  
     const roughnessMap = { low: 0.3, normal: 0.5, high: 0.7 };
     
-    const overlayMetalness = currentSettings.metallic ? metalnessMap[currentSettings.overlayMetalness] : 0;
-    const overlayRoughness = currentSettings.metallic ? roughnessMap[currentSettings.overlayRoughness] : 0.5;
+    const overlayMetalness = currentSettings.overlayMetallic ? metalnessMap[currentSettings.overlayMetalness] : 0;
+    const overlayRoughness = currentSettings.overlayMetallic ? roughnessMap[currentSettings.overlayRoughness] : 0.5;
     
     const overlayMaterial = new THREE.MeshStandardMaterial({
       transparent: true,
@@ -426,7 +495,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       dirLight
     };
 
-    // Animation loop with new easing system
+    // Animation loop with preset system
     const animate = (currentTime?: number) => {
       if (!sceneRef.current) return;
       
@@ -434,21 +503,26 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       
       // Update animation time
       if (currentTime === undefined) currentTime = Date.now();
-      const deltaTime = currentTime - (animationTimeRef.current || currentTime);
-      animationTimeRef.current = currentTime;
       
-      // Calculate rotation based on new animation system
+      // Calculate preset-based animation progress
+      const duration = 3000; // 3 seconds in milliseconds
+      const progress = ((currentTime % duration) / duration);
+      const preset = animationPresets[animationPresetRef.current];
+      const animatedProgress = preset(progress);
       const config = animationConfigs[animationDirectionRef.current];
       
-      // Base rotation speed: Always complete one full rotation (2π) in exactly 3 seconds
-      const baseSpeed = (Math.PI * 2) / (3 * 1000); // per millisecond - FIXED 3 seconds
-      const rotationDelta = baseSpeed * deltaTime * config.direction;
+      // Calculate rotation from animated progress
+      const totalRotation = animatedProgress * Math.PI * 2 * config.direction;
       
       // Apply rotation to the correct axis
       if (config.axis === 'y') {
-        sceneRef.current.turntable.rotation.y += rotationDelta;
+        sceneRef.current.turntable.rotation.y = totalRotation;
+        // Keep X axis stable for left/right animation
+        sceneRef.current.turntable.rotation.x = 0;
       } else {
-        sceneRef.current.turntable.rotation.x += rotationDelta;
+        sceneRef.current.turntable.rotation.x = totalRotation;
+        // Keep Y axis stable for up/down animation  
+        sceneRef.current.turntable.rotation.y = 0;
       }
       
       // Update animated textures
@@ -1196,9 +1270,18 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       faceMat.needsUpdate = true;
     }
 
-    // Update metallic property
-    rimMat.metalness = faceMat.metalness = currentSettings.metallic ? 0.8 : 0.5;
-  }, [currentSettings.fillMode, currentSettings.bodyColor, currentSettings.gradientStart, currentSettings.gradientEnd, currentSettings.metallic, currentSettings.bodyTextureUrl, currentSettings.bodyTextureMapping, currentSettings.bodyTextureRotation, currentSettings.bodyTextureScale, currentSettings.bodyTextureOffsetX, currentSettings.bodyTextureOffsetY, currentSettings.bodyGifSpeed]);
+    // Update body metallic properties using new system
+    const bodyMetalnessMap = { low: 0.3, normal: 0.6, high: 0.8 };
+    const bodyRoughnessMap = { low: 0.3, normal: 0.5, high: 0.7 };
+    
+    const bodyMetalness = currentSettings.bodyMetallic ? bodyMetalnessMap[currentSettings.bodyMetalness] : 0;
+    const bodyRoughness = currentSettings.bodyMetallic ? bodyRoughnessMap[currentSettings.bodyRoughness] : 0.8;
+    
+    rimMat.metalness = bodyMetalness;
+    faceMat.metalness = bodyMetalness;
+    rimMat.roughness = bodyRoughness;
+    faceMat.roughness = bodyRoughness;
+  }, [currentSettings.fillMode, currentSettings.bodyColor, currentSettings.gradientStart, currentSettings.gradientEnd, currentSettings.bodyMetallic, currentSettings.bodyMetalness, currentSettings.bodyRoughness, currentSettings.bodyTextureUrl, currentSettings.bodyTextureMapping, currentSettings.bodyTextureRotation, currentSettings.bodyTextureScale, currentSettings.bodyTextureOffsetX, currentSettings.bodyTextureOffsetY, currentSettings.bodyGifSpeed]);
 
   // Update overlay material properties when metalness/roughness settings change
   useEffect(() => {
@@ -1211,8 +1294,8 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     // Roughness mapping: low=0.3, normal=0.5, high=0.7  
     const roughnessMap = { low: 0.3, normal: 0.5, high: 0.7 };
     
-    const overlayMetalness = currentSettings.metallic ? metalnessMap[currentSettings.overlayMetalness] : 0;
-    const overlayRoughness = currentSettings.metallic ? roughnessMap[currentSettings.overlayRoughness] : 0.5;
+    const overlayMetalness = currentSettings.overlayMetallic ? metalnessMap[currentSettings.overlayMetalness] : 0;
+    const overlayRoughness = currentSettings.overlayMetallic ? roughnessMap[currentSettings.overlayRoughness] : 0.5;
     
     // Update overlay materials
     if (overlayTop.material instanceof THREE.MeshStandardMaterial) {
@@ -1232,7 +1315,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       roughness: overlayRoughness,
       metalnessEnabled: currentSettings.metallic
     });
-  }, [currentSettings.metallic, currentSettings.overlayMetalness, currentSettings.overlayRoughness]);
+  }, [currentSettings.overlayMetallic, currentSettings.overlayMetalness, currentSettings.overlayRoughness]);
 
   // Note: Coin shape changes require rebuilding geometry, so we handle this in the initial setup
   // The shape setting is applied during the createFace function using dynamic bulge value
@@ -1254,7 +1337,23 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     
     hemiLight.color.set(currentSettings.lightColor);
     dirLight.color.set(currentSettings.lightColor);
-  }, [currentSettings.lightColor, currentSettings.lightStrength]);
+    
+    // Apply light positioning preset
+    const lights = lightsRef.current;
+    if (lights.dirLight && lights.fillLight && lights.rimLight) {
+      if (currentSettings.lightMode === 'studioLight') {
+        // Studio setup: Multiple controlled directional lights with defined shadows
+        lights.dirLight.position.set(3, 5, 2);        // Main key light (top-right)
+        lights.fillLight.position.set(-2, -3, -1);    // Fill light (bottom-left) 
+        lights.rimLight.position.set(-3, 1, 4);       // Rim light (back-left)
+      } else if (currentSettings.lightMode === 'naturalLight') {
+        // Natural setup: Softer, more ambient positioning
+        lights.dirLight.position.set(2, 4, 3);        // Softer main light
+        lights.fillLight.position.set(-1, -2, -2);    // Gentler fill
+        lights.rimLight.position.set(-2, 2, 3);       // Subtle rim light
+      }
+    }
+  }, [currentSettings.lightColor, currentSettings.lightStrength, currentSettings.lightMode]);
 
   // Apply overlay textures with animation support
   const applyOverlay = (url: string, isSecond = false, requestId = overlayReqIdRef.current, fileType?: string) => {

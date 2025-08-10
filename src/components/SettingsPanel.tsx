@@ -1,5 +1,11 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 
+// MUI Icons
+import CategoryIcon from '@mui/icons-material/Category';
+import ColorLensIcon from '@mui/icons-material/ColorLens';
+import LayersIcon from '@mui/icons-material/Layers';
+import LightModeIcon from '@mui/icons-material/LightMode';
+
 interface SettingsPanelProps {
   isOpen: boolean;
   onClose: () => void;
@@ -41,6 +47,10 @@ export interface CoinSettings {
   overlayMetalness: 'low' | 'normal' | 'high';
   overlayRoughness: 'low' | 'normal' | 'high';
   overlayGifSpeed: 'slow' | 'normal' | 'fast';  // RENAMED: from gifAnimationSpeed
+  overlayRotation: number;        // NEW: 0-360 degrees overlay rotation
+  overlayScale: number;           // NEW: 0.1-5.0 overlay scale multiplier
+  overlayOffsetX: number;         // NEW: -1 to 1 overlay offset X
+  overlayOffsetY: number;         // NEW: -1 to 1 overlay offset Y
   
   // Dual Overlay Settings
   dualOverlay: boolean;
@@ -51,12 +61,13 @@ export interface CoinSettings {
   
   // Animation Settings (NEW SYSTEM)
   animationDirection: 'right' | 'left' | 'up' | 'down';  // NEW: Replace rotationSpeed
-  animationEasing: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';  // NEW
+  animationPreset: 'smooth' | 'fast-slow' | 'bounce';  // NEW: Replace easing with presets
   animationDuration: number;      // NEW: Duration in seconds (default: 3)
   
   // Lighting Settings
   lightColor: string;
   lightStrength: 'low' | 'medium' | 'high';
+  lightMode: 'studioLight' | 'naturalLight'; // NEW: Light position presets
   
   // Server-side processing fields (backward compatibility maintained)
   bodyTextureTempId?: string;
@@ -103,6 +114,27 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
   const bodyTextureFileRef = useRef<HTMLInputElement>(null);
   const overlayFileRef = useRef<HTMLInputElement>(null);
   const overlayFileRef2 = useRef<HTMLInputElement>(null);
+  
+  // Utility to truncate long filenames
+  const truncateFilename = (filename: string, maxLength: number = 25): string => {
+    if (filename.length <= maxLength) return filename;
+    const extension = filename.split('.').pop();
+    const nameWithoutExt = filename.slice(0, filename.lastIndexOf('.'));
+    const truncatedName = nameWithoutExt.slice(0, maxLength - 3 - (extension?.length || 0));
+    return `${truncatedName}...${extension ? '.' + extension : ''}`;
+  };
+
+  // Check if a file or URL is animated (GIF or WebM)
+  const isAnimatedFile = (file: File | null, url: string): boolean => {
+    if (file) {
+      return file.type === 'image/gif' || file.type === 'video/webm';
+    }
+    if (url) {
+      const lowercaseUrl = url.toLowerCase();
+      return lowercaseUrl.includes('.gif') || lowercaseUrl.includes('.webm');
+    }
+    return false;
+  };
   
   // Track blob URLs for cleanup on unmount
   const activeBlobUrls = useRef<Set<string>>(new Set());
@@ -599,7 +631,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
           <div className="space-y-4">
             <div className="border-b border-gray-200 pb-2">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center">
-                <span className="mr-2">🪙</span>
+                <CategoryIcon className="w-5 h-5 mr-2 text-gray-700" />
                 Coin Structure
               </h2>
               <p className="text-sm text-gray-500">Basic coin properties and animation</p>
@@ -658,23 +690,32 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                 </div>
               </div>
               
-              {/* Animation Easing */}
+              {/* Animation Presets */}
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Easing</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {(['linear', 'ease-in', 'ease-out', 'ease-in-out'] as const).map((easing) => (
+                <label className="block text-sm font-medium text-gray-700">Animation Style</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { key: 'smooth', label: 'Smooth' },
+                    { key: 'fast-slow', label: 'Fast-Slow' },
+                    { key: 'bounce', label: 'Bounce' }
+                  ] as const).map((preset) => (
                     <button
-                      key={easing}
-                      onClick={() => updateSetting('animationEasing', easing)}
+                      key={preset.key}
+                      onClick={() => updateSetting('animationPreset', preset.key)}
                       className={`p-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                        settings.animationEasing === easing
+                        settings.animationPreset === preset.key
                           ? 'border-blue-500 bg-blue-50 text-blue-500'
                           : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
                       }`}
                     >
-                      {easing.replace('-', ' ')}
+                      {preset.label}
                     </button>
                   ))}
+                </div>
+                <div className="text-xs text-gray-500 space-y-1">
+                  <p><strong>Smooth:</strong> Steady 360° rotation</p>
+                  <p><strong>Fast-Slow:</strong> Quick spin then static display</p>
+                  <p><strong>Bounce:</strong> Back rotation → fast flip → bounce → calm</p>
                 </div>
               </div>
               
@@ -693,7 +734,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
           <div className="space-y-4">
             <div className="border-b border-gray-200 pb-2">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center">
-                <span className="mr-2">🎨</span>
+                <ColorLensIcon className="w-5 h-5 mr-2 text-gray-700" />
                 Body Material
               </h2>
               <p className="text-sm text-gray-500">Coin body appearance and textures</p>
@@ -714,7 +755,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                       : 'border-gray-300 bg-white text-gray-500 hover:border-gray-400 hover:bg-gray-50'
                   }`}
                 >
-                  Solid Color
+                  Solid
                 </button>
                 <button
                   onClick={() => updateSetting('fillMode', 'gradient')}
@@ -914,30 +955,32 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                       </div>
                     )}
                     {settings.bodyTextureFile && (
-                      <p className="text-xs text-green-600">✓ Selected: {settings.bodyTextureFile.name}</p>
+                      <p className="text-xs text-green-600">✓ Selected: {truncateFilename(settings.bodyTextureFile.name)}</p>
                     )}
                   </div>
                 )}
 
-                {/* GIF Speed Control for Body Textures */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">GIF Speed</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(['slow', 'normal', 'fast'] as const).map((speed) => (
-                      <button
-                        key={speed}
-                        onClick={() => updateSetting('bodyGifSpeed', speed)}
-                        className={`p-2 rounded-lg border-2 text-sm font-medium transition-all capitalize ${
-                          settings.bodyGifSpeed === speed
-                            ? 'border-blue-500 bg-blue-50 text-blue-500'
-                            : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
-                        }`}
-                      >
+                {/* GIF Speed Control for Body Textures - Only show for animated files */}
+                {isAnimatedFile(settings.bodyTextureFile, settings.bodyTextureUrl) && (
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">GIF Speed</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(['slow', 'normal', 'fast'] as const).map((speed) => (
+                        <button
+                          key={speed}
+                          onClick={() => updateSetting('bodyGifSpeed', speed)}
+                          className={`p-2 rounded-lg border-2 text-sm font-medium transition-all capitalize ${
+                            settings.bodyGifSpeed === speed
+                              ? 'border-blue-500 bg-blue-50 text-blue-500'
+                              : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
+                          }`}
+                        >
                         {speed}
                       </button>
                     ))}
                   </div>
-                </div>
+                  </div>
+                )}
 
                 {/* Texture Mapping Mode */}
                 <div className="space-y-2">
@@ -1028,7 +1071,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
           <div className="space-y-4">
             <div className="border-b border-gray-200 pb-2">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center">
-                <span className="mr-2">🖼️</span>
+                <LayersIcon className="w-5 h-5 mr-2 text-gray-700" />
                 Face Overlays
               </h2>
               <p className="text-sm text-gray-500">Images displayed on coin faces</p>
@@ -1116,7 +1159,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                       </div>
                     )}
                     {settings.overlayFile && (
-                      <p className="text-xs text-green-600">✓ Selected: {settings.overlayFile.name}</p>
+                      <p className="text-xs text-green-600">✓ Selected: {truncateFilename(settings.overlayFile.name)}</p>
                     )}
                   </div>
                 )}
@@ -1189,7 +1232,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                         </div>
                       )}
                       {settings.overlayFile2 && (
-                        <p className="text-xs text-green-600">✓ Selected: {settings.overlayFile2.name}</p>
+                        <p className="text-xs text-green-600">✓ Selected: {truncateFilename(settings.overlayFile2.name)}</p>
                       )}
                     </div>
                   )}
@@ -1197,25 +1240,28 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
               )}
             </div>
 
-            {/* Overlay GIF Speed Control */}
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">GIF Animation Speed</label>
-              <div className="grid grid-cols-3 gap-2">
-                {(['slow', 'normal', 'fast'] as const).map((speed) => (
-                  <button
-                    key={speed}
-                    onClick={() => updateSetting('overlayGifSpeed', speed)}
-                    className={`p-2 rounded-lg border-2 text-sm font-medium transition-all capitalize ${
-                      settings.overlayGifSpeed === speed
-                        ? 'border-blue-500 bg-blue-50 text-blue-500'
-                        : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
-                    }`}
-                  >
-                    {speed}
-                  </button>
-                ))}
+            {/* Overlay GIF Speed Control - Only show for animated files */}
+            {(isAnimatedFile(settings.overlayFile, settings.overlayUrl) || 
+              (settings.dualOverlay && isAnimatedFile(settings.overlayFile2, settings.overlayUrl2))) && (
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">GIF Animation Speed</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['slow', 'normal', 'fast'] as const).map((speed) => (
+                    <button
+                      key={speed}
+                      onClick={() => updateSetting('overlayGifSpeed', speed)}
+                      className={`p-2 rounded-lg border-2 text-sm font-medium transition-all capitalize ${
+                        settings.overlayGifSpeed === speed
+                          ? 'border-blue-500 bg-blue-50 text-blue-500'
+                          : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
+                      }`}
+                    >
+                      {speed}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="flex space-x-2">
               <button 
@@ -1298,13 +1344,43 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
           <div className="space-y-4">
             <div className="border-b border-gray-200 pb-2">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center">
-                <span className="mr-2">💡</span>
+                <LightModeIcon className="w-5 h-5 mr-2 text-gray-700" />
                 Lighting
               </h2>
               <p className="text-sm text-gray-500">Scene lighting and atmosphere</p>
             </div>
             
             <div className="space-y-3">
+              {/* Light Position Presets */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">Light Setup</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    { key: 'studioLight', label: 'Studio' },
+                    { key: 'naturalLight', label: 'Natural' }
+                  ] as const).map((mode) => (
+                    <button
+                      key={mode.key}
+                      onClick={() => {
+                        updateSetting('lightMode', mode.key);
+                        // Presets only change light positioning, not color/intensity
+                      }}
+                      className={`p-2 rounded-lg border-2 text-sm font-medium transition-all ${
+                        settings.lightMode === mode.key
+                          ? 'border-blue-500 bg-blue-50 text-blue-500'
+                          : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
+                      }`}
+                    >
+                      {mode.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="text-xs text-gray-500 space-y-1">
+                  <p><strong>Studio:</strong> Multiple directional lights with controlled shadows</p>
+                  <p><strong>Natural:</strong> Ambient lighting with soft, diffused illumination</p>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Light Color</label>
                 <input

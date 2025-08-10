@@ -98,12 +98,13 @@ interface RenderFramesRequest {
     
     // Animation Settings (NEW SYSTEM)
     animationDirection: 'right' | 'left' | 'up' | 'down';  // NEW: Replace rotationSpeed
-    animationEasing: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';  // NEW
+    animationPreset: 'smooth' | 'fast-slow' | 'bounce';  // NEW: Replace easing with presets
     animationDuration: number;      // NEW: Duration in seconds (default: 3)
     
     // Lighting Settings
     lightColor: string;
     lightStrength: 'low' | 'medium' | 'high';
+    lightMode: 'studioLight' | 'naturalLight'; // NEW: Light position presets
     
     // DEPRECATED: Kept for backward compatibility
     metallic?: boolean;             // Will map to bodyMetallic
@@ -481,10 +482,10 @@ export const handler: Handler = async (event) => {
       // Roughness mapping: low=0.3, normal=0.5, high=0.7  
       const roughnessMap = { low: 0.3, normal: 0.5, high: 0.7 };
       
-      // Apply settings with fallbacks for backwards compatibility
-      const overlayMetalness = settings.metallic ? 
+      // Apply overlay metallic settings using new system  
+      const overlayMetalness = settings.overlayMetallic ? 
         (settings.overlayMetalness ? metalnessMap[settings.overlayMetalness] : 0.6) : 0;
-      const overlayRoughness = settings.metallic ? 
+      const overlayRoughness = settings.overlayMetallic ? 
         (settings.overlayRoughness ? roughnessMap[settings.overlayRoughness] : 0.3) : 0.5;
       
       const overlayMaterial = new THREE.MeshStandardMaterial({
@@ -527,17 +528,32 @@ export const handler: Handler = async (event) => {
       // 🎯 FIXED: Match client-side lighting EXACTLY for consistent color/brightness
       // Main directional light - increased from 0.5 to 0.8 to match client-side
       const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-      dirLight.position.set(3, 5, 2);
       scene.add(dirLight);
       
       // Add additional lights to compensate for missing environment map (matching client-side)
       const fillLight = new THREE.DirectionalLight(0xffffff, 0.6); // FIXED: Reduced from 0.8 to temper highlights
-      fillLight.position.set(-2, -3, -1);
       scene.add(fillLight);
       
       const rimLight = new THREE.DirectionalLight(0xffffff, 0.4);
-      rimLight.position.set(-3, 1, 4);
       scene.add(rimLight);
+      
+      // Apply light positioning based on lightMode setting
+      const applyLightMode = (mode: 'studioLight' | 'naturalLight') => {
+        if (mode === 'studioLight') {
+          // Studio setup: Multiple controlled directional lights with defined shadows
+          dirLight.position.set(3, 5, 2);        // Main key light (top-right)
+          fillLight.position.set(-2, -3, -1);    // Fill light (bottom-left) 
+          rimLight.position.set(-3, 1, 4);       // Rim light (back-left)
+        } else if (mode === 'naturalLight') {
+          // Natural setup: Softer, more ambient positioning
+          dirLight.position.set(2, 4, 3);        // Softer main light
+          fillLight.position.set(-1, -2, -2);    // Gentler fill
+          rimLight.position.set(-2, 2, 3);       // Subtle rim light
+        }
+      };
+
+      // Apply initial light mode from settings
+      applyLightMode(settings.lightMode);
       
       // 🎯 FIXED: Reduced ambient light from 0.9 to 0.7 to avoid washed-out appearance
       const broadLight = new THREE.AmbientLight(0xffffff, 0.7);
@@ -628,12 +644,24 @@ export const handler: Handler = async (event) => {
         console.log('✅ Applied separate gradient textures (rim + face):', settings.gradientStart, '->', settings.gradientEnd);
       }
 
-      // Update metallic properties (identical to CoinEditor.tsx)
-      rimMat.metalness = settings.metallic ? 0.8 : 0.5;
-      rimMat.roughness = settings.metallic ? 0.34 : 0.7;
-      faceMat.metalness = settings.metallic ? 0.8 : 0.5;
-      faceMat.roughness = settings.metallic ? 0.34 : 0.7;
-      console.log('⚡ Applied metallic settings:', settings.metallic);
+      // Update body metallic properties using new system (matching CoinEditor.tsx)
+      const bodyMetalnessMap = { low: 0.3, normal: 0.6, high: 0.8 };
+      const bodyRoughnessMap = { low: 0.3, normal: 0.5, high: 0.7 };
+      
+      const bodyMetalness = settings.bodyMetallic ? bodyMetalnessMap[settings.bodyMetalness || 'normal'] : 0;
+      const bodyRoughness = settings.bodyMetallic ? bodyRoughnessMap[settings.bodyRoughness || 'normal'] : 0.8;
+      
+      rimMat.metalness = bodyMetalness;
+      rimMat.roughness = bodyRoughness;
+      faceMat.metalness = bodyMetalness;
+      faceMat.roughness = bodyRoughness;
+      console.log('⚡ Applied body metallic settings:', { 
+        bodyMetallic: settings.bodyMetallic, 
+        bodyMetalness: settings.bodyMetalness || 'normal',
+        bodyRoughness: settings.bodyRoughness || 'normal',
+        effectiveMetalness: bodyMetalness,
+        effectiveRoughness: bodyRoughness
+      });
 
       // Process overlays directly from settings URLs (FIXED: proper dual overlay logic)
       console.log('🎨 Processing overlay URLs:', {
@@ -651,7 +679,7 @@ export const handler: Handler = async (event) => {
       overlayBot.material.needsUpdate = true;
       
       // Helper function to process GIF with gifuct-js (MUST work - no fallbacks)
-      const processGIF = async (url: string) => {
+      const processGIF = async (url: string, gifSpeed: 'slow' | 'normal' | 'fast' = 'normal') => {
         // CRITICAL: gifuct-js MUST be available - fail if not
         const gifuct = (window as any).gifuct;
         if (!gifuct) {
@@ -739,20 +767,21 @@ export const handler: Handler = async (event) => {
         let frameCounter = 0;
         
         // Frame-rate-based speed mapping (adjusted for export FPS)
-        const getFrameInterval = () => {
+        const getFrameInterval = (speed: 'slow' | 'normal' | 'fast' = 'normal') => {
           // Base intervals for 60fps (client-side)
           const baseIntervals = {
             slow: 4,    // 15fps effective at 60fps
-            medium: 2,  // 30fps effective at 60fps
+            normal: 2,  // 30fps effective at 60fps (added normal)
+            medium: 2,  // 30fps effective at 60fps (legacy support)
             fast: 1     // 60fps effective at 60fps
           };
           
           // Scale interval based on export FPS vs 60fps
-          const baseInterval = baseIntervals[renderRequest.settings.gifAnimationSpeed];
+          const baseInterval = baseIntervals[speed];
           const fpsRatio = 60 / renderRequest.exportSettings.fps;
           const scaledInterval = Math.max(1, Math.round(baseInterval / fpsRatio));
           
-          console.log(`🎞️ GIF animation: ${renderRequest.settings.gifAnimationSpeed} speed, base interval: ${baseInterval}, export fps: ${renderRequest.exportSettings.fps}, scaled interval: ${scaledInterval}`);
+          console.log(`🎞️ GIF animation: ${speed} speed, base interval: ${baseInterval}, export fps: ${renderRequest.exportSettings.fps}, scaled interval: ${scaledInterval}`);
           
           return scaledInterval;
         };
@@ -797,7 +826,7 @@ export const handler: Handler = async (event) => {
             if (frames.length <= 1) return; // Static image
             
             frameCounter++;
-            const frameInterval = getFrameInterval();
+            const frameInterval = getFrameInterval(gifSpeed);
             
             // Only advance frame when we hit the interval
             if (frameCounter >= frameInterval) {
@@ -855,7 +884,7 @@ export const handler: Handler = async (event) => {
         
         if (isGifUrl(settings.overlayUrl)) {
           // Process GIF with gifuct-js (identical to client-side)
-          const gifResult = await processGIF(settings.overlayUrl);
+          const gifResult = await processGIF(settings.overlayUrl, settings.overlayGifSpeed || 'normal');
           if (gifResult && gifResult.texture) {
             overlayTexture = gifResult.texture;
             console.log('✅ Animated GIF overlay applied with gifuct-js');
@@ -922,7 +951,7 @@ export const handler: Handler = async (event) => {
         
         if (isGifUrl(settings.overlayUrl2)) {
           // Process GIF with gifuct-js (identical to client-side)
-          const gifResult = await processGIF(settings.overlayUrl2);
+          const gifResult = await processGIF(settings.overlayUrl2, settings.overlayGifSpeed || 'normal');
           if (gifResult && gifResult.texture) {
             overlayTexture = gifResult.texture;
             console.log('✅ Animated GIF overlay applied with gifuct-js');
@@ -973,7 +1002,7 @@ export const handler: Handler = async (event) => {
           
           if (isGifUrl(settings.bodyTextureUrl)) {
             // Process GIF body texture
-            const gifResult = await processGIF(settings.bodyTextureUrl);
+            const gifResult = await processGIF(settings.bodyTextureUrl, settings.bodyGifSpeed || 'normal');
             if (gifResult && gifResult.texture) {
               bodyTexture = gifResult.texture;
               console.log('✅ Animated GIF body texture applied');
@@ -985,14 +1014,65 @@ export const handler: Handler = async (event) => {
           }
           
           if (bodyTexture) {
-            // Apply texture to both rim and face materials (overriding previous colors/gradients)
-            rimMat.map = bodyTexture.clone();
-            faceMat.map = bodyTexture.clone();
+            // Apply texture transformations (matching client-side)
+            const rimTexture = bodyTexture.clone();
+            const faceTexture = bodyTexture.clone();
+            
+            // Apply texture transformations to both textures
+            [rimTexture, faceTexture].forEach(texture => {
+              // Texture rotation
+              if (settings.bodyTextureRotation !== undefined && settings.bodyTextureRotation !== 0) {
+                const rotationRadians = (settings.bodyTextureRotation * Math.PI) / 180;
+                texture.center.set(0.5, 0.5);
+                texture.rotation = rotationRadians;
+              }
+              
+              // Texture scale
+              if (settings.bodyTextureScale !== undefined && settings.bodyTextureScale !== 1) {
+                texture.repeat.set(settings.bodyTextureScale, settings.bodyTextureScale);
+              }
+              
+              // Texture offset
+              if (settings.bodyTextureOffsetX !== undefined || settings.bodyTextureOffsetY !== undefined) {
+                texture.offset.set(
+                  settings.bodyTextureOffsetX || 0,
+                  settings.bodyTextureOffsetY || 0
+                );
+              }
+              
+              // Texture mapping (basic implementation)
+              if (settings.bodyTextureMapping) {
+                // Note: Three.js UV mapping is handled by geometry, 
+                // but we can adjust texture wrapping and filtering
+                switch (settings.bodyTextureMapping) {
+                  case 'planar':
+                    texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+                    break;
+                  case 'cylindrical':
+                  case 'spherical':
+                    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+                    break;
+                }
+              }
+              
+              texture.needsUpdate = true;
+            });
+            
+            // Apply transformed textures to materials
+            rimMat.map = rimTexture;
+            faceMat.map = faceTexture;
             rimMat.color.set('#ffffff'); // Base white for texture
             faceMat.color.set('#ffffff');
             rimMat.needsUpdate = true;
             faceMat.needsUpdate = true;
-            console.log('✅ Body texture applied to rim and face materials');
+            
+            console.log('✅ Body texture applied with transformations:', {
+              rotation: settings.bodyTextureRotation || 0,
+              scale: settings.bodyTextureScale || 1,
+              offsetX: settings.bodyTextureOffsetX || 0,
+              offsetY: settings.bodyTextureOffsetY || 0,
+              mapping: settings.bodyTextureMapping || 'cylindrical'
+            });
           }
         } catch (error) {
           console.error('❌ Failed to load body texture:', error);
@@ -1019,10 +1099,68 @@ export const handler: Handler = async (event) => {
           }
         }
         
-        // Identical rotation calculation to client
+        // Animation configuration (matching client-side)
+        const animationConfigs = {
+          right: { axis: 'y' as const, direction: 1 },
+          left: { axis: 'y' as const, direction: -1 },
+          up: { axis: 'x' as const, direction: -1 }, // FIXED: was direction: 1
+          down: { axis: 'x' as const, direction: 1 } // FIXED: was direction: -1
+        };
+        
+        // Animation preset functions (matching client-side)
+        const animationPresets = {
+          smooth: (progress: number) => {
+            // Smooth 360° rotation over full duration
+            return progress;
+          },
+          'fast-slow': (progress: number) => {
+            // Fast spin for first 1.5s, then slow static display for remaining 1.5s
+            if (progress < 0.5) {
+              // First half - complete full rotation
+              return progress * 2;
+            } else {
+              // Second half - hold at full rotation (static)
+              return 1;
+            }
+          },
+          bounce: (progress: number) => {
+            // Bounce effect: slight back rotation, fast flip, bounce, calm for 1s
+            if (progress < 0.1) {
+              // First 0.3s - slight back rotation (-10°)
+              return -0.028 * Math.sin(progress * 10 * Math.PI); // Slight back movement
+            } else if (progress < 0.4) {
+              // Next 0.9s - fast forward rotation to 380° (overshoot)
+              const fastProgress = (progress - 0.1) / 0.3;
+              return fastProgress * 1.056; // 380° = 1.056 rotations
+            } else if (progress < 0.6) {
+              // Next 0.6s - bounce back to 360° with elastic effect
+              const bounceProgress = (progress - 0.4) / 0.2;
+              const elasticOut = 1 + Math.pow(2, -10 * bounceProgress) * Math.sin((bounceProgress * 10 - 0.75) * (2 * Math.PI) / 3);
+              return 1.056 - (0.056 * elasticOut); // Settle to exactly 1 rotation
+            } else {
+              // Final 1.2s - stay calm at 360°
+              return 1;
+            }
+          }
+        };
+        
+        // Calculate frame progress and apply preset animation
         const frameProgress = i / (exportSettings.frames - 1);
-        const totalRotation = frameProgress * Math.PI * 2;
-        turntable.rotation.y = totalRotation;
+        const preset = animationPresets[settings.animationPreset || 'smooth'];
+        const animatedProgress = preset(frameProgress);
+        const config = animationConfigs[settings.animationDirection || 'right'];
+        
+        // Calculate rotation from animated progress
+        const totalRotation = animatedProgress * Math.PI * 2 * config.direction;
+        
+        // Apply rotation to the correct axis (matching client-side)
+        if (config.axis === 'y') {
+          turntable.rotation.y = totalRotation;
+          turntable.rotation.x = 0; // Keep X axis stable for left/right animation
+        } else {
+          turntable.rotation.x = totalRotation;
+          turntable.rotation.y = 0; // Keep Y axis stable for up/down animation
+        }
 
         // Update animated GIF textures (identical to client-side animation loop)
         if (overlayTop.material && overlayTop.material.map && overlayTop.material.map.userData?.update) {
