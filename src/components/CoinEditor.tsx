@@ -1368,13 +1368,9 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           texture.dispose?.();
           return;
         }
-        // Ensure consistent texture orientation
-        // Videos need flipY=true, static images need flipY=false
-        if (texture instanceof THREE.VideoTexture || texture instanceof THREE.CanvasTexture) {
-          texture.flipY = true;
-        } else {
-          texture.flipY = true;
-        }
+        // FIXED: Consistent texture orientation for all types
+        // Set flipY = false for proper orientation (images appear right-side up)
+        texture.flipY = false;
         
         if (currentSettings.dualOverlay && isSecond) {
           // Apply to bottom face - flip horizontally for video textures
@@ -1389,7 +1385,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
             flippedTexture.minFilter = THREE.LinearFilter;
             flippedTexture.magFilter = THREE.LinearFilter;
             flippedTexture.format = THREE.RGBAFormat;
-            flippedTexture.flipY = true;
+            flippedTexture.flipY = false; // FIXED: Consistent flipY = false
             flippedTexture.wrapS = THREE.RepeatWrapping;
             flippedTexture.repeat.x = -1; // Horizontal flip
             flippedTexture.needsUpdate = true;
@@ -1437,7 +1433,9 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
             bottomTexture.minFilter = THREE.LinearFilter;
             bottomTexture.magFilter = THREE.LinearFilter;
             bottomTexture.format = THREE.RGBAFormat;
-            bottomTexture.flipY = false; // Bottom face uses different flip
+            bottomTexture.flipY = false; // FIXED: Consistent flipY = false
+            bottomTexture.wrapS = THREE.RepeatWrapping;
+            bottomTexture.repeat.x = -1; // Horizontal flip for bottom face
             bottomTexture.needsUpdate = true;
             // Copy dispose function if it exists
             if ((texture as any).userData?.dispose) {
@@ -1448,9 +1446,9 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
             // For CanvasTextures (like animated GIFs), share the same canvas AND animation state
             const bottomTexture = new THREE.CanvasTexture((texture as any).image);
             bottomTexture.colorSpace = THREE.SRGBColorSpace;
-            bottomTexture.flipY = true;
+            bottomTexture.flipY = false; // FIXED: Consistent flipY = false
             bottomTexture.wrapS = THREE.RepeatWrapping;
-            bottomTexture.repeat.x = -1; // Horizontal flip to fix mirroring
+            bottomTexture.repeat.x = -1; // Horizontal flip for bottom face
             bottomTexture.needsUpdate = true;
             // CRITICAL: Share the EXACT SAME userData object for synchronized animation
             bottomTexture.userData = (texture as any).userData;
@@ -1458,9 +1456,9 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           } else {
             // For static textures, clone and fix orientation
             const bottomTexture = texture.clone();
-            bottomTexture.flipY = true;
+            bottomTexture.flipY = false; // FIXED: Consistent flipY = false
             bottomTexture.wrapS = THREE.RepeatWrapping;
-            bottomTexture.repeat.x = -1; // Horizontal flip to fix mirroring
+            bottomTexture.repeat.x = -1; // Horizontal flip for bottom face
             bottomTexture.needsUpdate = true;
             botMaterial.map = bottomTexture;
           }
