@@ -1376,14 +1376,16 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           const material = sceneRef.current!.overlayBot.material as THREE.MeshStandardMaterial;
           
           if (texture instanceof THREE.VideoTexture) {
-            // For video textures on bottom face in dual mode, use texture directly
+            // For video textures on bottom face in dual mode, add horizontal flip
             const video = (texture as any).image;
             const flippedTexture = new THREE.VideoTexture(video);
             flippedTexture.colorSpace = THREE.SRGBColorSpace;
             flippedTexture.minFilter = THREE.LinearFilter;
             flippedTexture.magFilter = THREE.LinearFilter;
             flippedTexture.format = THREE.RGBAFormat;
-            flippedTexture.flipY = false; // FIXED: Dual mode back face uses flipY = false (no additional flips)
+            flippedTexture.flipY = false; // FIXED: Dual mode back face uses flipY = false
+            flippedTexture.wrapS = THREE.RepeatWrapping;
+            flippedTexture.repeat.x = -1; // FIXED: Add horizontal flip for dual mode back face
             flippedTexture.needsUpdate = true;
             // Copy dispose function if it exists
             if ((texture as any).userData?.dispose) {
@@ -1391,8 +1393,13 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
             }
             material.map = flippedTexture;
           } else {
-            // For static images, use texture directly without additional flipping in dual mode
-            material.map = texture;
+            // For static images, add horizontal flip for dual mode back face
+            const flippedTexture = texture.clone();
+            flippedTexture.flipY = false; // Keep flipY = false for dual mode
+            flippedTexture.wrapS = THREE.RepeatWrapping;
+            flippedTexture.repeat.x = -1; // FIXED: Add horizontal flip for dual mode back face
+            flippedTexture.needsUpdate = true;
+            material.map = flippedTexture;
           }
           
           material.opacity = 1;

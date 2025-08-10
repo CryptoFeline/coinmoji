@@ -1161,21 +1161,27 @@ export const handler: Handler = async (event) => {
           console.log(`🔧 Applied back overlay transformations: rotation=${settings.overlayRotation || 0}°, scale=${settings.overlayScale || 1}, offset=(${settings.overlayOffsetX || 0}, ${settings.overlayOffsetY || 0})`);
           
           
-          // DUAL MODE: Apply second overlay to bottom face without additional flips
+          // DUAL MODE: Apply second overlay to bottom face with horizontal flip
           let bottomTexture;
           if (overlayTexture instanceof THREE.CanvasTexture) {
             // For animated GIFs, create new texture instance but share canvas for sync
             bottomTexture = new THREE.CanvasTexture(overlayTexture.image);
             bottomTexture.colorSpace = THREE.SRGBColorSpace;
-            bottomTexture.flipY = false; // FIXED: Dual mode back face uses flipY = false (no additional flips)
+            bottomTexture.flipY = false; // FIXED: Dual mode back face uses flipY = false
+            bottomTexture.wrapS = THREE.RepeatWrapping;
+            bottomTexture.repeat.x = -1; // FIXED: Add horizontal flip for dual mode back face
             bottomTexture.needsUpdate = true;
             // CRITICAL: Share the EXACT SAME userData object for synchronized animation
             bottomTexture.userData = overlayTexture.userData;
             console.log('✅ Back overlay (animated) applied to BOTTOM face with shared animation state');
           } else {
-            // For static images, use texture directly without additional flips in dual mode
-            bottomTexture = overlayTexture;
-            console.log('✅ Back overlay (static) applied to BOTTOM face without flips');
+            // For static images, add horizontal flip for dual mode back face
+            bottomTexture = overlayTexture.clone();
+            bottomTexture.flipY = false; // Keep flipY = false for dual mode
+            bottomTexture.wrapS = THREE.RepeatWrapping;
+            bottomTexture.repeat.x = -1; // FIXED: Add horizontal flip for dual mode back face
+            bottomTexture.needsUpdate = true;
+            console.log('✅ Back overlay (static) applied to BOTTOM face with horizontal flip');
           }
           
           // Apply same transformations to bottom texture in dual mode (matching client-side)
