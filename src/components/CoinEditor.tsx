@@ -1376,14 +1376,14 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           const material = sceneRef.current!.overlayBot.material as THREE.MeshStandardMaterial;
           
           if (texture instanceof THREE.VideoTexture) {
-            // For video textures on bottom face in dual mode, use texture directly without additional flipping
+            // For video textures on bottom face in dual mode, use texture directly
             const video = (texture as any).image;
             const flippedTexture = new THREE.VideoTexture(video);
             flippedTexture.colorSpace = THREE.SRGBColorSpace;
             flippedTexture.minFilter = THREE.LinearFilter;
             flippedTexture.magFilter = THREE.LinearFilter;
             flippedTexture.format = THREE.RGBAFormat;
-            flippedTexture.flipY = true; // Keep original flipY setting
+            flippedTexture.flipY = false; // FIXED: Dual mode back face uses flipY = false (no additional flips)
             flippedTexture.needsUpdate = true;
             // Copy dispose function if it exists
             if ((texture as any).userData?.dispose) {
@@ -1429,7 +1429,9 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
             bottomTexture.minFilter = THREE.LinearFilter;
             bottomTexture.magFilter = THREE.LinearFilter;
             bottomTexture.format = THREE.RGBAFormat;
-            bottomTexture.flipY = false; // FIXED: Bottom face uses flipY = false (no horizontal flip needed)
+            bottomTexture.flipY = true; // FIXED: Bottom face needs flipY = true + horizontal flip
+            bottomTexture.wrapS = THREE.RepeatWrapping;
+            bottomTexture.repeat.x = -1; // Horizontal flip for proper back face viewing
             bottomTexture.needsUpdate = true;
             // Copy dispose function if it exists
             if ((texture as any).userData?.dispose) {
@@ -1440,7 +1442,9 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
             // For CanvasTextures (like animated GIFs), share the same canvas AND animation state
             const bottomTexture = new THREE.CanvasTexture((texture as any).image);
             bottomTexture.colorSpace = THREE.SRGBColorSpace;
-            bottomTexture.flipY = false; // FIXED: Bottom face uses flipY = false (no horizontal flip needed)
+            bottomTexture.flipY = true; // FIXED: Bottom face needs flipY = true + horizontal flip
+            bottomTexture.wrapS = THREE.RepeatWrapping;
+            bottomTexture.repeat.x = -1; // Horizontal flip for proper back face viewing
             bottomTexture.needsUpdate = true;
             // CRITICAL: Share the EXACT SAME userData object for synchronized animation
             bottomTexture.userData = (texture as any).userData;
@@ -1448,7 +1452,9 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           } else {
             // For static textures, clone and set proper orientation
             const bottomTexture = texture.clone();
-            bottomTexture.flipY = false; // FIXED: Bottom face uses flipY = false (no horizontal flip needed)
+            bottomTexture.flipY = true; // FIXED: Bottom face needs flipY = true + horizontal flip
+            bottomTexture.wrapS = THREE.RepeatWrapping;
+            bottomTexture.repeat.x = -1; // Horizontal flip for proper back face viewing
             bottomTexture.needsUpdate = true;
             botMaterial.map = bottomTexture;
           }

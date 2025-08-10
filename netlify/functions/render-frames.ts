@@ -1084,14 +1084,18 @@ export const handler: Handler = async (event) => {
               // For animated GIFs, share the same canvas but create new texture 
               bottomTexture = new THREE.CanvasTexture(overlayTexture.image);
               bottomTexture.colorSpace = THREE.SRGBColorSpace;
-              bottomTexture.flipY = false; // FIXED: Bottom face uses flipY = false (no additional horizontal flip needed)
+              bottomTexture.flipY = true; // FIXED: Bottom face needs flipY = true + horizontal flip
+              bottomTexture.wrapS = THREE.RepeatWrapping;
+              bottomTexture.repeat.x = -1; // Horizontal flip for proper back face viewing
               bottomTexture.needsUpdate = true;
               // CRITICAL: Share the EXACT SAME userData object for synchronized animation (matching client-side)
               bottomTexture.userData = overlayTexture.userData;
             } else {
               // For static images, clone and set proper orientation 
               bottomTexture = overlayTexture.clone();
-              bottomTexture.flipY = false; // FIXED: Bottom face uses flipY = false (no additional horizontal flip needed)
+              bottomTexture.flipY = true; // FIXED: Bottom face needs flipY = true + horizontal flip
+              bottomTexture.wrapS = THREE.RepeatWrapping;
+              bottomTexture.repeat.x = -1; // Horizontal flip for proper back face viewing
               bottomTexture.needsUpdate = true;
             }
             
@@ -1157,13 +1161,13 @@ export const handler: Handler = async (event) => {
           console.log(`🔧 Applied back overlay transformations: rotation=${settings.overlayRotation || 0}°, scale=${settings.overlayScale || 1}, offset=(${settings.overlayOffsetX || 0}, ${settings.overlayOffsetY || 0})`);
           
           
-          // DUAL MODE: Apply second overlay to bottom face without additional vertical flip
+          // DUAL MODE: Apply second overlay to bottom face without additional flips
           let bottomTexture;
           if (overlayTexture instanceof THREE.CanvasTexture) {
             // For animated GIFs, create new texture instance but share canvas for sync
             bottomTexture = new THREE.CanvasTexture(overlayTexture.image);
             bottomTexture.colorSpace = THREE.SRGBColorSpace;
-            bottomTexture.flipY = false; // FIXED: No vertical flip for back face in dual mode
+            bottomTexture.flipY = false; // FIXED: Dual mode back face uses flipY = false (no additional flips)
             bottomTexture.needsUpdate = true;
             // CRITICAL: Share the EXACT SAME userData object for synchronized animation
             bottomTexture.userData = overlayTexture.userData;
