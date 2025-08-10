@@ -66,6 +66,7 @@ interface RenderFramesRequest {
     bodyMetallic: boolean;          // NEW: Separate from overlay metallic
     bodyMetalness: 'low' | 'normal' | 'high';  // NEW: Body metallic intensity
     bodyRoughness: 'low' | 'normal' | 'high';  // NEW: Body roughness control
+    bodyGlow: boolean;              // NEW: Enable glow effect for body
     
     // Body Texture Settings
     bodyTextureUrl: string;
@@ -87,6 +88,7 @@ interface RenderFramesRequest {
   overlayMetallic: boolean;       // NEW: Separate toggle for overlays
   overlayMetalness: 'low' | 'normal' | 'high';
   overlayRoughness: 'low' | 'normal' | 'high';
+  overlayGlow: boolean;           // NEW: Enable glow effect for overlays
   overlayGifSpeed: 'slow' | 'normal' | 'fast';  // RENAMED: from gifAnimationSpeed
   overlayRotation: number;        // NEW: 0-360 degrees overlay rotation
   overlayScale: number;           // NEW: 0.1-5.0 overlay scale multiplier
@@ -544,6 +546,131 @@ export const handler: Handler = async (event) => {
       // Coin assembly (identical to CoinEditor.tsx)
       const coinGroup = new THREE.Group();
       coinGroup.add(cylinder, topFace, bottomFace, overlayTop, overlayBot);
+      
+      // Add glow meshes - mirror client-side implementation
+      console.log('✨ Adding glow meshes with server-side shader implementation...');
+      
+      // Define GlowMapMaterial in plain JS (matching GlowMapMaterial.ts)
+      const GlowMapMaterial = class extends THREE.ShaderMaterial {
+        constructor(params) {
+          const p = params || {};
+          super({
+            uniforms: {
+              glowColor: { value: new THREE.Color(p.color || 0xffffff) },
+              map:       { value: p.map || null },
+              useMap:    { value: !!p.map },
+              intensity: { value: p.intensity !== undefined ? p.intensity : 1.0 },
+              threshold: { value: p.threshold !== undefined ? p.threshold : 0.70 },
+              sharpness: { value: p.sharpness !== undefined ? p.sharpness : 0.5 },
+            },
+            transparent: true,
+            depthTest: false,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            side: THREE.DoubleSide,
+            vertexShader: [
+              'varying vec3 vWorldPos;',
+              'varying vec3 vWorldNormal;',
+              'varying vec2 vUv;',
+              'void main() {',
+              '  vUv = uv;',
+              '  vec4 wp = modelMatrix * vec4(position, 1.0);',
+              '  vWorldPos = wp.xyz;',
+              '  vWorldNormal = normalize(mat3(modelMatrix) * normal);',
+              '  gl_Position = projectionMatrix * viewMatrix * wp;',
+              '}'
+            ].join('\\n'),
+            fragmentShader: [
+              'uniform vec3  glowColor;',
+              'uniform sampler2D map;',
+              'uniform bool  useMap;',
+              'uniform float intensity;',
+              'uniform float threshold;',
+              'uniform float sharpness;',
+              'varying vec3 vWorldPos;',
+              'varying vec3 vWorldNormal;',
+              'varying vec2 vUv;',
+              'void main() {',
+              '  vec3 base = useMap ? texture2D(map, vUv).rgb : glowColor;',
+              '  float luma = dot(base, vec3(0.2126, 0.7152, 0.0722));',
+              '  float gate = smoothstep(threshold, 1.0, luma);',
+              '  vec3 V = normalize(cameraPosition - vWorldPos);',
+              '  float rim = pow(1.0 - max(dot(normalize(vWorldNormal), V), 0.0),',
+              '                  1.0 + sharpness * 5.0);',
+              '  float a = clamp(rim * gate * intensity, 0.0, 1.0);',
+              '  gl_FragColor = vec4(base, a);',
+              '  #include <tonemapping_fragment>',
+              '  #include <colorspace_fragment>',
+              '}'
+            ].join('\\n')
+          });
+        }
+        
+        updateGlowSource(map, color) {
+          this.uniforms.map.value = map;
+          this.uniforms.useMap.value = !!map;
+          this.uniforms.glowColor.value.copy(color);
+          this.needsUpdate = true;
+        }
+      };
+
+      // Create body glow meshes
+      const cylinderGlow = new THREE.Mesh(
+        cylinderGeometry,
+        new GlowMapMaterial({
+          map: rimMat.map ?? null,
+          color: rimMat.color,
+          threshold: 0.60,
+          intensity: 1.15,
+          sharpness: 0.55,
+        })
+      );
+      cylinderGlow.scale.setScalar(1.012);
+      cylinderGlow.visible = !!settings.bodyGlow;
+
+      const topGlow = new THREE.Mesh(
+        topFace.geometry.clone(),
+        new GlowMapMaterial({
+          map: faceMat.map ?? null,
+          color: faceMat.color,
+          threshold: 0.60,
+          intensity: 1.15,
+          sharpness: 0.55,
+        })
+      );
+      topGlow.scale.setScalar(1.012);
+      topGlow.visible = !!settings.bodyGlow;
+
+      const bottomGlow = new THREE.Mesh(
+        bottomFace.geometry.clone(),
+        new GlowMapMaterial({
+          map: faceMat.map ?? null,
+          color: faceMat.color,
+          threshold: 0.60,
+          intensity: 1.15,
+          sharpness: 0.55,
+        })
+      );
+      bottomGlow.scale.setScalar(1.012);
+      bottomGlow.visible = !!settings.bodyGlow;
+
+      // Create overlay glow meshes
+      const overlayTopGlow = new THREE.Mesh(
+        overlayTop.geometry,
+        new GlowMapMaterial({ threshold: 0.80, intensity: 1.2, sharpness: 0.6 })
+      );
+      overlayTopGlow.scale.setScalar(1.008);
+      overlayTopGlow.visible = !!settings.overlayGlow;
+
+      const overlayBotGlow = new THREE.Mesh(
+        overlayBot.geometry,
+        new GlowMapMaterial({ threshold: 0.80, intensity: 1.2, sharpness: 0.6 })
+      );
+      overlayBotGlow.scale.setScalar(1.008);
+      overlayBotGlow.visible = !!settings.overlayGlow;
+
+      // Add glow meshes to coin group
+      coinGroup.add(cylinderGlow, topGlow, bottomGlow, overlayTopGlow, overlayBotGlow);
       coinGroup.rotation.x = Math.PI / 2; // Stand on edge
 
       // Turntable (identical to CoinEditor.tsx)
@@ -639,6 +766,11 @@ export const handler: Handler = async (event) => {
         rimMat.color.set(settings.bodyColor);
         faceMat.color.set(settings.bodyColor);
         console.log('🎯 Applied solid color:', settings.bodyColor);
+        
+        // Update body glow materials for solid colors
+        cylinderGlow.material.updateGlowSource(null, rimMat.color);
+        topGlow.material.updateGlowSource(null, faceMat.color);
+        bottomGlow.material.updateGlowSource(null, faceMat.color);
       } else {
         // Create gradient textures (FIXED: separate rim and face textures like client-side)
         console.log('🌈 Creating separate rim and face gradient textures...');
@@ -690,6 +822,11 @@ export const handler: Handler = async (event) => {
         rimMat.color.set('#ffffff'); // Base white for texture
         faceMat.color.set('#ffffff');
         console.log('✅ Applied separate gradient textures (rim + face):', settings.gradientStart, '->', settings.gradientEnd);
+        
+        // Update body glow materials for gradients
+        cylinderGlow.material.updateGlowSource(rimTexture, new THREE.Color('#ffffff'));
+        topGlow.material.updateGlowSource(faceTexture, new THREE.Color('#ffffff'));
+        bottomGlow.material.updateGlowSource(faceTexture, new THREE.Color('#ffffff'));
       }
 
       // Update body metallic properties using new system (matching CoinEditor.tsx)
@@ -725,6 +862,12 @@ export const handler: Handler = async (event) => {
       overlayBot.material.map = null;
       overlayBot.material.opacity = 0;
       overlayBot.material.needsUpdate = true;
+      
+      // Clear overlay glow materials
+      overlayTopGlow.material.updateGlowSource(null, new THREE.Color(0xffffff));
+      overlayBotGlow.material.updateGlowSource(null, new THREE.Color(0xffffff));
+      overlayTopGlow.visible = false;
+      overlayBotGlow.visible = false;
       
       // Helper function to process GIF with gifuct-js (MUST work - no fallbacks)
       const processGIF = async (url: string, gifSpeed: 'slow' | 'normal' | 'fast' = 'normal') => {
@@ -1072,6 +1215,10 @@ export const handler: Handler = async (event) => {
             overlayTop.material.opacity = 1;
             overlayTop.material.needsUpdate = true;
             console.log('✅ Front overlay applied to TOP face only (dual mode)');
+            
+            // Update top overlay glow for dual mode
+            overlayTopGlow.material.updateGlowSource(overlayTexture, new THREE.Color(0xffffff));
+            overlayTopGlow.visible = !!settings.overlayGlow;
           } else {
             // Apply to both faces in single mode - top face gets original
             overlayTop.material.map = overlayTexture;
@@ -1112,6 +1259,13 @@ export const handler: Handler = async (event) => {
             overlayBot.material.opacity = 1;
             overlayBot.material.needsUpdate = true;
             console.log('✅ Front overlay applied to BOTH faces (single mode)');
+            
+            // Update overlay glows for single mode
+            overlayTopGlow.material.updateGlowSource(overlayTexture, new THREE.Color(0xffffff));
+            overlayBotGlow.material.updateGlowSource(bottomTexture, new THREE.Color(0xffffff));
+            const overlayGlowEnabled = !!settings.overlayGlow;
+            overlayTopGlow.visible = overlayGlowEnabled;
+            overlayBotGlow.visible = overlayGlowEnabled;
           }
         }
       }
@@ -1197,6 +1351,10 @@ export const handler: Handler = async (event) => {
           
           overlayBot.material.opacity = 1;
           overlayBot.material.needsUpdate = true;
+          
+          // Update bottom overlay glow for dual mode
+          overlayBotGlow.material.updateGlowSource(bottomTexture, new THREE.Color(0xffffff));
+          overlayBotGlow.visible = !!settings.overlayGlow;
         }
       }
 
@@ -1305,6 +1463,11 @@ export const handler: Handler = async (event) => {
             faceMat.color.set('#ffffff');
             rimMat.needsUpdate = true;
             faceMat.needsUpdate = true;
+            
+            // Update body glow materials to match body textures
+            cylinderGlow.material.updateGlowSource(rimTexture, new THREE.Color('#ffffff'));
+            topGlow.material.updateGlowSource(faceTexture, new THREE.Color('#ffffff'));
+            bottomGlow.material.updateGlowSource(faceTexture, new THREE.Color('#ffffff'));
             
             console.log('✅ Body texture applied with transformations:', {
               rotation: settings.bodyTextureRotation || 0,

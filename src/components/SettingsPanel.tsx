@@ -25,6 +25,7 @@ export interface CoinSettings {
   bodyMetallic: boolean;          // NEW: Separate from overlay metallic
   bodyMetalness: 'low' | 'normal' | 'high';  // NEW: Body metallic intensity
   bodyRoughness: 'low' | 'normal' | 'high';  // NEW: Body roughness control
+  bodyGlow: boolean;              // NEW: Enable glow effect for body
   
   // Body Texture Settings
   bodyTextureUrl: string;
@@ -46,6 +47,7 @@ export interface CoinSettings {
   overlayMetallic: boolean;       // NEW: Separate toggle for overlays
   overlayMetalness: 'low' | 'normal' | 'high';
   overlayRoughness: 'low' | 'normal' | 'high';
+  overlayGlow: boolean;           // NEW: Enable glow effect for overlays
   overlayGifSpeed: 'slow' | 'normal' | 'fast';  // RENAMED: from gifAnimationSpeed
   overlayRotation: number;        // NEW: 0-360 degrees overlay rotation
   overlayScale: number;           // NEW: 0.1-5.0 overlay scale multiplier
@@ -874,6 +876,20 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
               )}
             </div>
 
+            {/* Body Glow Controls */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-gray-900 font-medium text-sm">Body Glow Effect</span>
+                  <p className="text-xs text-gray-500">Adds luminous rim glow to coin body</p>
+                </div>
+                <Toggle 
+                  checked={settings.bodyGlow} 
+                  onChange={(checked) => updateSetting('bodyGlow', checked)} 
+                />
+              </div>
+            </div>
+
             {/* Body Texture Section (Enhanced) */}
             {settings.fillMode === 'texture' && (
               <div className="space-y-4 p-4 bg-gray-50 rounded-lg border">
@@ -1337,6 +1353,20 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Overlay Glow Controls */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-gray-900 font-medium text-sm">Overlay Glow Effect</span>
+                  <p className="text-xs text-gray-500">Adds luminous rim glow to overlays</p>
+                </div>
+                <Toggle 
+                  checked={settings.overlayGlow} 
+                  onChange={(checked) => updateSetting('overlayGlow', checked)} 
+                />
+              </div>
             </div>
           </div>
 
