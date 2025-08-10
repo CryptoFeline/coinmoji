@@ -604,9 +604,24 @@ export const handler: Handler = async (event) => {
         strong: { hemi: 1.2, dir: 3.0 }
       };
       
-      const strength = lightStrengthMap[settings.lightStrength];
-      hemiLight.intensity = strength.hemi;
-      dirLight.intensity = strength.dir;
+      // CRITICAL FIX: Add robust fallback for invalid light strength values
+      const validLightStrength = (settings.lightStrength && 
+                                 typeof settings.lightStrength === 'string' &&
+                                 lightStrengthMap[settings.lightStrength]) 
+                                ? settings.lightStrength 
+                                : 'medium';
+      const strength = lightStrengthMap[validLightStrength] || lightStrengthMap.medium;
+      
+      // Additional safety check to ensure strength object exists and has required properties
+      if (!strength || typeof strength.hemi !== 'number' || typeof strength.dir !== 'number') {
+        console.warn('⚠️ Invalid strength object, using medium fallback:', strength);
+        const fallbackStrength = lightStrengthMap.medium;
+        hemiLight.intensity = fallbackStrength.hemi;
+        dirLight.intensity = fallbackStrength.dir;
+      } else {
+        hemiLight.intensity = strength.hemi;
+        dirLight.intensity = strength.dir;
+      }
       
       hemiLight.color.set(settings.lightColor);
       dirLight.color.set(settings.lightColor);
@@ -1238,6 +1253,12 @@ export const handler: Handler = async (event) => {
             // Apply texture transformations (matching client-side)
             const rimTexture = bodyTexture.clone();
             const faceTexture = bodyTexture.clone();
+            
+            // Preserve GIF animation userData from original texture
+            if (bodyTexture.userData && bodyTexture.userData.update) {
+              rimTexture.userData = { ...bodyTexture.userData };
+              faceTexture.userData = { ...bodyTexture.userData };
+            }
             
             // Apply texture transformations to both textures
             [rimTexture, faceTexture].forEach(texture => {
