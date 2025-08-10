@@ -1051,8 +1051,8 @@ export const handler: Handler = async (event) => {
         }
         
         if (overlayTexture) {
-          // FIXED: Consistent flipY = false for all texture types
-          overlayTexture.flipY = false;
+          // FIXED: Top face needs flipY = true to appear right-side up
+          overlayTexture.flipY = true;
 
           // Apply overlay transformations (matching client-side)
           applyTextureTransformations(
@@ -1084,16 +1084,16 @@ export const handler: Handler = async (event) => {
               // For animated GIFs, share the same canvas but create new texture with flip
               bottomTexture = new THREE.CanvasTexture(overlayTexture.image);
               bottomTexture.colorSpace = THREE.SRGBColorSpace;
-              bottomTexture.flipY = false; // FIXED: Consistent flipY = false
+              bottomTexture.flipY = false; // FIXED: Bottom face uses flipY = false
               bottomTexture.wrapS = THREE.RepeatWrapping;
               bottomTexture.repeat.x = -1; // Horizontal flip for bottom face
               bottomTexture.needsUpdate = true;
               // CRITICAL: Share the EXACT SAME userData object for synchronized animation (matching client-side)
               bottomTexture.userData = overlayTexture.userData;
             } else {
-              // For static images, clone and flip (FIXED: consistent flipY = false)
+              // For static images, clone and flip (FIXED: bottom face uses flipY = false)
               bottomTexture = overlayTexture.clone();
-              bottomTexture.flipY = false; // FIXED: Consistent flipY = false
+              bottomTexture.flipY = false; // FIXED: Bottom face uses flipY = false
               bottomTexture.wrapS = THREE.RepeatWrapping;
               bottomTexture.repeat.x = -1; // Horizontal flip for bottom face
               bottomTexture.needsUpdate = true;
@@ -1146,8 +1146,8 @@ export const handler: Handler = async (event) => {
         }
         
         if (overlayTexture) {
-          // FIXED: Consistent flipY = false for all texture types
-          overlayTexture.flipY = false;
+          // FIXED: Bottom face in dual mode should appear right-side up, so flipY = true
+          overlayTexture.flipY = true;
 
           // Apply overlay transformations to back overlay (matching client-side)
           applyTextureTransformations(
@@ -1167,7 +1167,7 @@ export const handler: Handler = async (event) => {
             // For animated GIFs, create new texture instance but share canvas for sync
             bottomTexture = new THREE.CanvasTexture(overlayTexture.image);
             bottomTexture.colorSpace = THREE.SRGBColorSpace;
-            bottomTexture.flipY = false; // FIXED: Consistent flipY = false
+            bottomTexture.flipY = true; // FIXED: Bottom face in dual mode uses flipY = true + horizontal flip
             bottomTexture.wrapS = THREE.RepeatWrapping;
             bottomTexture.repeat.x = -1; // Horizontal flip for bottom face in dual mode
             bottomTexture.needsUpdate = true;
@@ -1177,7 +1177,7 @@ export const handler: Handler = async (event) => {
           } else {
             // For static images, clone and apply horizontal flip for bottom face in dual mode
             bottomTexture = overlayTexture.clone();
-            bottomTexture.flipY = false; // FIXED: Consistent flipY = false
+            bottomTexture.flipY = true; // FIXED: Bottom face in dual mode uses flipY = true + horizontal flip
             bottomTexture.wrapS = THREE.RepeatWrapping;
             bottomTexture.repeat.x = -1; // Horizontal flip for bottom face in dual mode
             bottomTexture.needsUpdate = true;
