@@ -500,6 +500,15 @@ export const handler: Handler = async (event) => {
       const topFace = createFace(true);
       const bottomFace = createFace(false);
 
+      // CRITICAL FIX: Apply planar UV mapping to main faces when requested
+      if (settings.bodyTextureMapping === 'planar') {
+        console.log('🎯 Applying planar UV mapping to main coin faces');
+        planarMapUVs(topFace.geometry);
+        planarMapUVs(bottomFace.geometry);
+      } else {
+        console.log(`🔄 Using ${settings.bodyTextureMapping || 'default'} UV mapping for main coin faces`);
+      }
+
       // Overlay creation with dynamic material properties (matching CoinEditor.tsx)
       // Metalness mapping: low=0.3, normal=0.6, high=0.8
       const metalnessMap = { low: 0.3, normal: 0.6, high: 0.8 };
@@ -1190,12 +1199,21 @@ export const handler: Handler = async (event) => {
           console.log(`🔍 Detected body texture type: ${textureType} for URL`);
           
           if (textureType === 'gif') {
-            // Process GIF body texture
+            // Process GIF body texture with animation speed compatibility
             console.log('🎞️ Processing GIF body texture...');
-            const gifResult = await processGIF(settings.bodyTextureUrl, settings.bodyGifSpeed || 'normal');
+            
+            // CRITICAL FIX: Map client animation speed settings to server expectations
+            const gifSpeed = settings.bodyGifSpeed || 
+                           settings.gifAnimationSpeed || 
+                           settings.overlayGifSpeed || 
+                           'normal';
+            
+            console.log(`🎬 Using GIF animation speed: ${gifSpeed} (from bodyGifSpeed: ${settings.bodyGifSpeed}, gifAnimationSpeed: ${settings.gifAnimationSpeed}, overlayGifSpeed: ${settings.overlayGifSpeed})`);
+            
+            const gifResult = await processGIF(settings.bodyTextureUrl, gifSpeed);
             if (gifResult && gifResult.texture) {
               bodyTexture = gifResult.texture;
-              console.log('✅ Animated GIF body texture applied');
+              console.log('✅ Animated GIF body texture applied with speed:', gifSpeed);
             } else {
               console.warn('⚠️ GIF processing returned null result');
             }

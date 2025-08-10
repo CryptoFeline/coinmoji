@@ -383,24 +383,48 @@ export class CoinExporter {
     // Use stored settings if available, otherwise return defaults
     if (this.currentSettings) {
       console.log('📋 Using stored coin settings for server recreation');
+      console.log('🔍 Current settings for server:', {
+        bodyTextureMode: this.currentSettings.bodyTextureMode,
+        bodyTextureMapping: this.currentSettings.bodyTextureMapping,
+        overlayMode: this.currentSettings.overlayMode,
+        overlayMode2: this.currentSettings.overlayMode2,
+        overlayGifSpeed: this.currentSettings.overlayGifSpeed,
+        gifAnimationSpeed: this.currentSettings.gifAnimationSpeed,
+        hasBodyTextureFile: !!this.currentSettings.bodyTextureFile,
+        hasOverlayFile: !!this.currentSettings.overlayFile,
+        hasOverlayFile2: !!this.currentSettings.overlayFile2
+      });
       return this.currentSettings;
     }
     
     console.log('⚠️ No stored settings, using defaults for server recreation');
     return {
+      // Basic coin settings
       fillMode: 'solid' as const,
       bodyColor: '#cecece',
       gradientStart: '#00eaff',
       gradientEnd: '#ee00ff',
-      bodyTextureUrl: '',
       metallic: true,
       rotationSpeed: 'medium' as const,
-      overlayUrl: '',
-      dualOverlay: false,
-      overlayUrl2: '',
-      gifAnimationSpeed: 'medium' as const,
       lightColor: '#ffffff',
       lightStrength: 'medium' as const,
+      
+      // Texture settings - CRITICAL: Include all texture configuration
+      bodyTextureUrl: '',
+      bodyTextureMode: 'url' as const,
+      bodyTextureMapping: 'cylindrical' as const, // FIX: Add missing texture mapping
+      
+      // Overlay settings - CRITICAL: Include all overlay configuration  
+      overlayUrl: '',
+      overlayMode: 'url' as const,
+      dualOverlay: false,
+      overlayUrl2: '',
+      overlayMode2: 'url' as const,
+      
+      // Animation settings - CRITICAL: Include GIF animation controls
+      gifAnimationSpeed: 'medium' as const, // Legacy setting name
+      overlayGifSpeed: 'normal' as const,   // New setting name  
+      bodyGifSpeed: 'normal' as const,      // Body texture GIF speed
     };
   }
 
@@ -466,6 +490,19 @@ export class CoinExporter {
       formData.append('exportSettings', exportSettingsJson);
       
       console.log(`🚀 FormData prepared: ${fileIndex} files, ${(totalUploadSize/1024/1024).toFixed(1)}MB total`);
+      console.log('📋 Settings being sent to server:', {
+        bodyTextureMode: serverSettings.bodyTextureMode,
+        bodyTextureMapping: serverSettings.bodyTextureMapping,
+        bodyTextureFileIndex: serverSettings.bodyTextureFileIndex,
+        bodyGifSpeed: serverSettings.bodyGifSpeed,
+        overlayMode: serverSettings.overlayMode,
+        overlayMode2: serverSettings.overlayMode2,
+        overlayFileIndex: serverSettings.overlayFileIndex,
+        overlayFileIndex2: serverSettings.overlayFileIndex2,
+        gifAnimationSpeed: serverSettings.gifAnimationSpeed,
+        overlayGifSpeed: serverSettings.overlayGifSpeed,
+        hasUploadedFiles: fileIndex > 0
+      });
       console.log('⏱️ Starting server request with extended timeout for large files...');
     
       // Create AbortController for timeout handling
