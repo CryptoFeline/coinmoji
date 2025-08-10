@@ -23,10 +23,11 @@ export class GlowMapMaterial extends THREE.ShaderMaterial {
         sharpness: { value: params.sharpness ?? 0.5 },
       },
       transparent: true,
-      depthTest: false,
-      depthWrite: false,
+      depthTest: true,        // Enable depth test to prevent z-fighting
+      depthWrite: false,      // Don't write to depth buffer to allow proper layering
       blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
+      side: THREE.BackSide,   // Render backfaces to create proper outward glow
+      alphaTest: 0.01,        // Discard nearly transparent pixels
       vertexShader: `
         varying vec3 vWorldPos;
         varying vec3 vWorldNormal;
@@ -60,14 +61,19 @@ export class GlowMapMaterial extends THREE.ShaderMaterial {
           float luma = dot(base, vec3(0.2126, 0.7152, 0.0722));
           float gate = smoothstep(threshold, 1.0, luma);
 
-          // Fresnel-like rim effect
+          // Improved fresnel calculation for outward glow
           vec3 V = normalize(cameraPosition - vWorldPos);
-          float rim = pow(1.0 - max(dot(normalize(vWorldNormal), V), 0.0),
-                          1.0 + sharpness * 5.0);
+          vec3 N = normalize(vWorldNormal);
+          
+          // Use backside normals and improved fresnel
+          float fresnel = 1.0 - abs(dot(N, V));
+          float rim = pow(fresnel, 0.5 + sharpness * 2.0);
 
-          // Combine rim and brightness gate
-          float a = clamp(rim * gate * intensity, 0.0, 1.0);
-          gl_FragColor = vec4(base, a);
+          // Enhanced glow combination
+          float glowStrength = rim * gate * intensity;
+          float alpha = smoothstep(0.0, 1.0, glowStrength);
+          
+          gl_FragColor = vec4(base * (1.0 + alpha), alpha * 0.8);
 
           // Apply tone mapping to match main renderer
           #include <tonemapping_fragment>

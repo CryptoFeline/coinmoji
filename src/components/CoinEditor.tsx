@@ -489,12 +489,13 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
         map: rimMat.map ?? null,            // gradient/texture, or null
         color: rimMat.color,                // used if map is null (solid fill)
         threshold: 0.60,
-        intensity: 1.15,
-        sharpness: 0.55,
+        intensity: 1.5,                     // Increased intensity
+        sharpness: 0.8,                     // Increased sharpness
       })
     );
-    cylinderGlow.scale.setScalar(1.012);
+    cylinderGlow.scale.setScalar(1.05);     // More visible scaling
     cylinderGlow.visible = false; // Start hidden, controlled by settings
+    cylinderGlow.renderOrder = 1;    // Render after main geometry
 
     const topGlow = new THREE.Mesh(
       topFace.geometry.clone(),
@@ -502,12 +503,13 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
         map: faceMat.map ?? null,
         color: faceMat.color,
         threshold: 0.60,
-        intensity: 1.15,
-        sharpness: 0.55,
+        intensity: 1.5,
+        sharpness: 0.8,
       })
     );
-    topGlow.scale.setScalar(1.012);
+    topGlow.scale.setScalar(1.05);
     topGlow.visible = false;
+    topGlow.renderOrder = 1;
 
     const bottomGlow = new THREE.Mesh(
       bottomFace.geometry.clone(),
@@ -515,27 +517,30 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
         map: faceMat.map ?? null,
         color: faceMat.color,
         threshold: 0.60,
-        intensity: 1.15,
-        sharpness: 0.55,
+        intensity: 1.5,
+        sharpness: 0.8,
       })
     );
-    bottomGlow.scale.setScalar(1.012);
+    bottomGlow.scale.setScalar(1.05);
     bottomGlow.visible = false;
+    bottomGlow.renderOrder = 1;
 
     // Overlay glow meshes - read overlay textures; start hidden
     const overlayTopGlow = new THREE.Mesh(
       overlayTop.geometry,
-      new GlowMapMaterial({ threshold: 0.80, intensity: 1.2, sharpness: 0.6 })
+      new GlowMapMaterial({ threshold: 0.70, intensity: 2.0, sharpness: 1.0 })
     );
-    overlayTopGlow.scale.setScalar(1.008);
+    overlayTopGlow.scale.setScalar(1.03);   // Smaller scale for overlays
     overlayTopGlow.visible = false;
+    overlayTopGlow.renderOrder = 2;    // Render after body glow
 
     const overlayBotGlow = new THREE.Mesh(
       overlayBot.geometry,
-      new GlowMapMaterial({ threshold: 0.80, intensity: 1.2, sharpness: 0.6 })
+      new GlowMapMaterial({ threshold: 0.70, intensity: 2.0, sharpness: 1.0 })
     );
-    overlayBotGlow.scale.setScalar(1.008);
+    overlayBotGlow.scale.setScalar(1.03);
     overlayBotGlow.visible = false;
+    overlayBotGlow.renderOrder = 2;
 
     // Coin assembly
     const coinGroup = new THREE.Group();

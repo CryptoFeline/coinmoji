@@ -564,10 +564,11 @@ export const handler: Handler = async (event) => {
               sharpness: { value: p.sharpness !== undefined ? p.sharpness : 0.5 },
             },
             transparent: true,
-            depthTest: false,
-            depthWrite: false,
+            depthTest: true,        // Enable depth test to prevent z-fighting
+            depthWrite: false,      // Don't write to depth buffer to allow proper layering
             blending: THREE.AdditiveBlending,
-            side: THREE.DoubleSide,
+            side: THREE.BackSide,   // Render backfaces to create proper outward glow
+            alphaTest: 0.01,        // Discard nearly transparent pixels
             vertexShader: [
               'varying vec3 vWorldPos;',
               'varying vec3 vWorldNormal;',
@@ -595,10 +596,12 @@ export const handler: Handler = async (event) => {
               '  float luma = dot(base, vec3(0.2126, 0.7152, 0.0722));',
               '  float gate = smoothstep(threshold, 1.0, luma);',
               '  vec3 V = normalize(cameraPosition - vWorldPos);',
-              '  float rim = pow(1.0 - max(dot(normalize(vWorldNormal), V), 0.0),',
-              '                  1.0 + sharpness * 5.0);',
-              '  float a = clamp(rim * gate * intensity, 0.0, 1.0);',
-              '  gl_FragColor = vec4(base, a);',
+              '  vec3 N = normalize(vWorldNormal);',
+              '  float fresnel = 1.0 - abs(dot(N, V));',
+              '  float rim = pow(fresnel, 0.5 + sharpness * 2.0);',
+              '  float glowStrength = rim * gate * intensity;',
+              '  float alpha = smoothstep(0.0, 1.0, glowStrength);',
+              '  gl_FragColor = vec4(base * (1.0 + alpha), alpha * 0.8);',
               '  #include <tonemapping_fragment>',
               '  #include <colorspace_fragment>',
               '}'
@@ -621,12 +624,13 @@ export const handler: Handler = async (event) => {
           map: rimMat.map ?? null,
           color: rimMat.color,
           threshold: 0.60,
-          intensity: 1.15,
-          sharpness: 0.55,
+          intensity: 1.5,                     // Increased intensity
+          sharpness: 0.8,                     // Increased sharpness
         })
       );
-      cylinderGlow.scale.setScalar(1.012);
+      cylinderGlow.scale.setScalar(1.05);     // More visible scaling
       cylinderGlow.visible = !!settings.bodyGlow;
+      cylinderGlow.renderOrder = 1;    // Render after main geometry
 
       const topGlow = new THREE.Mesh(
         topFace.geometry.clone(),
@@ -634,12 +638,13 @@ export const handler: Handler = async (event) => {
           map: faceMat.map ?? null,
           color: faceMat.color,
           threshold: 0.60,
-          intensity: 1.15,
-          sharpness: 0.55,
+          intensity: 1.5,
+          sharpness: 0.8,
         })
       );
-      topGlow.scale.setScalar(1.012);
+      topGlow.scale.setScalar(1.05);
       topGlow.visible = !!settings.bodyGlow;
+      topGlow.renderOrder = 1;
 
       const bottomGlow = new THREE.Mesh(
         bottomFace.geometry.clone(),
@@ -647,27 +652,30 @@ export const handler: Handler = async (event) => {
           map: faceMat.map ?? null,
           color: faceMat.color,
           threshold: 0.60,
-          intensity: 1.15,
-          sharpness: 0.55,
+          intensity: 1.5,
+          sharpness: 0.8,
         })
       );
-      bottomGlow.scale.setScalar(1.012);
+      bottomGlow.scale.setScalar(1.05);
       bottomGlow.visible = !!settings.bodyGlow;
+      bottomGlow.renderOrder = 1;
 
       // Create overlay glow meshes
       const overlayTopGlow = new THREE.Mesh(
         overlayTop.geometry,
-        new GlowMapMaterial({ threshold: 0.80, intensity: 1.2, sharpness: 0.6 })
+        new GlowMapMaterial({ threshold: 0.70, intensity: 2.0, sharpness: 1.0 })
       );
-      overlayTopGlow.scale.setScalar(1.008);
+      overlayTopGlow.scale.setScalar(1.03);   // Smaller scale for overlays
       overlayTopGlow.visible = !!settings.overlayGlow;
+      overlayTopGlow.renderOrder = 2;    // Render after body glow
 
       const overlayBotGlow = new THREE.Mesh(
         overlayBot.geometry,
-        new GlowMapMaterial({ threshold: 0.80, intensity: 1.2, sharpness: 0.6 })
+        new GlowMapMaterial({ threshold: 0.70, intensity: 2.0, sharpness: 1.0 })
       );
-      overlayBotGlow.scale.setScalar(1.008);
+      overlayBotGlow.scale.setScalar(1.03);
       overlayBotGlow.visible = !!settings.overlayGlow;
+      overlayBotGlow.renderOrder = 2;
 
       // Add glow meshes to coin group
       coinGroup.add(cylinderGlow, topGlow, bottomGlow, overlayTopGlow, overlayBotGlow);
