@@ -404,58 +404,84 @@ export class CoinExporter {
     };
   }
 
-  // Server-side rendering call
   // 🚀 NEW: Stream binary files directly to server (no base64 overhead)
   private async renderFramesOnServerWithStreaming(coinSettings: any, exportSettings: ExportSettings): Promise<string[]> {
     console.log('🎬 Server-side rendering with direct binary streaming...');
     
-    // Create FormData for multipart streaming
-    const formData = new FormData();
-    
-    // Add settings as JSON (small, no base64 needed)
-    const serverSettings = { ...coinSettings };
-    
-    // Handle uploaded files: add them as binary blobs, not base64
+    // Declare variables in function scope so they're accessible in catch block
     let fileIndex = 0;
-    if (coinSettings.bodyTextureMode === 'upload' && coinSettings.bodyTextureFile) {
-      formData.append(`file_${fileIndex}`, coinSettings.bodyTextureFile);
-      serverSettings.bodyTextureFileIndex = fileIndex;
-      delete serverSettings.bodyTextureBase64; // Remove base64 data
-      fileIndex++;
-      console.log('📎 Added body texture file for binary streaming');
-    }
+    let totalUploadSize = 0;
     
-    if (coinSettings.overlayMode === 'upload' && coinSettings.overlayFile) {
-      formData.append(`file_${fileIndex}`, coinSettings.overlayFile);
-      serverSettings.overlayFileIndex = fileIndex;
-      delete serverSettings.overlayBase64; // Remove base64 data
-      fileIndex++;
-      console.log('📎 Added overlay file for binary streaming');
-    }
+    try {
+      // Create FormData for multipart streaming with error handling
+      console.log('📦 Creating FormData for multipart upload...');
+      const formData = new FormData();
+      
+      // Add settings as JSON (small, no base64 needed)
+      const serverSettings = { ...coinSettings };
+      
+      // Handle uploaded files: add them as binary blobs, not base64
+      // Variables already declared in function scope above
+      
+      if (coinSettings.bodyTextureMode === 'upload' && coinSettings.bodyTextureFile) {
+        console.log(`📎 Adding body texture file: ${coinSettings.bodyTextureFile.name} (${coinSettings.bodyTextureFile.size} bytes)`);
+        formData.append(`file_${fileIndex}`, coinSettings.bodyTextureFile);
+        serverSettings.bodyTextureFileIndex = fileIndex;
+        delete serverSettings.bodyTextureBase64; // Remove base64 data
+        totalUploadSize += coinSettings.bodyTextureFile.size;
+        fileIndex++;
+        console.log('✅ Body texture file added to FormData successfully');
+      }
+      
+      if (coinSettings.overlayMode === 'upload' && coinSettings.overlayFile) {
+        console.log(`📎 Adding overlay file: ${coinSettings.overlayFile.name} (${coinSettings.overlayFile.size} bytes)`);
+        formData.append(`file_${fileIndex}`, coinSettings.overlayFile);
+        serverSettings.overlayFileIndex = fileIndex;
+        delete serverSettings.overlayBase64; // Remove base64 data
+        totalUploadSize += coinSettings.overlayFile.size;
+        fileIndex++;
+        console.log('✅ Overlay file added to FormData successfully');
+      }
+      
+      if (coinSettings.overlayMode2 === 'upload' && coinSettings.overlayFile2) {
+        console.log(`📎 Adding overlay2 file: ${coinSettings.overlayFile2.name} (${coinSettings.overlayFile2.size} bytes)`);
+        formData.append(`file_${fileIndex}`, coinSettings.overlayFile2);
+        serverSettings.overlayFileIndex2 = fileIndex;
+        delete serverSettings.overlayBase64_2; // Remove base64 data
+        totalUploadSize += coinSettings.overlayFile2.size;
+        fileIndex++;
+        console.log('✅ Overlay2 file added to FormData successfully');
+      }
+      
+      // Add settings and export settings as JSON fields
+      const settingsJson = JSON.stringify(serverSettings);
+      const exportSettingsJson = JSON.stringify({
+        fps: exportSettings.fps,
+        duration: exportSettings.duration,
+        frames: Math.round(exportSettings.fps * exportSettings.duration),
+        qualityMode: exportSettings.qualityMode || 'balanced'
+      });
+      
+      formData.append('settings', settingsJson);
+      formData.append('exportSettings', exportSettingsJson);
+      
+      console.log(`🚀 FormData prepared: ${fileIndex} files, ${(totalUploadSize/1024/1024).toFixed(1)}MB total`);
+      console.log('⏱️ Starting server request with extended timeout for large files...');
     
-    if (coinSettings.overlayMode2 === 'upload' && coinSettings.overlayFile2) {
-      formData.append(`file_${fileIndex}`, coinSettings.overlayFile2);
-      serverSettings.overlayFileIndex2 = fileIndex;
-      delete serverSettings.overlayBase64_2; // Remove base64 data
-      fileIndex++;
-      console.log('📎 Added overlay2 file for binary streaming');
-    }
-    
-    // Add settings and export settings as JSON fields
-    formData.append('settings', JSON.stringify(serverSettings));
-    formData.append('exportSettings', JSON.stringify({
-      fps: exportSettings.fps,
-      duration: exportSettings.duration,
-      frames: Math.round(exportSettings.fps * exportSettings.duration),
-      qualityMode: exportSettings.qualityMode || 'balanced'
-    }));
-    
-    console.log(`🚀 Streaming request with ${fileIndex} binary files (no base64 overhead)`);
-    
-    const response = await fetch(`${window.location.origin}/.netlify/functions/render-frames`, {
-      method: 'POST',
-      body: formData, // No Content-Type header - let browser set multipart boundary
-    });
+      // Create AbortController for timeout handling
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        console.log('⏰ Request timeout after 60s');
+        controller.abort();
+      }, 60000); // 60 second timeout
+      
+      const response = await fetch(`${window.location.origin}/.netlify/functions/render-frames`, {
+        method: 'POST',
+        body: formData, // No Content-Type header - let browser set multipart boundary
+        signal: controller.signal, // Add abort signal
+      });
+      
+      clearTimeout(timeoutId); // Clear timeout on success
     
     if (!response.ok) {
       let errorResult;
@@ -486,6 +512,27 @@ export class CoinExporter {
     console.log('🎞️ Starting client-side frame processing...');
 
     return result.frames;
+    
+    } catch (error) {
+      console.error('❌ Server streaming failed:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+        totalUploadSize: totalUploadSize ? `${(totalUploadSize/1024/1024).toFixed(1)}MB` : 'unknown',
+        fileCount: fileIndex
+      });
+      
+      // Re-throw with more context
+      if (error instanceof Error) {
+        if (error.message.includes('Body is disturbed') || error.message.includes('locked')) {
+          throw new Error(`Large file upload interrupted (${(totalUploadSize/1024/1024).toFixed(1)}MB). This can happen with slow connections. Please try a smaller file or check your internet connection.`);
+        }
+        if (error.name === 'AbortError') {
+          throw new Error(`Upload timeout after 60s. File too large (${(totalUploadSize/1024/1024).toFixed(1)}MB) or connection too slow.`);
+        }
+        throw new Error(`Server request failed: ${error.message}`);
+      }
+      throw error;
+    }
   }
 
   // Original method with base64 encoding (fallback for URLs)
