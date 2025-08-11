@@ -554,7 +554,7 @@ export const handler: Handler = async (event) => {
         premultipliedAlpha: false,
         powerPreference: 'high-performance'
       });
-      renderer.setSize(200, 200); // Optimized 200px rendering (downscaled to 100px later)
+      renderer.setSize(100, 100); // FIXED: Direct 100px rendering (no downscaling)
       renderer.setClearColor(0x000000, 0);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.setPixelRatio(1);
@@ -898,6 +898,22 @@ export const handler: Handler = async (event) => {
       coinGroup.add(cylinderGlow, topGlow, bottomGlow, overlayTopGlow, overlayBotGlow);
       coinGroup.rotation.x = Math.PI / 2; // Stand on edge
 
+      // 🔍 DEBUG: Glow mesh creation and settings
+      console.log('🌟 Glow mesh creation debug:', {
+        bodyGlow: settings.bodyGlow,
+        bodyGlowIntensity: settings.bodyGlowIntensity,
+        bodyGlowSharpness: settings.bodyGlowSharpness,
+        overlayGlow: settings.overlayGlow,
+        overlayGlowIntensity: settings.overlayGlowIntensity,
+        overlayGlowSharpness: settings.overlayGlowSharpness,
+        cylinderGlowVisible: cylinderGlow.visible,
+        topGlowVisible: topGlow.visible,
+        bottomGlowVisible: bottomGlow.visible,
+        overlayTopGlowVisible: overlayTopGlow.visible,
+        overlayBotGlowVisible: overlayBotGlow.visible,
+        glowMeshesInScene: [cylinderGlow, topGlow, bottomGlow, overlayTopGlow, overlayBotGlow].length
+      });
+
       // Turntable (identical to CoinEditor.tsx)
       const turntable = new THREE.Group();
       turntable.add(coinGroup);
@@ -996,7 +1012,12 @@ export const handler: Handler = async (event) => {
         // Update body glow materials for solid colors
         const bodyGlowIntensity = settings.bodyGlowIntensity || 2.2;
         const bodyGlowSharpness = settings.bodyGlowSharpness || 0.6;
-        console.log('🔍 DEBUG: Applying body glow params:', { intensity: bodyGlowIntensity, sharpness: bodyGlowSharpness });
+        console.log('🔍 DEBUG: Applying body glow params:', { 
+          intensity: bodyGlowIntensity, 
+          sharpness: bodyGlowSharpness,
+          bodyGlowEnabled: !!settings.bodyGlow,
+          glowMeshVisible: cylinderGlow.visible
+        });
         
         cylinderGlow.material.updateGlowSource(null, rimMat.color);
         cylinderGlow.material.setGlowParams(bodyGlowIntensity, 0.0, bodyGlowSharpness);
@@ -1918,11 +1939,11 @@ export const handler: Handler = async (event) => {
         // Render frame
         renderer.render(scene, camera);
 
-        // Capture as WebP blob (IDENTICAL to exporter.ts)
+        // Capture as WebP blob (FIXED: Direct capture at final 100px size)
         const frameBlob = await new Promise<Blob>((resolve) => {
           const canvas = renderer.domElement;
           
-          // Capture at 200px first (matching server-side renderer size)
+          // FIXED: Direct capture at 100px (no downscaling needed)
           canvas.toBlob((blob) => {
             if (!blob) {
               // PNG fallback for compatibility
@@ -1935,39 +1956,11 @@ export const handler: Handler = async (event) => {
           }, 'image/webp', 0.99);
         });
         
-        // Downscale from 200px to 100px using canvas (same as before)
-        const tempCanvas = document.createElement('canvas');
-        const tempCtx = tempCanvas.getContext('2d')!;
-        tempCanvas.width = 100;
-        tempCanvas.height = 100;
-        
-        // Load the WebP blob into an image
+        // REMOVED: No more downscaling - direct 100px capture eliminates artifacts
+        // Convert directly to base64 without size manipulation
         const frameUrl = URL.createObjectURL(frameBlob);
-        const img = new Image();
-        img.src = frameUrl;
         
-        await new Promise(resolve => {
-          img.onload = () => {
-            tempCtx.drawImage(img, 0, 0, 100, 100);
-            URL.revokeObjectURL(frameUrl); // Clean up
-            resolve(undefined);
-          };
-        });
-        
-        // Convert downscaled canvas to WebP blob (IDENTICAL to exporter.ts)
-        const downscaledBlob = await new Promise<Blob>((resolve) => {
-          tempCanvas.toBlob((blob) => {
-            if (!blob) {
-              tempCanvas.toBlob((pngBlob) => {
-                resolve(pngBlob || new Blob());
-              }, 'image/png');
-              return;
-            }
-            resolve(blob);
-          }, 'image/webp', 0.99);
-        });
-        
-        // Convert blob to base64 for return (temporary until we can return blobs directly)
+        // Convert blob to base64 for return (no image manipulation needed)
         const base64 = await new Promise<string>((resolve) => {
           const reader = new FileReader();
           reader.onload = () => {
@@ -1975,10 +1968,13 @@ export const handler: Handler = async (event) => {
             const base64Data = result.split(',')[1];
             resolve(base64Data);
           };
-          reader.readAsDataURL(downscaledBlob);
+          reader.readAsDataURL(frameBlob); // Use original blob directly
         });
         
         frames.push(base64);
+
+        // Clean up
+        URL.revokeObjectURL(frameUrl);
 
         if (i === 0 || i === exportSettings.frames - 1 || i % 10 === 0) {
           const elapsed = Date.now() - startTime;
