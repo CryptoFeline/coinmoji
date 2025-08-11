@@ -63,9 +63,10 @@ async function preprocessGifs(settings: any): Promise<any> {
     return processedSettings;
   }
   
-  // Import gifuct for Node.js processing (would need a Node.js compatible version)
-  // For now, we'll do basic size validation and let Chrome handle the rest
-  console.log('🔍 Validating GIF sizes before Chrome processing...');
+  console.log('🔍 Validating GIF sizes and removing problematic ones...');
+  
+  // Track which URLs need to be removed
+  const problematicUrls: string[] = [];
   
   for (const url of urlsToProcess) {
     try {
@@ -78,7 +79,8 @@ async function preprocessGifs(settings: any): Promise<any> {
           console.log(`📏 Data URL GIF size: ~${sizeInMB.toFixed(2)}MB`);
           
           if (sizeInMB > 8) { // Conservative limit for data URLs
-            throw new Error(`GIF_TOO_LARGE: Data URL GIF is too large (${sizeInMB.toFixed(2)}MB > 8MB). Please use a smaller GIF to prevent timeout.`);
+            console.error(`❌ Data URL GIF is too large: ${sizeInMB.toFixed(2)}MB > 8MB`);
+            problematicUrls.push(url);
           }
         }
       } else {
@@ -90,16 +92,49 @@ async function preprocessGifs(settings: any): Promise<any> {
           console.log(`📏 External GIF size: ${sizeInMB.toFixed(2)}MB (${url})`);
           
           if (sizeInMB > 5) {
-            throw new Error(`GIF_TOO_LARGE: External GIF is too large (${sizeInMB.toFixed(2)}MB > 5MB). Please use a smaller GIF to prevent timeout.`);
+            console.error(`❌ External GIF is too large: ${sizeInMB.toFixed(2)}MB > 5MB`);
+            problematicUrls.push(url);
           }
         }
       }
     } catch (error) {
-      console.warn(`⚠️ Failed to validate GIF: ${url.substring(0, 50)}...`, error);
+      console.error(`❌ Failed to validate GIF: ${url.substring(0, 50)}...`, error);
+      // If we can't validate it, assume it might be problematic
+      problematicUrls.push(url);
     }
   }
   
-  console.log('✅ GIF preprocessing complete');
+  // Remove problematic URLs from settings and notify about the removal
+  if (problematicUrls.length > 0) {
+    console.log(`🚫 Removing ${problematicUrls.length} problematic GIF(s) from settings...`);
+    
+    for (const problemUrl of problematicUrls) {
+      if (processedSettings.bodyTextureUrl === problemUrl) {
+        console.log('🚫 Removing body texture GIF (too large) - switching to solid color');
+        processedSettings.bodyTextureUrl = '';
+        processedSettings.fillMode = 'solid'; // Fallback to solid color
+      }
+      if (processedSettings.overlayUrl === problemUrl) {
+        console.log('🚫 Removing overlay GIF (too large)');
+        processedSettings.overlayUrl = '';
+      }
+      if (processedSettings.overlayUrl2 === problemUrl) {
+        console.log('🚫 Removing overlay2 GIF (too large)');
+        processedSettings.overlayUrl2 = '';
+      }
+    }
+    
+    // This will be visible to the user in the error message
+    const errorMessage = `GIF file(s) too large for processing. Maximum size: 5MB for external URLs, 8MB for uploaded files. 
+
+${problematicUrls.length === 1 ? 'The large GIF has' : 'Large GIFs have'} been automatically removed to prevent timeout. Please use smaller GIF files.
+
+Tip: You can compress GIFs using online tools or reduce their dimensions/frame count.`;
+    
+    throw new Error(errorMessage);
+  }
+  
+  console.log('✅ GIF preprocessing complete - all GIFs validated');
   return processedSettings;
 }
 
