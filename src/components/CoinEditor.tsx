@@ -294,7 +294,8 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
         sceneRef.current.scene,
         sceneRef.current.camera,
         sceneRef.current.renderer,
-        sceneRef.current.turntable
+        sceneRef.current.turntable,
+        currentSettings  // Pass current settings to exporter
       );
       return await exporter.exportFrames(enhancedSettings);
     },

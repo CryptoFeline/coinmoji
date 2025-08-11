@@ -193,6 +193,9 @@ interface RenderFramesRequest {
     bodyMetalness: 'low' | 'normal' | 'high';  // NEW: Body metallic intensity
     bodyRoughness: 'low' | 'normal' | 'high';  // NEW: Body roughness control
     bodyGlow: boolean;              // NEW: Enable glow effect for body
+    bodyGlowScale?: number;         // NEW: Body glow scale (1.0 - 1.5)
+    bodyGlowIntensity?: number;     // NEW: Body glow brightness control (0.5 - 5.0)
+    bodyGlowSharpness?: number;     // NEW: Body glow edge sharpness (0.1 - 2.0)
     
     // Body Texture Settings
     bodyTextureUrl: string;
@@ -215,6 +218,9 @@ interface RenderFramesRequest {
   overlayMetalness: 'low' | 'normal' | 'high';
   overlayRoughness: 'low' | 'normal' | 'high';
   overlayGlow: boolean;           // NEW: Enable glow effect for overlays
+  overlayGlowScale?: number;      // NEW: Overlay glow scale (1.0 - 1.5)
+  overlayGlowIntensity?: number;  // NEW: Overlay glow brightness control (0.5 - 5.0)
+  overlayGlowSharpness?: number;  // NEW: Overlay glow edge sharpness (0.1 - 2.0)
   overlayGifSpeed: 'slow' | 'normal' | 'fast';  // RENAMED: from gifAnimationSpeed
   overlayRotation: number;        // NEW: 0-360 degrees overlay rotation
   overlayScale: number;           // NEW: 0.1-5.0 overlay scale multiplier
