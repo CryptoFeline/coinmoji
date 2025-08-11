@@ -987,30 +987,33 @@ export const handler: Handler = async (event) => {
 
       // Apply material settings (EXACT match to CoinEditor.tsx)
       console.log('🎨 Applying user material settings...');
+      console.log('🔍 DEBUG: Received glow parameters:', {
+        bodyGlow: settings.bodyGlow,
+        bodyGlowIntensity: settings.bodyGlowIntensity,
+        bodyGlowSharpness: settings.bodyGlowSharpness,
+        overlayGlow: settings.overlayGlow,
+        overlayGlowIntensity: settings.overlayGlowIntensity,
+        overlayGlowSharpness: settings.overlayGlowSharpness
+      });
+      
       if (settings.fillMode === 'solid') {
         rimMat.color.set(settings.bodyColor);
         faceMat.color.set(settings.bodyColor);
         console.log('🎯 Applied solid color:', settings.bodyColor);
         
         // Update body glow materials for solid colors
+        const bodyGlowIntensity = settings.bodyGlowIntensity || 2.2;
+        const bodyGlowSharpness = settings.bodyGlowSharpness || 0.6;
+        console.log('🔍 DEBUG: Applying body glow params:', { intensity: bodyGlowIntensity, sharpness: bodyGlowSharpness });
+        
         cylinderGlow.material.updateGlowSource(null, rimMat.color);
-        cylinderGlow.material.setGlowParams(
-          settings.bodyGlowIntensity || 2.2, 
-          0.0, // Threshold always 0 as requested
-          settings.bodyGlowSharpness || 0.6
-        );
+        cylinderGlow.material.setGlowParams(bodyGlowIntensity, 0.0, bodyGlowSharpness);
+        
         topGlow.material.updateGlowSource(null, faceMat.color);
-        topGlow.material.setGlowParams(
-          settings.bodyGlowIntensity || 2.2, 
-          0.0, // Threshold always 0 as requested
-          settings.bodyGlowSharpness || 0.6
-        );
+        topGlow.material.setGlowParams(bodyGlowIntensity, 0.0, bodyGlowSharpness);
+        
         bottomGlow.material.updateGlowSource(null, faceMat.color);
-        bottomGlow.material.setGlowParams(
-          settings.bodyGlowIntensity || 2.2, 
-          0.0, // Threshold always 0 as requested
-          settings.bodyGlowSharpness || 0.6
-        );
+        bottomGlow.material.setGlowParams(bodyGlowIntensity, 0.0, bodyGlowSharpness);
       } else {
         // Create gradient textures (FIXED: separate rim and face textures like client-side)
         console.log('🌈 Creating separate rim and face gradient textures...');
@@ -1064,24 +1067,18 @@ export const handler: Handler = async (event) => {
         console.log('✅ Applied separate gradient textures (rim + face):', settings.gradientStart, '->', settings.gradientEnd);
         
         // Update body glow materials for gradients
+        const bodyGlowIntensity = settings.bodyGlowIntensity || 2.2;
+        const bodyGlowSharpness = settings.bodyGlowSharpness || 0.6;
+        console.log('🔍 DEBUG: Applying body glow params (gradient):', { intensity: bodyGlowIntensity, sharpness: bodyGlowSharpness });
+        
         cylinderGlow.material.updateGlowSource(rimTexture, new THREE.Color('#ffffff'));
-        cylinderGlow.material.setGlowParams(
-          settings.bodyGlowIntensity || 2.2, 
-          0.0, // Threshold always 0 as requested
-          settings.bodyGlowSharpness || 0.6
-        );
+        cylinderGlow.material.setGlowParams(bodyGlowIntensity, 0.0, bodyGlowSharpness);
+        
         topGlow.material.updateGlowSource(faceTexture, new THREE.Color('#ffffff'));
-        topGlow.material.setGlowParams(
-          settings.bodyGlowIntensity || 2.2, 
-          0.0, // Threshold always 0 as requested
-          settings.bodyGlowSharpness || 0.6
-        );
+        topGlow.material.setGlowParams(bodyGlowIntensity, 0.0, bodyGlowSharpness);
+        
         bottomGlow.material.updateGlowSource(faceTexture, new THREE.Color('#ffffff'));
-        bottomGlow.material.setGlowParams(
-          settings.bodyGlowIntensity || 2.2, 
-          0.0, // Threshold always 0 as requested
-          settings.bodyGlowSharpness || 0.6
-        );
+        bottomGlow.material.setGlowParams(bodyGlowIntensity, 0.0, bodyGlowSharpness);
       }
 
       // Update body metallic properties using new system (matching CoinEditor.tsx)
