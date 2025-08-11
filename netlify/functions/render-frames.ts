@@ -14,14 +14,14 @@ interface ParsedFile {
 // Helper function to detect if URL is a GIF or WebM (supports both URLs and data URIs)
 const isGifUrl = (url: string): boolean => {
   return /\.gif$/i.test(url) || 
-         /data:image\/gif/i.test(url) ||
-         url.includes('gif');
+         /data:image\/gif/i.test(url);
+  // REMOVED: || url.includes('gif') - this was too broad and caught static images
 };
 
 const isWebMUrl = (url: string): boolean => {
   return /\.webm$/i.test(url) || 
-         /data:video\/webm/i.test(url) ||
-         url.includes('webm');
+         /data:video\/webm/i.test(url);
+  // REMOVED: || url.includes('webm') - this was too broad and caught static images
 };
 
 // Enhanced texture type detection that also considers MIME types
@@ -444,7 +444,14 @@ export const handler: Handler = async (event) => {
           `data URL (${Math.round(processedSettings.bodyTextureUrl.length/1024)}KB)` : 
           processedSettings.bodyTextureUrl) : 'none',
       overlayUrl: processedSettings.overlayUrl || 'none',
-      overlayUrl2: processedSettings.overlayUrl2 || 'none'
+      overlayUrl2: processedSettings.overlayUrl2 || 'none',
+      // CRITICAL: Log glow settings to verify they're reaching the server
+      bodyGlow: processedSettings.bodyGlow,
+      bodyGlowIntensity: processedSettings.bodyGlowIntensity,
+      bodyGlowSharpness: processedSettings.bodyGlowSharpness,
+      overlayGlow: processedSettings.overlayGlow,
+      overlayGlowIntensity: processedSettings.overlayGlowIntensity,
+      overlayGlowSharpness: processedSettings.overlayGlowSharpness
     });
 
     // 🚀 NEW: Pre-process GIFs to prevent Chrome timeout
@@ -1365,14 +1372,14 @@ export const handler: Handler = async (event) => {
       // Helper to detect if URL is a GIF or WebM (supports both URLs and data URIs)
       const isGifUrl = (url: string): boolean => {
         return /\.gif$/i.test(url) || 
-               /data:image\/gif/i.test(url) ||
-               url.includes('gif');
+               /data:image\/gif/i.test(url);
+        // REMOVED: || url.includes('gif') - this was too broad and caught static images
       };
 
       const isWebMUrl = (url: string): boolean => {
         return /\.webm$/i.test(url) || 
-               /data:video\/webm/i.test(url) ||
-               url.includes('webm');
+               /data:video\/webm/i.test(url);
+        // REMOVED: || url.includes('webm') - this was too broad and caught static images
       };
 
       // Enhanced texture type detection that also considers MIME types
