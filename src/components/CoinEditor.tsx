@@ -561,6 +561,8 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     overlayBotGlow.scale.setScalar(1.01);   // Fixed scale for consistent glow appearance
     overlayBotGlow.visible = false;
     overlayBotGlow.renderOrder = 2;
+    // Apply geometric rotation to fix glow orientation on back face
+    overlayBotGlow.rotation.y = Math.PI; // 180 degree rotation to match proper back face orientation
 
     // Coin assembly
     const coinGroup = new THREE.Group();
@@ -1551,9 +1553,9 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
             flippedTexture.minFilter = THREE.LinearFilter;
             flippedTexture.magFilter = THREE.LinearFilter;
             flippedTexture.format = THREE.RGBAFormat;
-            flippedTexture.flipY = false; // FIXED: Dual mode back face uses flipY = false
+            flippedTexture.flipY = true; // FIXED: Dual mode back face should be right-side up
             flippedTexture.wrapS = THREE.RepeatWrapping;
-            flippedTexture.repeat.x = -1; // FIXED: Add horizontal flip for dual mode back face
+            flippedTexture.repeat.x = -1; // Horizontal flip for dual mode back face
             flippedTexture.needsUpdate = true;
             // Copy dispose function if it exists
             if ((texture as any).userData?.dispose) {
@@ -1563,9 +1565,9 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           } else {
             // For static images, add horizontal flip for dual mode back face
             const flippedTexture = texture.clone();
-            flippedTexture.flipY = false; // Keep flipY = false for dual mode
+            flippedTexture.flipY = true; // FIXED: Dual mode back face should be right-side up
             flippedTexture.wrapS = THREE.RepeatWrapping;
-            flippedTexture.repeat.x = -1; // FIXED: Add horizontal flip for dual mode back face
+            flippedTexture.repeat.x = -1; // Horizontal flip for dual mode back face
             flippedTexture.needsUpdate = true;
             material.map = flippedTexture;
           }
@@ -1575,21 +1577,23 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           material.needsUpdate = true;
           sceneRef.current!.overlayBot.visible = true;
           
-          // Update bottom overlay glow
+          // Update bottom overlay glow - flip both horizontally and vertically to match back face view
           const botGlow = sceneRef.current!.overlayBotGlow.material as GlowMapMaterial;
           if (texture instanceof THREE.VideoTexture) {
             const video = (texture as any).image;
             const glowTexture = new THREE.VideoTexture(video);
             glowTexture.colorSpace = THREE.SRGBColorSpace;
-            glowTexture.flipY = false;
-            // FIXED: Don't flip glow texture - keep glow consistent with original image
-            glowTexture.wrapS = THREE.ClampToEdgeWrapping;
+            glowTexture.flipY = false; // Flip Y to fix upside down
+            glowTexture.wrapS = THREE.RepeatWrapping; // Allow wrapping for flipping
+            glowTexture.repeat.x = -1; // Horizontal flip for dual mode back face
+            glowTexture.needsUpdate = true;
             botGlow.updateGlowSource(glowTexture, new THREE.Color(0xffffff));
           } else {
             const glowTexture = texture.clone();
-            glowTexture.flipY = false;
-            // FIXED: Don't flip glow texture - keep glow consistent with original image
-            glowTexture.wrapS = THREE.ClampToEdgeWrapping;
+            glowTexture.flipY = false; // Flip Y to fix upside down
+            glowTexture.wrapS = THREE.RepeatWrapping; // Allow wrapping for flipping
+            glowTexture.repeat.x = -1; // Horizontal flip for dual mode back face
+            glowTexture.needsUpdate = true;
             botGlow.updateGlowSource(glowTexture, new THREE.Color(0xffffff));
           }
           sceneRef.current!.overlayBotGlow.visible = !!currentSettings.overlayGlow;
@@ -1669,13 +1673,14 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           // Top glow gets original texture
           topGlow.updateGlowSource(texture, new THREE.Color(0xffffff));
           
-          // Bottom glow should NOT be flipped - keep glow consistent with original image
+          // Bottom glow uses flipped texture both horizontally and vertically
           if (texture instanceof THREE.VideoTexture) {
             const video = (texture as any).image;
             const bottomGlowTexture = new THREE.VideoTexture(video);
             bottomGlowTexture.colorSpace = THREE.SRGBColorSpace;
-            bottomGlowTexture.flipY = true; // Keep flipY for proper orientation
-            bottomGlowTexture.wrapS = THREE.ClampToEdgeWrapping; // FIXED: Don't flip glow texture
+            bottomGlowTexture.flipY = false; // Flip Y to fix upside down
+            bottomGlowTexture.wrapS = THREE.RepeatWrapping; // Allow wrapping for flipping
+            bottomGlowTexture.repeat.x = -1; // Horizontal flip to match back face overlay
             bottomGlowTexture.needsUpdate = true;
             if ((texture as any).userData?.dispose) {
               bottomGlowTexture.userData.dispose = (texture as any).userData.dispose;
@@ -1684,15 +1689,17 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           } else if (texture instanceof THREE.CanvasTexture) {
             const bottomGlowTexture = new THREE.CanvasTexture((texture as any).image);
             bottomGlowTexture.colorSpace = THREE.SRGBColorSpace;
-            bottomGlowTexture.flipY = true; // Keep flipY for proper orientation
-            bottomGlowTexture.wrapS = THREE.ClampToEdgeWrapping; // FIXED: Don't flip glow texture
+            bottomGlowTexture.flipY = false; // Flip Y to fix upside down
+            bottomGlowTexture.wrapS = THREE.RepeatWrapping; // Allow wrapping for flipping
+            bottomGlowTexture.repeat.x = -1; // Horizontal flip to match back face overlay
             bottomGlowTexture.needsUpdate = true;
             bottomGlowTexture.userData = (texture as any).userData;
             botGlow.updateGlowSource(bottomGlowTexture, new THREE.Color(0xffffff));
           } else {
             const bottomGlowTexture = texture.clone();
-            bottomGlowTexture.flipY = true; // Keep flipY for proper orientation
-            bottomGlowTexture.wrapS = THREE.ClampToEdgeWrapping; // FIXED: Don't flip glow texture
+            bottomGlowTexture.flipY = false; // Flip Y to fix upside down
+            bottomGlowTexture.wrapS = THREE.RepeatWrapping; // Allow wrapping for flipping
+            bottomGlowTexture.repeat.x = -1; // Horizontal flip to match back face overlay
             bottomGlowTexture.needsUpdate = true;
             botGlow.updateGlowSource(bottomGlowTexture, new THREE.Color(0xffffff));
           }
