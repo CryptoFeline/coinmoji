@@ -686,7 +686,7 @@ export const handler: Handler = async (event) => {
       // Add glow meshes - mirror client-side implementation
       console.log('✨ Adding glow meshes with server-side shader implementation...');
       
-      // Define GlowMapMaterial in plain JS (matching GlowMapMaterial.ts)
+      // Define GlowMapMaterial in plain JS (EXACTLY matching client-side GlowMapMaterial.ts)
       const GlowMapMaterial = class extends THREE.ShaderMaterial {
         constructor(params) {
           const p = params || {};
@@ -696,11 +696,11 @@ export const handler: Handler = async (event) => {
               map:       { value: p.map || null },
               useMap:    { value: !!p.map },
               intensity: { value: p.intensity !== undefined ? p.intensity : 1.0 },
-              threshold: { value: p.threshold !== undefined ? p.threshold : 0.70 },
+              threshold: { value: p.threshold !== undefined ? p.threshold : 0.0 }, // Changed default to 0
               sharpness: { value: p.sharpness !== undefined ? p.sharpness : 0.5 },
             },
             transparent: true,
-            depthTest: true,        // Enable depth test to prevent z-fighting
+            depthTest: true,        // Always enabled to prevent transparency issues
             depthWrite: false,      // Don't write to depth buffer to allow proper layering
             blending: THREE.AdditiveBlending,
             side: THREE.FrontSide,  // FIXED: Use FrontSide for proper outward glow
@@ -709,6 +709,7 @@ export const handler: Handler = async (event) => {
               'varying vec3 vWorldPos;',
               'varying vec3 vWorldNormal;',
               'varying vec2 vUv;',
+              '',
               'void main() {',
               '  vUv = uv;',
               '  vec4 wp = modelMatrix * vec4(position, 1.0);',
@@ -724,20 +725,77 @@ export const handler: Handler = async (event) => {
               'uniform float intensity;',
               'uniform float threshold;',
               'uniform float sharpness;',
+              '',
               'varying vec3 vWorldPos;',
               'varying vec3 vWorldNormal;',
               'varying vec2 vUv;',
+              '',
+              '// Improved edge detection function',
+              'float getEdgeStrength(vec2 uv) {',
+              '  if (!useMap) return 1.0;',
+              '  ',
+              '  vec2 texelSize = 1.0 / vec2(textureSize(map, 0));',
+              '  vec3 center = texture2D(map, uv).rgb;',
+              '  ',
+              '  // Sample neighboring pixels for edge detection',
+              '  vec3 right = texture2D(map, uv + vec2(texelSize.x, 0.0)).rgb;',
+              '  vec3 left = texture2D(map, uv - vec2(texelSize.x, 0.0)).rgb;',
+              '  vec3 up = texture2D(map, uv + vec2(0.0, texelSize.y)).rgb;',
+              '  vec3 down = texture2D(map, uv - vec2(0.0, texelSize.y)).rgb;',
+              '  ',
+              '  // Calculate gradient magnitude',
+              '  vec3 gradX = right - left;',
+              '  vec3 gradY = up - down;',
+              '  float grad = length(gradX) + length(gradY);',
+              '  ',
+              '  return smoothstep(0.1, 0.5, grad);',
+              '}',
+              '',
               'void main() {',
+              '  // Get base color from texture or uniform',
               '  vec3 base = useMap ? texture2D(map, vUv).rgb : glowColor;',
-              '  float luma = dot(base, vec3(0.2126, 0.7152, 0.0722));',
-              '  float gate = smoothstep(threshold, 1.0, luma);',
+              '  ',
+              '  // Enhanced brightness gate with perceptual weighting',
+              '  float luma = dot(base, vec3(0.299, 0.587, 0.114)); // More accurate perceptual weights',
+              '  float brightGate = smoothstep(threshold * 0.8, threshold + 0.2, luma);',
+              '  ',
+              '  // Edge detection for texture detail enhancement',
+              '  float edgeStrength = getEdgeStrength(vUv);',
+              '  ',
+              '  // Improved multi-layer fresnel calculation',
               '  vec3 V = normalize(cameraPosition - vWorldPos);',
               '  vec3 N = normalize(vWorldNormal);',
-              '  float fresnel = 1.0 - max(0.2, dot(N, V));', // FIXED: Use 0.2 minimum to prevent dead spots at side angles
-              '  float rim = pow(fresnel, 0.5 + sharpness * 2.0);',
-              '  float glowStrength = rim * gate * intensity;',
-              '  float alpha = smoothstep(0.0, 1.0, glowStrength);',
-              '  gl_FragColor = vec4(base * (1.0 + alpha), alpha * 0.8);',
+              '  ',
+              '  // Fixed fresnel for FrontSide outward glow (removed abs())',
+              '  float NdotV = dot(N, V);',
+              '  float fresnel1 = 1.0 - max(0.2, NdotV); // FIXED: Use 0.2 minimum to prevent dead spots at side angles',
+              '  float rim1 = pow(fresnel1, 0.3 + sharpness * 1.5);',
+              '  ',
+              '  // Secondary fresnel for edge enhancement',
+              '  float fresnel2 = 1.0 - pow(max(0.15, NdotV), 0.5); // Also use minimum to maintain consistent glow',
+              '  float rim2 = pow(fresnel2, 1.0 + sharpness * 2.0);',
+              '  ',
+              '  // Combine multiple glow components',
+              '  float primaryGlow = rim1 * brightGate;',
+              '  float edgeGlow = rim2 * edgeStrength * 0.6;',
+              '  float combinedGlow = primaryGlow + edgeGlow;',
+              '  ',
+              '  // Apply intensity with improved falloff',
+              '  float glowStrength = combinedGlow * intensity;',
+              '  float alpha = smoothstep(0.0, 1.2, glowStrength);',
+              '  ',
+              '  // Enhanced color mixing with saturation boost for bright areas',
+              '  vec3 finalColor = base * (1.0 + alpha * 0.5);',
+              '  if (brightGate > 0.5) {',
+              '    // Boost saturation for bright glowing areas',
+              '    float satBoost = (brightGate - 0.5) * 0.4;',
+              '    vec3 gray = vec3(luma);',
+              '    finalColor = mix(finalColor, finalColor + (finalColor - gray) * satBoost, satBoost);',
+              '  }',
+              '  ',
+              '  gl_FragColor = vec4(finalColor, alpha * 0.9);',
+              '',
+              '  // Apply tone mapping to match main renderer',
               '  #include <tonemapping_fragment>',
               '  #include <colorspace_fragment>',
               '}'
@@ -749,6 +807,13 @@ export const handler: Handler = async (event) => {
           this.uniforms.map.value = map;
           this.uniforms.useMap.value = !!map;
           this.uniforms.glowColor.value.copy(color);
+          this.needsUpdate = true;
+        }
+        
+        setGlowParams(intensity, threshold, sharpness) {
+          this.uniforms.intensity.value = intensity;
+          this.uniforms.threshold.value = threshold;
+          this.uniforms.sharpness.value = sharpness;
           this.needsUpdate = true;
         }
       };
@@ -820,6 +885,8 @@ export const handler: Handler = async (event) => {
       overlayBotGlow.scale.setScalar(1.01);   // Fixed scale for consistent glow appearance
       overlayBotGlow.visible = !!settings.overlayGlow;
       overlayBotGlow.renderOrder = 2;
+      // Apply geometric rotation to fix glow orientation on back face (matching client-side fix)
+      overlayBotGlow.rotation.y = Math.PI; // 180 degree rotation to match proper back face orientation
 
       // Add glow meshes to coin group
       coinGroup.add(cylinderGlow, topGlow, bottomGlow, overlayTopGlow, overlayBotGlow);
