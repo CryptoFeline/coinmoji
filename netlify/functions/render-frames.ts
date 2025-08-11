@@ -985,16 +985,8 @@ export const handler: Handler = async (event) => {
         dirIntensity: strength.dir
       });
 
-      // Apply material settings (EXACT match to CoinEditor.tsx)
       console.log('🎨 Applying user material settings...');
-      console.log('🔍 DEBUG: Received glow parameters:', {
-        bodyGlow: settings.bodyGlow,
-        bodyGlowIntensity: settings.bodyGlowIntensity,
-        bodyGlowSharpness: settings.bodyGlowSharpness,
-        overlayGlow: settings.overlayGlow,
-        overlayGlowIntensity: settings.overlayGlowIntensity,
-        overlayGlowSharpness: settings.overlayGlowSharpness
-      });
+      console.log('🔍 CRITICAL: Glow debug - bodyGlow:', settings.bodyGlow, 'intensity:', settings.bodyGlowIntensity);
       
       if (settings.fillMode === 'solid') {
         rimMat.color.set(settings.bodyColor);
