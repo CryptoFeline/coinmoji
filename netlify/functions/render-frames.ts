@@ -11,6 +11,98 @@ interface ParsedFile {
   data: Buffer;
 }
 
+// Helper function to detect if URL is a GIF or WebM (supports both URLs and data URIs)
+const isGifUrl = (url: string): boolean => {
+  return /\.gif$/i.test(url) || 
+         /data:image\/gif/i.test(url) ||
+         url.includes('gif');
+};
+
+const isWebMUrl = (url: string): boolean => {
+  return /\.webm$/i.test(url) || 
+         /data:video\/webm/i.test(url) ||
+         url.includes('webm');
+};
+
+// Enhanced texture type detection that also considers MIME types
+const detectTextureType = (url: string): 'gif' | 'webm' | 'static' => {
+  if (isGifUrl(url)) return 'gif';
+  if (isWebMUrl(url)) return 'webm';
+  return 'static';
+};
+
+// Pre-process GIFs to prevent Chrome timeout during page evaluation
+async function preprocessGifs(settings: any): Promise<any> {
+  const processedSettings = { ...settings };
+  const urlsToProcess: string[] = [];
+  
+  // Collect all GIF URLs that need preprocessing
+  if (processedSettings.bodyTextureUrl && detectTextureType(processedSettings.bodyTextureUrl) === 'gif') {
+    urlsToProcess.push(processedSettings.bodyTextureUrl);
+  }
+  if (processedSettings.overlayUrl && detectTextureType(processedSettings.overlayUrl) === 'gif') {
+    urlsToProcess.push(processedSettings.overlayUrl);
+  }
+  if (processedSettings.overlayUrl2 && detectTextureType(processedSettings.overlayUrl2) === 'gif') {
+    urlsToProcess.push(processedSettings.overlayUrl2);
+  }
+  
+  if (urlsToProcess.length === 0) {
+    console.log('📝 No GIFs found for preprocessing');
+    return processedSettings;
+  }
+  
+  console.log(`🎞️ Found ${urlsToProcess.length} GIFs to preprocess:`, urlsToProcess.map(url => 
+    url.startsWith('data:') ? 'data URL' : url
+  ));
+  
+  // Load gifuct for server-side processing
+  const gifuctPath = path.join(__dirname, 'vendor', 'gifuct.browser.js');
+  if (!fs.existsSync(gifuctPath)) {
+    console.warn('⚠️ gifuct-js not found, skipping GIF preprocessing');
+    return processedSettings;
+  }
+  
+  // Import gifuct for Node.js processing (would need a Node.js compatible version)
+  // For now, we'll do basic size validation and let Chrome handle the rest
+  console.log('🔍 Validating GIF sizes before Chrome processing...');
+  
+  for (const url of urlsToProcess) {
+    try {
+      if (url.startsWith('data:')) {
+        // For data URLs, we can calculate the size
+        const base64Data = url.split(',')[1];
+        if (base64Data) {
+          const sizeInBytes = (base64Data.length * 3) / 4; // Approximate size from base64
+          const sizeInMB = sizeInBytes / (1024 * 1024);
+          console.log(`📏 Data URL GIF size: ~${sizeInMB.toFixed(2)}MB`);
+          
+          if (sizeInMB > 8) { // Conservative limit for data URLs
+            throw new Error(`GIF_TOO_LARGE: Data URL GIF is too large (${sizeInMB.toFixed(2)}MB > 8MB). Please use a smaller GIF to prevent timeout.`);
+          }
+        }
+      } else {
+        // For external URLs, fetch headers to check size
+        const response = await fetch(url, { method: 'HEAD' });
+        const contentLength = response.headers.get('Content-Length');
+        if (contentLength) {
+          const sizeInMB = parseInt(contentLength) / (1024 * 1024);
+          console.log(`📏 External GIF size: ${sizeInMB.toFixed(2)}MB (${url})`);
+          
+          if (sizeInMB > 5) {
+            throw new Error(`GIF_TOO_LARGE: External GIF is too large (${sizeInMB.toFixed(2)}MB > 5MB). Please use a smaller GIF to prevent timeout.`);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn(`⚠️ Failed to validate GIF: ${url.substring(0, 50)}...`, error);
+    }
+  }
+  
+  console.log('✅ GIF preprocessing complete');
+  return processedSettings;
+}
+
 function parseMultipartData(body: string, boundary: string): { fields: Record<string, string>, files: ParsedFile[] } {
   const parts = body.split(`--${boundary}`);
   const fields: Record<string, string> = {};
@@ -252,7 +344,7 @@ export const handler: Handler = async (event) => {
     });
 
     // All uploaded files are now sent as either data URLs (JSON) or binary files (multipart)
-    const processedSettings = { ...request.settings };
+    let processedSettings = { ...request.settings };
     
     // 🚀 NEW: Convert uploaded binary files to data URLs for processing
     if (uploadedFiles.length > 0) {
@@ -315,6 +407,10 @@ export const handler: Handler = async (event) => {
       overlayUrl2: processedSettings.overlayUrl2 || 'none'
     });
 
+    // 🚀 NEW: Pre-process GIFs to prevent Chrome timeout
+    console.log('🎞️ Pre-processing GIFs before Chrome launch...');
+    processedSettings = await preprocessGifs(processedSettings);
+
     console.log('✅ Using @sparticuz/chromium for serverless Chrome');
 
     // Launch Chrome with @sparticuz/chromium
@@ -349,7 +445,13 @@ export const handler: Handler = async (event) => {
     let framesBase64: string[];
     try {
       console.log('🎬 Starting browser page evaluation...');
-      framesBase64 = await page.evaluate(async (renderRequest) => {
+      
+      // Set page evaluation timeout to prevent Chrome hanging
+      const pageTimeout = 25000; // 25 seconds (5s buffer before Lambda timeout)
+      console.log(`⏱️ Setting page evaluation timeout: ${pageTimeout}ms`);
+      
+      framesBase64 = await Promise.race([
+        page.evaluate(async (renderRequest) => {
       console.log('⏱️ Starting Three.js setup with performance monitoring...');
       const setupStart = Date.now();
       
@@ -904,10 +1006,9 @@ export const handler: Handler = async (event) => {
             const sizeInMB = parseInt(contentLength) / (1024 * 1024);
             console.log(`📏 GIF size from headers: ${sizeInMB.toFixed(2)}MB`);
             
-            // CRITICAL: Reject large GIFs to prevent Lambda memory crashes
-            if (sizeInMB > 15) { // 15MB limit for safety (Lambda has 1GB total)
-              throw new Error(`GIF file is too large, please use a smaller file.`);
-              console.log(`❌ GIF too large: ${sizeInMB.toFixed(2)}MB exceeds 15MB limit`);
+            // CRITICAL: Stricter limits to prevent Chrome timeouts during page evaluation
+            if (sizeInMB > 5) { // Reduced from 15MB to 5MB to prevent Chrome hanging
+              throw new Error(`GIF file is too large (${sizeInMB.toFixed(1)}MB > 5MB). Please use a smaller file to prevent timeout.`);
             }
           }
         }
@@ -917,12 +1018,12 @@ export const handler: Handler = async (event) => {
         const actualSizeInMB = buffer.byteLength / (1024 * 1024);
         console.log(`📏 Actual GIF size: ${actualSizeInMB.toFixed(2)}MB`);
         
-        // 🔧 RELAXED: More permissive limits for uploaded files (base64 data URLs are more reliable)
+        // STRICTER: Reduced limits to prevent Chrome timeout during page evaluation
         const isUploadedFile = url.startsWith('data:');
-        const maxSizeMB = isUploadedFile ? 25 : 15; // Higher limit for uploaded files
+        const maxSizeMB = isUploadedFile ? 8 : 5; // Much more conservative limits
         
         if (actualSizeInMB > maxSizeMB) {
-          throw new Error(`GIF file is too large (${actualSizeInMB.toFixed(1)}MB > ${maxSizeMB}MB), please use a smaller file.`);
+          throw new Error(`GIF file is too large (${actualSizeInMB.toFixed(1)}MB > ${maxSizeMB}MB). Please use a smaller file to prevent timeout.`);
         }
         
         // Parse GIF using gifuct-js (identical to client-side)
@@ -937,13 +1038,18 @@ export const handler: Handler = async (event) => {
           isUploadedFile
         });
         
-        // 🔧 RELAXED: Higher memory limits for uploaded files
+        // STRICTER: More conservative memory limits to prevent Chrome timeouts
         const totalPixels = gif.lsd.width * gif.lsd.height * frames.length;
         const estimatedMemoryMB = (totalPixels * 4) / (1024 * 1024); // 4 bytes per pixel (RGBA)
-        const maxMemoryMB = isUploadedFile ? 400 : 200; // Higher memory limit for uploaded files
+        const maxMemoryMB = isUploadedFile ? 150 : 100; // Much more conservative memory limits
         
         if (estimatedMemoryMB > maxMemoryMB) {
-          throw new Error(`GIF_TOO_COMPLEX: GIF is too complex (${frames.length} frames, ${gif.lsd.width}x${gif.lsd.height}). Estimated memory: ${estimatedMemoryMB.toFixed(1)}MB > ${maxMemoryMB}MB. Please use a simpler GIF.`);
+          throw new Error(`GIF_TOO_COMPLEX: GIF is too complex (${frames.length} frames, ${gif.lsd.width}x${gif.lsd.height}). Estimated memory: ${estimatedMemoryMB.toFixed(1)}MB > ${maxMemoryMB}MB. Please use a simpler GIF to prevent timeout.`);
+        }
+        
+        // Additional frame count limit to prevent excessive processing time
+        if (frames.length > 200) {
+          throw new Error(`GIF_TOO_MANY_FRAMES: GIF has too many frames (${frames.length} > 200). Please use a GIF with fewer frames to prevent timeout.`);
         }
         
         if (frames.length === 0) {
@@ -1664,7 +1770,14 @@ export const handler: Handler = async (event) => {
       console.log(`✅ Server-side frame capture complete: ${frames.length} frames in ${totalTime}ms`);
       return frames;
 
-    }, { ...request, settings: processedSettings });
+    }, { ...request, settings: processedSettings }),
+    
+    // Timeout promise to prevent hanging
+    new Promise<never>((_, reject) => 
+      setTimeout(() => reject(new Error(`Page evaluation timeout after ${pageTimeout}ms`)), pageTimeout)
+    )
+  ]);
+  
       console.log('✅ Browser page evaluation completed successfully');
     } catch (evalError) {
       console.error('❌ Page evaluation failed:', evalError);
