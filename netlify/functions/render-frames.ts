@@ -561,7 +561,7 @@ export const handler: Handler = async (event) => {
         premultipliedAlpha: false,
         powerPreference: 'high-performance'
       });
-      renderer.setSize(100, 100); // FIXED: Direct 100px rendering (no downscaling)
+      renderer.setSize(200, 200); // FIXED: Render at 200px for better quality, downscale later
       renderer.setClearColor(0x000000, 0);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.setPixelRatio(1);
@@ -1019,11 +1019,20 @@ export const handler: Handler = async (event) => {
         // Update body glow materials for solid colors
         const bodyGlowIntensity = settings.bodyGlowIntensity || 2.2;
         const bodyGlowSharpness = settings.bodyGlowSharpness || 0.6;
+        
+        // CRITICAL: Set glow visibility BEFORE applying parameters
+        cylinderGlow.visible = !!settings.bodyGlow;
+        topGlow.visible = !!settings.bodyGlow;
+        bottomGlow.visible = !!settings.bodyGlow;
+        
         console.log('🔍 DEBUG: Applying body glow params:', { 
           intensity: bodyGlowIntensity, 
           sharpness: bodyGlowSharpness,
           bodyGlowEnabled: !!settings.bodyGlow,
-          glowMeshVisible: cylinderGlow.visible
+          cylinderGlowVisible: cylinderGlow.visible,
+          topGlowVisible: topGlow.visible,
+          bottomGlowVisible: bottomGlow.visible,
+          glowScale: cylinderGlow.scale.x
         });
         
         cylinderGlow.material.updateGlowSource(null, rimMat.color);
@@ -1089,7 +1098,20 @@ export const handler: Handler = async (event) => {
         // Update body glow materials for gradients
         const bodyGlowIntensity = settings.bodyGlowIntensity || 2.2;
         const bodyGlowSharpness = settings.bodyGlowSharpness || 0.6;
-        console.log('🔍 DEBUG: Applying body glow params (gradient):', { intensity: bodyGlowIntensity, sharpness: bodyGlowSharpness });
+        
+        // CRITICAL: Set glow visibility BEFORE applying parameters (gradient mode)
+        cylinderGlow.visible = !!settings.bodyGlow;
+        topGlow.visible = !!settings.bodyGlow;
+        bottomGlow.visible = !!settings.bodyGlow;
+        
+        console.log('🔍 DEBUG: Applying body glow params (gradient):', { 
+          intensity: bodyGlowIntensity, 
+          sharpness: bodyGlowSharpness,
+          bodyGlowEnabled: !!settings.bodyGlow,
+          cylinderGlowVisible: cylinderGlow.visible,
+          topGlowVisible: topGlow.visible,
+          bottomGlowVisible: bottomGlow.visible
+        });
         
         cylinderGlow.material.updateGlowSource(rimTexture, new THREE.Color('#ffffff'));
         cylinderGlow.material.setGlowParams(bodyGlowIntensity, 0.0, bodyGlowSharpness);
@@ -1495,11 +1517,18 @@ export const handler: Handler = async (event) => {
             // Update top overlay glow for dual mode
             overlayTopGlow.material.updateGlowSource(overlayTexture, new THREE.Color(0xffffff));
             overlayTopGlow.material.setGlowParams(
-              settings.overlayGlowIntensity || 2.8,
+              settings.overlayGlowIntensity || 3.2, // ENHANCED: Boost from 2.8 to 3.2 for better visibility
               0.0, // Threshold always 0 as requested
               settings.overlayGlowSharpness || 0.7
             );
             overlayTopGlow.visible = !!settings.overlayGlow;
+            
+            console.log('🔍 DEBUG: Overlay glow (dual mode):', { 
+              overlayGlowEnabled: !!settings.overlayGlow,
+              intensity: settings.overlayGlowIntensity || 3.2, // Updated debug message
+              sharpness: settings.overlayGlowSharpness || 0.7,
+              overlayTopGlowVisible: overlayTopGlow.visible
+            });
           } else {
             // Apply to both faces in single mode - top face gets original
             overlayTop.material.map = overlayTexture;
@@ -1544,7 +1573,7 @@ export const handler: Handler = async (event) => {
             // Update overlay glows for single mode
             overlayTopGlow.material.updateGlowSource(overlayTexture, new THREE.Color(0xffffff));
             overlayTopGlow.material.setGlowParams(
-              settings.overlayGlowIntensity || 2.8,
+              settings.overlayGlowIntensity || 3.2, // ENHANCED: Boost from 2.8 to 3.2 for better visibility
               0.0, // Threshold always 0 as requested
               settings.overlayGlowSharpness || 0.7
             );
@@ -1576,7 +1605,7 @@ export const handler: Handler = async (event) => {
             
             overlayBotGlow.material.updateGlowSource(bottomGlowTexture, new THREE.Color(0xffffff));
             overlayBotGlow.material.setGlowParams(
-              settings.overlayGlowIntensity || 2.8,
+              settings.overlayGlowIntensity || 3.2, // ENHANCED: Boost from 2.8 to 3.2 for better visibility
               0.0, // Threshold always 0 as requested
               settings.overlayGlowSharpness || 0.7
             );
@@ -1697,7 +1726,7 @@ export const handler: Handler = async (event) => {
           // Update bottom overlay glow for dual mode
           overlayBotGlow.material.updateGlowSource(bottomGlowTexture, new THREE.Color(0xffffff));
           overlayBotGlow.material.setGlowParams(
-            settings.overlayGlowIntensity || 2.8,
+            settings.overlayGlowIntensity || 3.2, // ENHANCED: Boost from 2.8 to 3.2 for better visibility
             0.0, // Threshold always 0 as requested
             settings.overlayGlowSharpness || 0.7
           );
@@ -1812,6 +1841,20 @@ export const handler: Handler = async (event) => {
             faceMat.needsUpdate = true;
             
             // Update body glow materials to match body textures
+            // CRITICAL: Set glow visibility BEFORE applying parameters (texture mode)
+            cylinderGlow.visible = !!settings.bodyGlow;
+            topGlow.visible = !!settings.bodyGlow;
+            bottomGlow.visible = !!settings.bodyGlow;
+            
+            console.log('🔍 DEBUG: Applying body glow params (texture):', { 
+              bodyGlowEnabled: !!settings.bodyGlow,
+              intensity: settings.bodyGlowIntensity || 2.2,
+              sharpness: settings.bodyGlowSharpness || 0.6,
+              cylinderGlowVisible: cylinderGlow.visible,
+              topGlowVisible: topGlow.visible,
+              bottomGlowVisible: bottomGlow.visible
+            });
+            
             cylinderGlow.material.updateGlowSource(rimTexture, new THREE.Color('#ffffff'));
             cylinderGlow.material.setGlowParams(
               settings.bodyGlowIntensity || 2.2, 
@@ -1946,11 +1989,11 @@ export const handler: Handler = async (event) => {
         // Render frame
         renderer.render(scene, camera);
 
-        // Capture as WebP blob (FIXED: Direct capture at final 100px size)
+        // Capture as WebP blob (High quality with proper downscaling)
         const frameBlob = await new Promise<Blob>((resolve) => {
           const canvas = renderer.domElement;
           
-          // FIXED: Direct capture at 100px (no downscaling needed)
+          // Capture at 200px for high quality
           canvas.toBlob((blob) => {
             if (!blob) {
               // PNG fallback for compatibility
@@ -1963,11 +2006,44 @@ export const handler: Handler = async (event) => {
           }, 'image/webp', 0.99);
         });
         
-        // REMOVED: No more downscaling - direct 100px capture eliminates artifacts
-        // Convert directly to base64 without size manipulation
-        const frameUrl = URL.createObjectURL(frameBlob);
+        // High-quality downscaling from 200px to 100px using canvas
+        const tempCanvas = document.createElement('canvas');
+        const tempCtx = tempCanvas.getContext('2d')!;
+        tempCanvas.width = 100;
+        tempCanvas.height = 100;
         
-        // Convert blob to base64 for return (no image manipulation needed)
+        // Enable high-quality image smoothing
+        tempCtx.imageSmoothingEnabled = true;
+        tempCtx.imageSmoothingQuality = 'high';
+        
+        // Load the WebP blob into an image
+        const frameUrl = URL.createObjectURL(frameBlob);
+        const img = new Image();
+        img.src = frameUrl;
+        
+        await new Promise(resolve => {
+          img.onload = () => {
+            // High-quality downscaling
+            tempCtx.drawImage(img, 0, 0, 200, 200, 0, 0, 100, 100);
+            URL.revokeObjectURL(frameUrl); // Clean up
+            resolve(undefined);
+          };
+        });
+        
+        // Convert downscaled canvas to WebP blob
+        const downscaledBlob = await new Promise<Blob>((resolve) => {
+          tempCanvas.toBlob((blob) => {
+            if (!blob) {
+              tempCanvas.toBlob((pngBlob) => {
+                resolve(pngBlob || new Blob());
+              }, 'image/png');
+              return;
+            }
+            resolve(blob);
+          }, 'image/webp', 0.99);
+        });
+        
+        // Convert blob to base64 for return
         const base64 = await new Promise<string>((resolve) => {
           const reader = new FileReader();
           reader.onload = () => {
@@ -1975,13 +2051,10 @@ export const handler: Handler = async (event) => {
             const base64Data = result.split(',')[1];
             resolve(base64Data);
           };
-          reader.readAsDataURL(frameBlob); // Use original blob directly
+          reader.readAsDataURL(downscaledBlob);
         });
         
         frames.push(base64);
-
-        // Clean up
-        URL.revokeObjectURL(frameUrl);
 
         if (i === 0 || i === exportSettings.frames - 1 || i % 10 === 0) {
           const elapsed = Date.now() - startTime;
