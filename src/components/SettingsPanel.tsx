@@ -26,6 +26,9 @@ export interface CoinSettings {
   bodyMetalness: 'low' | 'normal' | 'high';  // NEW: Body metallic intensity
   bodyRoughness: 'low' | 'normal' | 'high';  // NEW: Body roughness control
   bodyGlow: boolean;              // NEW: Enable glow effect for body
+  bodyGlowScale: number;          // NEW: Glow size/spread control (1.0 - 1.5)
+  bodyGlowIntensity: number;      // NEW: Glow brightness control (0.5 - 5.0)
+  bodyGlowSharpness: number;      // NEW: Glow edge sharpness (0.1 - 2.0)
   
   // Body Texture Settings
   bodyTextureUrl: string;
@@ -48,6 +51,9 @@ export interface CoinSettings {
   overlayMetalness: 'low' | 'normal' | 'high';
   overlayRoughness: 'low' | 'normal' | 'high';
   overlayGlow: boolean;           // NEW: Enable glow effect for overlays
+  overlayGlowScale: number;       // NEW: Overlay glow size/spread control (1.0 - 1.5)
+  overlayGlowIntensity: number;   // NEW: Overlay glow brightness control (0.5 - 5.0)
+  overlayGlowSharpness: number;   // NEW: Overlay glow edge sharpness (0.1 - 2.0)
   overlayGifSpeed: 'slow' | 'normal' | 'fast';  // RENAMED: from gifAnimationSpeed
   overlayRotation: number;        // NEW: 0-360 degrees overlay rotation
   overlayScale: number;           // NEW: 0.1-5.0 overlay scale multiplier
@@ -189,7 +195,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
         after:content-[''] after:absolute after:top-[2px] after:left-[2px] 
         after:bg-white after:border-gray-300 after:border after:rounded-full 
         after:h-5 after:w-5 after:transition-all dark:border-gray-600 
-        ${checked ? 'peer-checked:bg-blue-600' : ''} 
+        ${checked ? 'peer-checked:bg-gray-400' : ''} 
         ${disabled ? 'cursor-not-allowed' : ''}
       `} />
     </label>
@@ -633,7 +639,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
           <div className="space-y-4">
             <div className="border-b border-gray-200 pb-2">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center">
-                <CategoryIcon className="w-5 h-5 mr-2 text-gray-700" />
+                <CategoryIcon className="w-5 h-5 mr-2 text-amber-500" />
                 Coin Structure
               </h2>
               <p className="text-sm text-gray-500">Basic coin properties and animation</p>
@@ -652,7 +658,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                     onClick={() => updateSetting('coinShape', shape)}
                     className={`p-3 rounded-lg border-2 text-sm font-medium transition-all ${
                       settings.coinShape === shape
-                        ? 'border-blue-500 bg-blue-50 text-blue-500'
+                        ? 'border-amber-500 bg-amber-50 text-amber-600'
                         : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
                     }`}
                   >
@@ -679,7 +685,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                       onClick={() => updateSetting('animationDirection', direction)}
                       className={`p-2 rounded-lg border-2 text-sm font-medium transition-all capitalize ${
                         settings.animationDirection === direction
-                          ? 'border-blue-500 bg-blue-50 text-blue-500'
+                          ? 'border-amber-500 bg-amber-50 text-amber-600'
                           : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
                       }`}
                     >
@@ -706,7 +712,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                       onClick={() => updateSetting('animationPreset', preset.key)}
                       className={`p-2 rounded-lg border-2 text-sm font-medium transition-all ${
                         settings.animationPreset === preset.key
-                          ? 'border-blue-500 bg-blue-50 text-blue-500'
+                          ? 'border-amber-500 bg-amber-50 text-amber-600'
                           : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
                       }`}
                     >
@@ -714,20 +720,6 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                     </button>
                   ))}
                 </div>
-                <div className="text-xs text-gray-500 space-y-1">
-                  <p><strong>Smooth:</strong> Steady 360° rotation</p>
-                  <p><strong>Fast-Slow:</strong> Quick spin then static display</p>
-                  <p><strong>Bounce:</strong> Back rotation → fast flip → bounce → calm</p>
-                </div>
-              </div>
-              
-              {/* Animation Duration - Fixed at 3s */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="block text-sm font-medium text-gray-700">Duration</label>
-                  <span className="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded">3s (Fixed)</span>
-                </div>
-                <p className="text-xs text-gray-500">Complete 360° rotation in 3 seconds (Telegram emoji standard)</p>
               </div>
             </div>
           </div>
@@ -736,7 +728,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
           <div className="space-y-4">
             <div className="border-b border-gray-200 pb-2">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center">
-                <ColorLensIcon className="w-5 h-5 mr-2 text-gray-700" />
+                <ColorLensIcon className="w-5 h-5 mr-2 text-green-600" />
                 Body Material
               </h2>
               <p className="text-sm text-gray-500">Coin body appearance and textures</p>
@@ -753,7 +745,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                   onClick={() => updateSetting('fillMode', 'solid')}
                   className={`p-3 rounded-lg border-2 text-sm font-medium transition-all ${
                     settings.fillMode === 'solid'
-                      ? 'border-blue-500 bg-blue-50 text-blue-500'
+                      ? 'border-green-500 bg-green-50 text-green-600'
                       : 'border-gray-300 bg-white text-gray-500 hover:border-gray-400 hover:bg-gray-50'
                   }`}
                 >
@@ -763,7 +755,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                   onClick={() => updateSetting('fillMode', 'gradient')}
                   className={`p-3 rounded-lg border-2 text-sm font-medium transition-all ${
                     settings.fillMode === 'gradient'
-                      ? 'border-blue-500 bg-blue-50 text-blue-500'
+                      ? 'border-green-500 bg-green-50 text-green-600'
                       : 'border-gray-300 bg-white text-gray-500 hover:border-gray-400 hover:bg-gray-50'
                   }`}
                 >
@@ -773,7 +765,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                   onClick={() => updateSetting('fillMode', 'texture')}
                   className={`p-3 rounded-lg border-2 text-sm font-medium transition-all ${
                     settings.fillMode === 'texture'
-                      ? 'border-blue-500 bg-blue-50 text-blue-500'
+                      ? 'border-green-500 bg-green-50 text-green-600'
                       : 'border-gray-300 bg-white text-gray-500 hover:border-gray-400 hover:bg-gray-50'
                   }`}
                 >
@@ -842,7 +834,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                             onClick={() => updateSetting('bodyMetalness', metalness)}
                             className={`p-2 rounded-lg text-xs font-medium transition-all capitalize border ${
                               settings.bodyMetalness === metalness
-                                ? 'bg-blue-50 text-blue-500 border-blue-500'
+                                ? 'bg-green-50 text-green-600 border-green-500'
                                 : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
                             }`}
                           >
@@ -862,7 +854,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                             onClick={() => updateSetting('bodyRoughness', roughness)}
                             className={`p-2 rounded-lg text-xs font-medium transition-all capitalize border ${
                               settings.bodyRoughness === roughness
-                                ? 'bg-blue-50 text-blue-500 border-blue-500'
+                                ? 'bg-green-50 text-green-600 border-green-500'
                                 : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
                             }`}
                           >
@@ -888,6 +880,53 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                   onChange={(checked) => updateSetting('bodyGlow', checked)} 
                 />
               </div>
+              
+              {/* Glow Parameters - Show when body glow is enabled */}
+              {settings.bodyGlow && (
+                <div className="space-y-3 pl-4 border-l-2 border-green-200 bg-green-50/30 p-3 rounded-r-lg">
+                  {/* Glow Intensity Control */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-gray-800 text-xs font-medium">Intensity</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="range"
+                        min="0.5"
+                        max="5.0"
+                        step="0.1"
+                        value={settings.bodyGlowIntensity || 2.2}
+                        onChange={(e) => updateSetting('bodyGlowIntensity', parseFloat(e.target.value))}
+                        className="w-20 accent-green-400"
+                      />
+                      <span className="text-xs text-gray-600 w-12 text-right">
+                        {(settings.bodyGlowIntensity || 2.2).toFixed(1)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Glow Sharpness Control */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-gray-800 text-xs font-medium">Sharpness</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="range"
+                        min="0.1"
+                        max="2.0"
+                        step="0.1"
+                        value={settings.bodyGlowSharpness || 0.6}
+                        onChange={(e) => updateSetting('bodyGlowSharpness', parseFloat(e.target.value))}
+                        className="w-20 accent-green-400"
+                      />
+                      <span className="text-xs text-gray-600 w-12 text-right">
+                        {(settings.bodyGlowSharpness || 0.6).toFixed(1)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Body Texture Section (Enhanced) */}
@@ -898,7 +937,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                   <div className="flex space-x-2">
                     <button 
                       onClick={handleApplyBodyTexture}
-                      className="bg-white border-2 border-blue-500 text-blue-500 font-medium py-1 px-3 rounded-lg transition-colors hover:bg-blue-50 text-sm"
+                      className="bg-white border-2 border-green-500 text-green-600 font-medium py-1 px-3 rounded-lg transition-colors hover:bg-green-50 text-sm"
                     >
                       Apply
                     </button>
@@ -917,7 +956,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                     onClick={() => handleBodyTextureModeChange('url')}
                     className={`p-2 rounded-lg border-2 text-sm font-medium transition-all ${
                       settings.bodyTextureMode === 'url'
-                        ? 'border-blue-500 bg-blue-50 text-blue-500'
+                        ? 'border-green-500 bg-green-50 text-green-600'
                         : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
                     }`}
                   >
@@ -927,7 +966,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                     onClick={() => handleBodyTextureModeChange('upload')}
                     className={`p-2 rounded-lg border-2 text-sm font-medium transition-all ${
                       settings.bodyTextureMode === 'upload'
-                        ? 'border-blue-500 bg-blue-50 text-blue-500'
+                        ? 'border-green-500 bg-green-50 text-green-600'
                         : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
                     }`}
                   >
@@ -987,7 +1026,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                           onClick={() => updateSetting('bodyGifSpeed', speed)}
                           className={`p-2 rounded-lg border-2 text-sm font-medium transition-all capitalize ${
                             settings.bodyGifSpeed === speed
-                              ? 'border-blue-500 bg-blue-50 text-blue-500'
+                              ? 'border-green-500 bg-green-50 text-green-600'
                               : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
                           }`}
                         >
@@ -1008,7 +1047,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                         onClick={() => updateSetting('bodyTextureMapping', mode)}
                         className={`p-2 rounded-lg border-2 text-sm font-medium transition-all capitalize ${
                           settings.bodyTextureMapping === mode
-                            ? 'border-blue-500 bg-blue-50 text-blue-500'
+                            ? 'border-green-500 bg-green-50 text-green-600'
                             : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
                         }`}
                       >
@@ -1087,7 +1126,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
           <div className="space-y-4">
             <div className="border-b border-gray-200 pb-2">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center">
-                <LayersIcon className="w-5 h-5 mr-2 text-gray-700" />
+                <LayersIcon className="w-5 h-5 mr-2 text-purple-600" />
                 Face Overlays
               </h2>
               <p className="text-sm text-gray-500">Images displayed on coin faces</p>
@@ -1121,7 +1160,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                     onClick={() => handleOverlayModeChange('url', 1)}
                     className={`p-2 rounded-lg border-2 text-sm font-medium transition-all ${
                       settings.overlayMode === 'url'
-                        ? 'border-blue-500 bg-blue-50 text-blue-500'
+                        ? 'border-purple-500 bg-purple-50 text-purple-600'
                         : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
                     }`}
                   >
@@ -1131,7 +1170,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                     onClick={() => handleOverlayModeChange('upload', 1)}
                     className={`p-2 rounded-lg border-2 text-sm font-medium transition-all ${
                       settings.overlayMode === 'upload'
-                        ? 'border-blue-500 bg-blue-50 text-blue-500'
+                        ? 'border-purple-500 bg-purple-50 text-purple-600'
                         : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
                     }`}
                   >
@@ -1148,7 +1187,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                       value={tempOverlayUrl}
                       onChange={(e) => setTempOverlayUrl(e.target.value)}
                       placeholder="https://example.com/image.png"
-                      className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                      className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm"
                     />
                     {settings.overlayUrl && (
                       <p className="text-xs text-green-600">✓ Applied: {settings.overlayUrl.substring(0, 50)}...</p>
@@ -1166,11 +1205,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                       accept="image/*,video/webm"
                       onChange={(e) => validateAndSelectFile(e, 'overlay')}
                       disabled={isProcessingFile.overlay}
-                      className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 disabled:opacity-50"
+                      className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 disabled:opacity-50"
                     />
                     {isProcessingFile.overlay && (
-                      <div className="flex items-center text-blue-500 text-xs">
-                        <div className="animate-spin rounded-full h-3 w-3 border-2 border-blue-500 border-t-transparent mr-2"></div>
+                      <div className="flex items-center text-purple-500 text-xs">
+                        <div className="animate-spin rounded-full h-3 w-3 border-2 border-purple-500 border-t-transparent mr-2"></div>
                         Processing file...
                       </div>
                     )}
@@ -1194,7 +1233,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                       onClick={() => handleOverlayModeChange('url', 2)}
                       className={`p-2 rounded-lg border-2 text-sm font-medium transition-all ${
                         settings.overlayMode2 === 'url'
-                          ? 'border-blue-500 bg-blue-50 text-blue-500'
+                          ? 'border-purple-500 bg-purple-50 text-purple-600'
                           : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
                       }`}
                     >
@@ -1204,7 +1243,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                       onClick={() => handleOverlayModeChange('upload', 2)}
                       className={`p-2 rounded-lg border-2 text-sm font-medium transition-all ${
                         settings.overlayMode2 === 'upload'
-                          ? 'border-blue-500 bg-blue-50 text-blue-500'
+                          ? 'border-purple-500 bg-purple-50 text-purple-600'
                           : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
                       }`}
                     >
@@ -1221,7 +1260,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                         value={tempOverlayUrl2}
                         onChange={(e) => setTempOverlayUrl2(e.target.value)}
                         placeholder="https://example.com/image.png"
-                        className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                        className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm"
                       />
                       {settings.overlayUrl2 && (
                         <p className="text-xs text-green-600">✓ Applied: {settings.overlayUrl2.substring(0, 50)}...</p>
@@ -1239,11 +1278,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                         accept="image/*,video/webm"
                         onChange={(e) => validateAndSelectFile(e, 'overlay2')}
                         disabled={isProcessingFile.overlay2}
-                        className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 disabled:opacity-50"
+                        className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 disabled:opacity-50"
                       />
                       {isProcessingFile.overlay2 && (
-                        <div className="flex items-center text-blue-500 text-xs">
-                          <div className="animate-spin rounded-full h-3 w-3 border-2 border-blue-500 border-t-transparent mr-2"></div>
+                        <div className="flex items-center text-purple-500 text-xs">
+                          <div className="animate-spin rounded-full h-3 w-3 border-2 border-purple-500 border-t-transparent mr-2"></div>
                           Processing file...
                         </div>
                       )}
@@ -1282,7 +1321,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
             <div className="flex space-x-2">
               <button 
                 onClick={handleApplyOverlay}
-                className="flex-1 bg-white border-2 border-blue-500 text-blue-500 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-blue-50 text-sm"
+                className="flex-1 bg-white border-2 border-purple-500 text-purple-600 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-purple-50 text-sm"
               >
                 Apply Images
               </button>
@@ -1321,7 +1360,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                             onClick={() => updateSetting('overlayMetalness', metalness)}
                             className={`p-2 rounded-lg text-xs font-medium transition-all capitalize border ${
                               settings.overlayMetalness === metalness
-                                ? 'bg-blue-50 text-blue-500 border-blue-500'
+                                ? 'bg-purple-50 text-purple-600 border-purple-500'
                                 : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
                             }`}
                           >
@@ -1341,7 +1380,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                             onClick={() => updateSetting('overlayRoughness', roughness)}
                             className={`p-2 rounded-lg text-xs font-medium transition-all capitalize border ${
                               settings.overlayRoughness === roughness
-                                ? 'bg-blue-50 text-blue-500 border-blue-500'
+                                ? 'bg-purple-50 text-purple-600 border-purple-500'
                                 : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
                             }`}
                           >
@@ -1367,14 +1406,61 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                   onChange={(checked) => updateSetting('overlayGlow', checked)} 
                 />
               </div>
+              
+              {/* Overlay Glow Parameters - Show when overlay glow is enabled */}
+              {settings.overlayGlow && (
+                <div className="space-y-3 pl-4 border-l-2 border-purple-200 bg-purple-50/30 p-3 rounded-r-lg">
+                  {/* Overlay Glow Intensity Control */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-gray-800 text-xs font-medium">Intensity</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="range"
+                        min="0.5"
+                        max="5.0"
+                        step="0.1"
+                        value={settings.overlayGlowIntensity || 2.8}
+                        onChange={(e) => updateSetting('overlayGlowIntensity', parseFloat(e.target.value))}
+                        className="w-20 accent-purple-500"
+                      />
+                      <span className="text-xs text-gray-600 w-12 text-right">
+                        {(settings.overlayGlowIntensity || 2.8).toFixed(1)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Overlay Glow Sharpness Control */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-gray-800 text-xs font-medium">Sharpness</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="range"
+                        min="0.1"
+                        max="2.0"
+                        step="0.1"
+                        value={settings.overlayGlowSharpness || 0.7}
+                        onChange={(e) => updateSetting('overlayGlowSharpness', parseFloat(e.target.value))}
+                        className="w-20 accent-purple-500"
+                      />
+                      <span className="text-xs text-gray-600 w-12 text-right">
+                        {(settings.overlayGlowSharpness || 0.7).toFixed(1)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
           {/* ===== LIGHTING SECTION ===== */}
           <div className="space-y-4">
             <div className="border-b border-gray-200 pb-2">
-              <h2 className="text-lg font-semibold text-gray-900 flex items-center">
-                <LightModeIcon className="w-5 h-5 mr-2 text-gray-700" />
+              <h2 className="text-lg font-semibold text-gray-700 flex items-center">
+                <LightModeIcon className="w-5 h-5 mr-2 text-red-500" />
                 Lighting
               </h2>
               <p className="text-sm text-gray-500">Scene lighting and atmosphere</p>
@@ -1397,17 +1483,13 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                       }}
                       className={`p-2 rounded-lg border-2 text-sm font-medium transition-all ${
                         settings.lightMode === mode.key
-                          ? 'border-blue-500 bg-blue-50 text-blue-500'
+                          ? 'border-red-500 bg-red-50 text-red-500'
                           : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
                       }`}
                     >
                       {mode.label}
                     </button>
                   ))}
-                </div>
-                <div className="text-xs text-gray-500 space-y-1">
-                  <p><strong>Studio:</strong> Multiple directional lights with controlled shadows</p>
-                  <p><strong>Natural:</strong> Ambient lighting with soft, diffused illumination</p>
                 </div>
               </div>
 
@@ -1430,7 +1512,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                       onClick={() => updateSetting('lightStrength', strength)}
                       className={`p-2 rounded-lg text-sm font-medium transition-all capitalize border-2 ${
                         settings.lightStrength === strength
-                          ? 'bg-blue-50 text-blue-500 border-blue-500'
+                          ? 'bg-red-50 text-red-500 border-red-500'
                           : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
                       }`}
                     >

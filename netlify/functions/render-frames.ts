@@ -125,11 +125,10 @@ async function preprocessGifs(settings: any): Promise<any> {
     }
     
     // This will be visible to the user in the error message
-    const errorMessage = `GIF file(s) too large for processing. Maximum size: 5MB for external URLs, 8MB for uploaded files. 
+    // ${problematicUrls.length === 1 ? 'The large GIF has' : 'Large GIFs have'} been automatically removed to prevent timeout. Please use smaller GIF files.
+    const errorMessage = `GIF file(s) too large for processing. Maximum size is 5MB for external URLs, 8MB for uploaded files.
 
-${problematicUrls.length === 1 ? 'The large GIF has' : 'Large GIFs have'} been automatically removed to prevent timeout. Please use smaller GIF files.
-
-Tip: You can compress GIFs using online tools or reduce their dimensions/frame count.`;
+Tip: Compress GIFs or use WebM!`;
     
     throw new Error(errorMessage);
   }
@@ -704,7 +703,7 @@ export const handler: Handler = async (event) => {
             depthTest: true,        // Enable depth test to prevent z-fighting
             depthWrite: false,      // Don't write to depth buffer to allow proper layering
             blending: THREE.AdditiveBlending,
-            side: THREE.BackSide,   // Render backfaces to create proper outward glow
+            side: THREE.FrontSide,  // FIXED: Use FrontSide for proper outward glow
             alphaTest: 0.01,        // Discard nearly transparent pixels
             vertexShader: [
               'varying vec3 vWorldPos;',
@@ -734,7 +733,7 @@ export const handler: Handler = async (event) => {
               '  float gate = smoothstep(threshold, 1.0, luma);',
               '  vec3 V = normalize(cameraPosition - vWorldPos);',
               '  vec3 N = normalize(vWorldNormal);',
-              '  float fresnel = 1.0 - abs(dot(N, V));',
+              '  float fresnel = 1.0 - max(0.2, dot(N, V));', // FIXED: Use 0.2 minimum to prevent dead spots at side angles
               '  float rim = pow(fresnel, 0.5 + sharpness * 2.0);',
               '  float glowStrength = rim * gate * intensity;',
               '  float alpha = smoothstep(0.0, 1.0, glowStrength);',
@@ -760,12 +759,12 @@ export const handler: Handler = async (event) => {
         new GlowMapMaterial({
           map: rimMat.map ?? null,
           color: rimMat.color,
-          threshold: 0.60,
-          intensity: 1.5,                     // Increased intensity
-          sharpness: 0.8,                     // Increased sharpness
+          threshold: 0.0,                     // Fixed: Always 0, not user-adjustable
+          intensity: 2.2,                     // Higher intensity for better visibility
+          sharpness: 0.6,                     // Balanced sharpness for smooth edges
         })
       );
-      cylinderGlow.scale.setScalar(1.05);     // More visible scaling
+      cylinderGlow.scale.setScalar(1.01);     // Fixed scale for consistent glow appearance
       cylinderGlow.visible = !!settings.bodyGlow;
       cylinderGlow.renderOrder = 1;    // Render after main geometry
 
@@ -774,12 +773,12 @@ export const handler: Handler = async (event) => {
         new GlowMapMaterial({
           map: faceMat.map ?? null,
           color: faceMat.color,
-          threshold: 0.60,
-          intensity: 1.5,
-          sharpness: 0.8,
+          threshold: 0.0,                     // Fixed: Always 0, not user-adjustable
+          intensity: 2.2,
+          sharpness: 0.6,
         })
       );
-      topGlow.scale.setScalar(1.05);
+      topGlow.scale.setScalar(1.01);          // Fixed scale for consistent glow appearance
       topGlow.visible = !!settings.bodyGlow;
       topGlow.renderOrder = 1;
 
@@ -788,29 +787,37 @@ export const handler: Handler = async (event) => {
         new GlowMapMaterial({
           map: faceMat.map ?? null,
           color: faceMat.color,
-          threshold: 0.60,
-          intensity: 1.5,
-          sharpness: 0.8,
+          threshold: 0.0,                     // Fixed: Always 0, not user-adjustable
+          intensity: 2.2,
+          sharpness: 0.6,
         })
       );
-      bottomGlow.scale.setScalar(1.05);
+      bottomGlow.scale.setScalar(1.01);       // Fixed scale for consistent glow appearance
       bottomGlow.visible = !!settings.bodyGlow;
       bottomGlow.renderOrder = 1;
 
       // Create overlay glow meshes
       const overlayTopGlow = new THREE.Mesh(
         overlayTop.geometry,
-        new GlowMapMaterial({ threshold: 0.70, intensity: 2.0, sharpness: 1.0 })
+        new GlowMapMaterial({ 
+          threshold: 0.0,                     // Fixed: Always 0, not user-adjustable
+          intensity: 2.8,                     // Higher intensity for overlay visibility
+          sharpness: 0.7                      // Sharper for detailed overlays
+        })
       );
-      overlayTopGlow.scale.setScalar(1.03);   // Smaller scale for overlays
+      overlayTopGlow.scale.setScalar(1.01);   // Fixed scale for consistent glow appearance
       overlayTopGlow.visible = !!settings.overlayGlow;
       overlayTopGlow.renderOrder = 2;    // Render after body glow
 
       const overlayBotGlow = new THREE.Mesh(
         overlayBot.geometry,
-        new GlowMapMaterial({ threshold: 0.70, intensity: 2.0, sharpness: 1.0 })
+        new GlowMapMaterial({ 
+          threshold: 0.0,                     // Fixed: Always 0, not user-adjustable
+          intensity: 2.8, 
+          sharpness: 0.7 
+        })
       );
-      overlayBotGlow.scale.setScalar(1.03);
+      overlayBotGlow.scale.setScalar(1.01);   // Fixed scale for consistent glow appearance
       overlayBotGlow.visible = !!settings.overlayGlow;
       overlayBotGlow.renderOrder = 2;
 
@@ -1411,7 +1418,33 @@ export const handler: Handler = async (event) => {
             
             // Update overlay glows for single mode
             overlayTopGlow.material.updateGlowSource(overlayTexture, new THREE.Color(0xffffff));
-            overlayBotGlow.material.updateGlowSource(bottomTexture, new THREE.Color(0xffffff));
+            
+            // FIXED: Create separate non-flipped texture for bottom glow
+            let bottomGlowTexture;
+            if (overlayTexture instanceof THREE.CanvasTexture) {
+              bottomGlowTexture = new THREE.CanvasTexture(overlayTexture.image);
+              bottomGlowTexture.colorSpace = THREE.SRGBColorSpace;
+              bottomGlowTexture.flipY = true; // Keep flipY for proper orientation
+              bottomGlowTexture.wrapS = THREE.ClampToEdgeWrapping; // FIXED: Don't flip glow texture
+              bottomGlowTexture.needsUpdate = true;
+              bottomGlowTexture.userData = overlayTexture.userData; // Share animation state
+            } else {
+              bottomGlowTexture = overlayTexture.clone();
+              bottomGlowTexture.flipY = true; // Keep flipY for proper orientation  
+              bottomGlowTexture.wrapS = THREE.ClampToEdgeWrapping; // FIXED: Don't flip glow texture
+              bottomGlowTexture.needsUpdate = true;
+            }
+            
+            // Apply transformations to glow texture
+            applyTextureTransformations(
+              bottomGlowTexture,
+              settings.overlayRotation || 0,
+              settings.overlayScale || 1,
+              settings.overlayOffsetX || 0,
+              settings.overlayOffsetY || 0
+            );
+            
+            overlayBotGlow.material.updateGlowSource(bottomGlowTexture, new THREE.Color(0xffffff));
             const overlayGlowEnabled = !!settings.overlayGlow;
             overlayTopGlow.visible = overlayGlowEnabled;
             overlayBotGlow.visible = overlayGlowEnabled;
@@ -1501,8 +1534,33 @@ export const handler: Handler = async (event) => {
           overlayBot.material.opacity = 1;
           overlayBot.material.needsUpdate = true;
           
+          // FIXED: Create separate non-flipped texture for bottom glow in dual mode
+          let bottomGlowTexture;
+          if (overlayTexture instanceof THREE.CanvasTexture) {
+            bottomGlowTexture = new THREE.CanvasTexture(overlayTexture.image);
+            bottomGlowTexture.colorSpace = THREE.SRGBColorSpace;
+            bottomGlowTexture.flipY = false; // Match dual mode orientation
+            bottomGlowTexture.wrapS = THREE.ClampToEdgeWrapping; // FIXED: Don't flip glow texture
+            bottomGlowTexture.needsUpdate = true;
+            bottomGlowTexture.userData = overlayTexture.userData; // Share animation state
+          } else {
+            bottomGlowTexture = overlayTexture.clone();
+            bottomGlowTexture.flipY = false; // Match dual mode orientation
+            bottomGlowTexture.wrapS = THREE.ClampToEdgeWrapping; // FIXED: Don't flip glow texture  
+            bottomGlowTexture.needsUpdate = true;
+          }
+          
+          // Apply transformations to glow texture
+          applyTextureTransformations(
+            bottomGlowTexture,
+            settings.overlayRotation || 0,
+            settings.overlayScale || 1,
+            settings.overlayOffsetX || 0,
+            settings.overlayOffsetY || 0
+          );
+          
           // Update bottom overlay glow for dual mode
-          overlayBotGlow.material.updateGlowSource(bottomTexture, new THREE.Color(0xffffff));
+          overlayBotGlow.material.updateGlowSource(bottomGlowTexture, new THREE.Color(0xffffff));
           overlayBotGlow.visible = !!settings.overlayGlow;
         }
       }
