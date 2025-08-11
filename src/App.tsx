@@ -29,6 +29,10 @@ const AppContent: React.FC = () => {
     bodyMetallic: true,          // NEW: Separate from overlay metallic
     bodyMetalness: 'normal',     // NEW: Body metallic intensity
     bodyRoughness: 'normal',     // NEW: Body roughness control
+    bodyGlow: false,             // NEW: Enable glow effect for body
+    bodyGlowScale: 1.08,         // NEW: Body glow scale (1.0 - 1.5)
+    bodyGlowIntensity: 2.2,      // NEW: Body glow brightness control (0.5 - 5.0)
+    bodyGlowSharpness: 0.6,      // NEW: Body glow edge sharpness (0.1 - 2.0)
     
     // Body Texture Settings
     bodyTextureUrl: '',
@@ -50,6 +54,10 @@ const AppContent: React.FC = () => {
     overlayMetallic: false,      // NEW: Separate toggle for overlays
     overlayMetalness: 'normal',  // Body metallic intensity
     overlayRoughness: 'low',     // Body roughness control
+    overlayGlow: false,          // NEW: Enable glow effect for overlays
+    overlayGlowScale: 1.06,      // NEW: Overlay glow scale (1.0 - 1.5)
+    overlayGlowIntensity: 2.8,   // NEW: Overlay glow brightness control (0.5 - 5.0)
+    overlayGlowSharpness: 0.7,   // NEW: Overlay glow edge sharpness (0.1 - 2.0)
     overlayGifSpeed: 'normal',   // RENAMED: from gifAnimationSpeed
     overlayRotation: 0,          // NEW: Overlay transformation controls
     overlayScale: 1.0,           // NEW: Overlay scale multiplier
