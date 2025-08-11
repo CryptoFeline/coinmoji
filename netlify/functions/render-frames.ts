@@ -988,8 +988,23 @@ export const handler: Handler = async (event) => {
         
         // Update body glow materials for solid colors
         cylinderGlow.material.updateGlowSource(null, rimMat.color);
+        cylinderGlow.material.setGlowParams(
+          settings.bodyGlowIntensity || 2.2, 
+          0.0, // Threshold always 0 as requested
+          settings.bodyGlowSharpness || 0.6
+        );
         topGlow.material.updateGlowSource(null, faceMat.color);
+        topGlow.material.setGlowParams(
+          settings.bodyGlowIntensity || 2.2, 
+          0.0, // Threshold always 0 as requested
+          settings.bodyGlowSharpness || 0.6
+        );
         bottomGlow.material.updateGlowSource(null, faceMat.color);
+        bottomGlow.material.setGlowParams(
+          settings.bodyGlowIntensity || 2.2, 
+          0.0, // Threshold always 0 as requested
+          settings.bodyGlowSharpness || 0.6
+        );
       } else {
         // Create gradient textures (FIXED: separate rim and face textures like client-side)
         console.log('🌈 Creating separate rim and face gradient textures...');
@@ -1044,8 +1059,23 @@ export const handler: Handler = async (event) => {
         
         // Update body glow materials for gradients
         cylinderGlow.material.updateGlowSource(rimTexture, new THREE.Color('#ffffff'));
+        cylinderGlow.material.setGlowParams(
+          settings.bodyGlowIntensity || 2.2, 
+          0.0, // Threshold always 0 as requested
+          settings.bodyGlowSharpness || 0.6
+        );
         topGlow.material.updateGlowSource(faceTexture, new THREE.Color('#ffffff'));
+        topGlow.material.setGlowParams(
+          settings.bodyGlowIntensity || 2.2, 
+          0.0, // Threshold always 0 as requested
+          settings.bodyGlowSharpness || 0.6
+        );
         bottomGlow.material.updateGlowSource(faceTexture, new THREE.Color('#ffffff'));
+        bottomGlow.material.setGlowParams(
+          settings.bodyGlowIntensity || 2.2, 
+          0.0, // Threshold always 0 as requested
+          settings.bodyGlowSharpness || 0.6
+        );
       }
 
       // Update body metallic properties using new system (matching CoinEditor.tsx)
@@ -1441,6 +1471,11 @@ export const handler: Handler = async (event) => {
             
             // Update top overlay glow for dual mode
             overlayTopGlow.material.updateGlowSource(overlayTexture, new THREE.Color(0xffffff));
+            overlayTopGlow.material.setGlowParams(
+              settings.overlayGlowIntensity || 2.8,
+              0.0, // Threshold always 0 as requested
+              settings.overlayGlowSharpness || 0.7
+            );
             overlayTopGlow.visible = !!settings.overlayGlow;
           } else {
             // Apply to both faces in single mode - top face gets original
@@ -1485,6 +1520,11 @@ export const handler: Handler = async (event) => {
             
             // Update overlay glows for single mode
             overlayTopGlow.material.updateGlowSource(overlayTexture, new THREE.Color(0xffffff));
+            overlayTopGlow.material.setGlowParams(
+              settings.overlayGlowIntensity || 2.8,
+              0.0, // Threshold always 0 as requested
+              settings.overlayGlowSharpness || 0.7
+            );
             
             // FIXED: Create separate non-flipped texture for bottom glow
             let bottomGlowTexture;
@@ -1512,6 +1552,11 @@ export const handler: Handler = async (event) => {
             );
             
             overlayBotGlow.material.updateGlowSource(bottomGlowTexture, new THREE.Color(0xffffff));
+            overlayBotGlow.material.setGlowParams(
+              settings.overlayGlowIntensity || 2.8,
+              0.0, // Threshold always 0 as requested
+              settings.overlayGlowSharpness || 0.7
+            );
             const overlayGlowEnabled = !!settings.overlayGlow;
             overlayTopGlow.visible = overlayGlowEnabled;
             overlayBotGlow.visible = overlayGlowEnabled;
@@ -1628,6 +1673,11 @@ export const handler: Handler = async (event) => {
           
           // Update bottom overlay glow for dual mode
           overlayBotGlow.material.updateGlowSource(bottomGlowTexture, new THREE.Color(0xffffff));
+          overlayBotGlow.material.setGlowParams(
+            settings.overlayGlowIntensity || 2.8,
+            0.0, // Threshold always 0 as requested
+            settings.overlayGlowSharpness || 0.7
+          );
           overlayBotGlow.visible = !!settings.overlayGlow;
         }
       }
@@ -1740,8 +1790,23 @@ export const handler: Handler = async (event) => {
             
             // Update body glow materials to match body textures
             cylinderGlow.material.updateGlowSource(rimTexture, new THREE.Color('#ffffff'));
+            cylinderGlow.material.setGlowParams(
+              settings.bodyGlowIntensity || 2.2, 
+              0.0, // Threshold always 0 as requested
+              settings.bodyGlowSharpness || 0.6
+            );
             topGlow.material.updateGlowSource(faceTexture, new THREE.Color('#ffffff'));
+            topGlow.material.setGlowParams(
+              settings.bodyGlowIntensity || 2.2, 
+              0.0, // Threshold always 0 as requested
+              settings.bodyGlowSharpness || 0.6
+            );
             bottomGlow.material.updateGlowSource(faceTexture, new THREE.Color('#ffffff'));
+            bottomGlow.material.setGlowParams(
+              settings.bodyGlowIntensity || 2.2, 
+              0.0, // Threshold always 0 as requested
+              settings.bodyGlowSharpness || 0.6
+            );
             
             console.log('✅ Body texture applied with transformations:', {
               rotation: settings.bodyTextureRotation || 0,
