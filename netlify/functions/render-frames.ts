@@ -217,13 +217,13 @@ async function decodeVideoToSpritesheet(videoData: Buffer | string, isDataUrl: b
   console.log('📁 Created temp directory for video decode:', tmpDir);
   
   try {
-    // OPTIMIZED: Smaller spritesheet configuration to prevent Chrome timeout
-    const COLS = 8;
-    const ROWS = 4;
-    const FRAME_COUNT = COLS * ROWS; // 32 frames (reduced from 60)
-    const FPS = 15; // Reduced FPS for smoother processing
-    const FRAME_W = 64; // Much smaller frames to reduce memory usage
-    const FRAME_H = 64;
+    // OPTIMIZED: High quality frames with efficient compression
+    const COLS = 10;
+    const ROWS = 6;
+    const FRAME_COUNT = COLS * ROWS; // 60 frames for full rotation
+    const FPS = 20; // Standard FPS for smooth animation
+    const FRAME_W = 100; // High quality frames for better results
+    const FRAME_H = 100;
     
     // Write video data to temp file
     const videoPath = join(tmpDir, 'input.video');
@@ -242,15 +242,17 @@ async function decodeVideoToSpritesheet(videoData: Buffer | string, isDataUrl: b
     
     console.log(`🎞️ Decoding video to ${COLS}x${ROWS} spritesheet (${FRAME_W}x${FRAME_H} frames)...`);
     
-    // FFmpeg command to create spritesheet (similar to your plan)
+    // FFmpeg command with optimized compression for Chrome stability
     const ffmpegArgs = [
       '-i', videoPath,
       '-vf', [
         `fps=${FPS}`, // Extract at 20 FPS
-        `scale=${FRAME_W}:${FRAME_H}:flags=lanczos`, // Scale each frame
+        `scale=${FRAME_W}:${FRAME_H}:flags=lanczos`, // High quality scaling
         `tile=${COLS}x${ROWS}:padding=0:margin=0` // Create spritesheet
       ].join(','),
       '-frames:v', '1', // Output single spritesheet image
+      '-q:v', '2', // High quality JPEG-like compression (1=best, 31=worst)
+      '-pix_fmt', 'rgb24', // RGB format for better compatibility
       '-y',
       sheetPath
     ];
@@ -281,9 +283,9 @@ async function decodeVideoToSpritesheet(videoData: Buffer | string, isDataUrl: b
     
     console.log(`✅ Video spritesheet created: ${(sheetBuffer.length/1024).toFixed(1)}KB`);
     
-    // Check payload size (conservative limit)
-    if (sheetBuffer.length > 3 * 1024 * 1024) { // 3MB limit for spritesheet
-      console.warn(`⚠️ Spritesheet too large: ${(sheetBuffer.length/1024/1024).toFixed(1)}MB > 3MB`);
+    // Check payload size (generous limit for high quality frames)
+    if (sheetBuffer.length > 4 * 1024 * 1024) { // 4MB limit for high quality spritesheet
+      console.warn(`⚠️ Spritesheet too large: ${(sheetBuffer.length/1024/1024).toFixed(1)}MB > 4MB`);
       return null;
     }
     
@@ -734,9 +736,9 @@ export const handler: Handler = async (event) => {
       console.log(`✅ Pre-processed video spritesheets detected - using full ${segmentSize} frame rendering`);
       
       // CRITICAL: Additional safety check for large spritesheets
-      const hasLargeSpritesheet = uploadedFiles.some(f => f.data.length > 500 * 1024); // 500KB
+      const hasLargeSpritesheet = uploadedFiles.some(f => f.data.length > 800 * 1024); // 800KB threshold for 100x100 frames
       if (hasLargeSpritesheet) {
-        segmentSize = 30; // Safer segmentation for large spritesheets
+        segmentSize = 45; // Moderate segmentation for large but high-quality spritesheets
         console.log(`⚠️ Large video spritesheet detected - reducing to ${segmentSize} frame segments for stability`);
       }
     } else if (hasLargeAssets) {
