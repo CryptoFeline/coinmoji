@@ -877,7 +877,7 @@ export const handler: Handler = async (event) => {
       
       // FIXED: Add tone mapping to reduce harsh highlights and improve color balance
       renderer.toneMapping = THREE.LinearToneMapping;
-      renderer.toneMappingExposure = 0.8; // Slightly reduce exposure to avoid washed-out appearance
+      renderer.toneMappingExposure = 0.9; // ENHANCED: Increased from 0.8 to 0.9 to complement ultra-bright overlays
       
       // Append to DOM (required for WebGL context)
       document.body.appendChild(renderer.domElement);
@@ -1769,6 +1769,68 @@ export const handler: Handler = async (event) => {
         texture.needsUpdate = true;
       };
 
+      // 🌟 ULTRA-ENHANCED: Advanced overlay enhancement with bloom and color pop
+      const enhanceOverlayTexture = (canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, brightnessBoost: number = 2.0) => {
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imageData.data;
+        
+        console.log(`🎨 Applying ULTRA overlay enhancement: ${brightnessBoost}x brightness + bloom + color pop`);
+        
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+          const a = data[i + 3];
+          
+          // Skip fully transparent pixels
+          if (a === 0) continue;
+          
+          // 🎯 STEP 1: Enhanced brightness boost
+          let newR = r * brightnessBoost;
+          let newG = g * brightnessBoost;
+          let newB = b * brightnessBoost;
+          
+          // 🌈 STEP 2: Color vibrance boost (increase saturation)
+          const luminance = 0.299 * newR + 0.587 * newG + 0.114 * newB;
+          const vibrance = 1.6; // 60% more vibrant colors
+          newR = luminance + (newR - luminance) * vibrance;
+          newG = luminance + (newG - luminance) * vibrance;
+          newB = luminance + (newB - luminance) * vibrance;
+          
+          // 🔥 STEP 3: Bloom effect for bright pixels
+          const brightness = (newR + newG + newB) / 3;
+          if (brightness > 180) { // Bright pixels get bloom
+            const bloomStrength = 1.3;
+            newR = Math.min(255, newR * bloomStrength);
+            newG = Math.min(255, newG * bloomStrength);
+            newB = Math.min(255, newB * bloomStrength);
+          }
+          
+          // 🌟 STEP 4: Contrast enhancement for mid-tones
+          const contrast = 1.25;
+          newR = ((newR / 255 - 0.5) * contrast + 0.5) * 255;
+          newG = ((newG / 255 - 0.5) * contrast + 0.5) * 255;
+          newB = ((newB / 255 - 0.5) * contrast + 0.5) * 255;
+          
+          // 🎭 STEP 5: Selective color enhancement (boost warm/cool tones)
+          if (newR > newG && newR > newB) {
+            // Boost reds/oranges (warm tones)
+            newR = Math.min(255, newR * 1.15);
+          } else if (newB > newR && newB > newG) {
+            // Boost blues/cyans (cool tones)
+            newB = Math.min(255, newB * 1.15);
+          }
+          
+          // Apply final values with proper clamping
+          data[i] = Math.min(255, Math.max(0, newR));
+          data[i + 1] = Math.min(255, Math.max(0, newG));
+          data[i + 2] = Math.min(255, Math.max(0, newB));
+          // Alpha unchanged: data[i + 3] = a;
+        }
+        
+        ctx.putImageData(imageData, 0, 0);
+      };
+
       // Helper function to load images (URLs and data URLs - local files pre-converted)
       const loadImageTexture = async (urlOrDataUrl: string, brightnessBoost: number = 1.0): Promise<THREE.Texture> => {
         const img = document.createElement('img');
@@ -1785,11 +1847,11 @@ export const handler: Handler = async (event) => {
           };
         });
         
-        // IMPROVED: Apply brightness boost for overlays
+        // ULTRA-ENHANCED: Apply advanced overlay enhancement
         if (brightnessBoost !== 1.0) {
-          console.log(`✨ Applying brightness boost: ${brightnessBoost}x for better overlay visibility`);
+          console.log(`🌟 Applying ULTRA overlay enhancement: ${brightnessBoost}x + bloom + color pop for maximum visibility`);
           
-          // Create canvas to apply brightness adjustment
+          // Create canvas to apply ultra enhancement
           const canvas = document.createElement('canvas');
           const ctx = canvas.getContext('2d')!;
           canvas.width = img.width;
@@ -1798,21 +1860,10 @@ export const handler: Handler = async (event) => {
           // Draw original image
           ctx.drawImage(img, 0, 0);
           
-          // Apply brightness adjustment
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const data = imageData.data;
+          // Apply ultra enhancement
+          enhanceOverlayTexture(canvas, ctx, brightnessBoost);
           
-          for (let i = 0; i < data.length; i += 4) {
-            // Boost RGB channels (preserve alpha)
-            data[i] = Math.min(255, data[i] * brightnessBoost);     // Red
-            data[i + 1] = Math.min(255, data[i + 1] * brightnessBoost); // Green
-            data[i + 2] = Math.min(255, data[i + 2] * brightnessBoost); // Blue
-            // data[i + 3] = alpha (unchanged)
-          }
-          
-          ctx.putImageData(imageData, 0, 0);
-          
-          // Create texture from brightened canvas
+          // Create texture from ultra-enhanced canvas
           const texture = new THREE.CanvasTexture(canvas);
           texture.colorSpace = THREE.SRGBColorSpace;
           texture.flipY = false; // FIXED: Match client-side flipY = false for static images
@@ -1894,20 +1945,9 @@ export const handler: Handler = async (event) => {
                 0, 0, canvas.width, canvas.height
               );
               
-              // IMPROVED: Apply brightness boost for overlays
+              // ULTRA-ENHANCED: Apply advanced overlay enhancement
               if (brightnessBoost !== 1.0) {
-                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                const data = imageData.data;
-                
-                for (let i = 0; i < data.length; i += 4) {
-                  // Boost RGB channels (preserve alpha)
-                  data[i] = Math.min(255, data[i] * brightnessBoost);     // Red
-                  data[i + 1] = Math.min(255, data[i + 1] * brightnessBoost); // Green
-                  data[i + 2] = Math.min(255, data[i + 2] * brightnessBoost); // Blue
-                  // data[i + 3] = alpha (unchanged)
-                }
-                
-                ctx.putImageData(imageData, 0, 0);
+                enhanceOverlayTexture(canvas, ctx, brightnessBoost);
               }
               
               texture.needsUpdate = true;
@@ -1944,14 +1984,14 @@ export const handler: Handler = async (event) => {
           overlayTexture = await createSpritesheetTexture(
             settings.overlayUrl, // This is now the spritesheet data URL
             spritesheetData,
-            1.4 // IMPROVED: 40% brightness boost for video overlays
+            2.0 // ULTRA-ENHANCED: 100% brightness boost + bloom + color pop for maximum visibility
           );
           
           if (overlayTexture) {
             console.log('✅ Video spritesheet overlay applied');
           } else {
             console.warn('⚠️ Video spritesheet overlay processing failed, using static fallback');
-            overlayTexture = await loadImageTexture(settings.overlayUrl, 1.4); // IMPROVED: 40% brightness boost for overlays
+            overlayTexture = await loadImageTexture(settings.overlayUrl, 2.0); // ULTRA-ENHANCED: 100% brightness boost + bloom + color pop
           }
         } else if (textureType === 'gif') {
           // Process GIF with gifuct-js (identical to client-side)
@@ -1976,7 +2016,7 @@ export const handler: Handler = async (event) => {
           }
         } else {
           // Process static image (URLs or local files)
-          overlayTexture = await loadImageTexture(settings.overlayUrl, 1.4); // IMPROVED: 40% brightness boost for overlays
+          overlayTexture = await loadImageTexture(settings.overlayUrl, 2.0); // ULTRA-ENHANCED: 100% brightness boost + bloom + color pop
           console.log('✅ Static overlay applied');
         }
         
@@ -2006,7 +2046,7 @@ export const handler: Handler = async (event) => {
             // Update top overlay glow for dual mode
             overlayTopGlow.material.updateGlowSource(overlayTexture, new THREE.Color(0xffffff));
             overlayTopGlow.material.setGlowParams(
-              settings.overlayGlowIntensity || 3.2, // ENHANCED: Boost from 2.8 to 3.2 for better visibility
+              settings.overlayGlowIntensity || 4.0, // ULTRA-ENHANCED: Increased from 3.2 to 4.0 for bloom-like effect
               0.0, // Threshold always 0 as requested
               settings.overlayGlowSharpness || 0.7
             );
@@ -2014,7 +2054,7 @@ export const handler: Handler = async (event) => {
             
             console.log('🔍 DEBUG: Overlay glow (dual mode):', { 
               overlayGlowEnabled: !!settings.overlayGlow,
-              intensity: settings.overlayGlowIntensity || 3.2, // Updated debug message
+              intensity: settings.overlayGlowIntensity || 4.0, // Updated debug message
               sharpness: settings.overlayGlowSharpness || 0.7,
               overlayTopGlowVisible: overlayTopGlow.visible
             });
@@ -2062,7 +2102,7 @@ export const handler: Handler = async (event) => {
             // Update overlay glows for single mode
             overlayTopGlow.material.updateGlowSource(overlayTexture, new THREE.Color(0xffffff));
             overlayTopGlow.material.setGlowParams(
-              settings.overlayGlowIntensity || 3.2, // ENHANCED: Boost from 2.8 to 3.2 for better visibility
+              settings.overlayGlowIntensity || 4.0, // ULTRA-ENHANCED: Increased from 3.2 to 4.0 for bloom-like effect
               0.0, // Threshold always 0 as requested
               settings.overlayGlowSharpness || 0.7
             );
@@ -2094,7 +2134,7 @@ export const handler: Handler = async (event) => {
             
             overlayBotGlow.material.updateGlowSource(bottomGlowTexture, new THREE.Color(0xffffff));
             overlayBotGlow.material.setGlowParams(
-              settings.overlayGlowIntensity || 3.2, // ENHANCED: Boost from 2.8 to 3.2 for better visibility
+              settings.overlayGlowIntensity || 4.0, // ULTRA-ENHANCED: Increased from 3.2 to 4.0 for bloom-like effect
               0.0, // Threshold always 0 as requested
               settings.overlayGlowSharpness || 0.7
             );
@@ -2123,14 +2163,14 @@ export const handler: Handler = async (event) => {
           overlayTexture = await createSpritesheetTexture(
             settings.overlayUrl2, // This is now the spritesheet data URL
             spritesheetData,
-            1.4 // IMPROVED: 40% brightness boost for video overlays
+            2.0 // ULTRA-ENHANCED: 100% brightness boost + bloom + color pop for maximum visibility
           );
           
           if (overlayTexture) {
             console.log('✅ Video spritesheet back overlay applied');
           } else {
             console.warn('⚠️ Video spritesheet back overlay processing failed, using static fallback');
-            overlayTexture = await loadImageTexture(settings.overlayUrl2, 1.4); // IMPROVED: 40% brightness boost for overlays
+            overlayTexture = await loadImageTexture(settings.overlayUrl2, 2.0); // ULTRA-ENHANCED: 100% brightness boost + bloom + color pop
           }
         } else if (textureType === 'gif') {
           // Process GIF with gifuct-js (identical to client-side)
@@ -2155,7 +2195,7 @@ export const handler: Handler = async (event) => {
           }
         } else {
           // Process static image (URLs or local files)
-          overlayTexture = await loadImageTexture(settings.overlayUrl2, 1.4); // IMPROVED: 40% brightness boost for overlays
+          overlayTexture = await loadImageTexture(settings.overlayUrl2, 2.0); // ULTRA-ENHANCED: 100% brightness boost + bloom + color pop
           console.log('✅ Static back overlay applied');
         }
         
@@ -2240,7 +2280,7 @@ export const handler: Handler = async (event) => {
           // Update bottom overlay glow for dual mode
           overlayBotGlow.material.updateGlowSource(bottomGlowTexture, new THREE.Color(0xffffff));
           overlayBotGlow.material.setGlowParams(
-            settings.overlayGlowIntensity || 3.2, // ENHANCED: Boost from 2.8 to 3.2 for better visibility
+            settings.overlayGlowIntensity || 4.0, // ULTRA-ENHANCED: Increased from 3.2 to 4.0 for bloom-like effect
             0.0, // Threshold always 0 as requested
             settings.overlayGlowSharpness || 0.7
           );
