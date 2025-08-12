@@ -169,7 +169,7 @@ export const handler: Handler = async (event) => {
       // ITERATIVE ENCODING: Try different CRF values until we get under target size
       let finalWebmBuffer: Buffer | null = null;
       let attempts = 0;
-      const maxAttempts = 10; // Reduced from 20 - smart CRF jumping should converge faster
+      const maxAttempts = 20; // Reduced from 20 - smart CRF jumping should converge faster
       const maxCrf = 50; // Maximum reasonable CRF for VP9
       
       while (attempts < maxAttempts && crf <= maxCrf) {
@@ -329,10 +329,11 @@ export const handler: Handler = async (event) => {
             crfJump = Math.min(8, Math.max(6, Math.floor(sizeRatio)));
           } else if (sizeRatio > 1.5) {
             // Quite large (1.5x+), jump by 5-2 CRF points
-            crfJump = Math.min(5, Math.max(2, Math.floor(sizeRatio)));
+            crfJump = Math.min(5, Math.max(3, Math.floor(sizeRatio)));
           } else if (sizeRatio > 1.2) {
             // Moderately large (1.2x+), jump by 2 CRF points
             crfJump = 2;
+
           }
           // else: close to target (< 1.2x), use default jump of 1
           
