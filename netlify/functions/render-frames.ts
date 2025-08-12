@@ -217,13 +217,13 @@ async function decodeVideoToSpritesheet(videoData: Buffer | string, isDataUrl: b
   console.log('📁 Created temp directory for video decode:', tmpDir);
   
   try {
-    // Spritesheet configuration (conservative for payload size)
-    const COLS = 10;
-    const ROWS = 6;
-    const FRAME_COUNT = COLS * ROWS; // 60 frames
-    const FPS = 20;
-    const FRAME_W = 100; // Small frames to keep payload under 5MB
-    const FRAME_H = 100;
+    // OPTIMIZED: Smaller spritesheet configuration to prevent Chrome timeout
+    const COLS = 8;
+    const ROWS = 4;
+    const FRAME_COUNT = COLS * ROWS; // 32 frames (reduced from 60)
+    const FPS = 15; // Reduced FPS for smoother processing
+    const FRAME_W = 64; // Much smaller frames to reduce memory usage
+    const FRAME_H = 64;
     
     // Write video data to temp file
     const videoPath = join(tmpDir, 'input.video');
@@ -732,6 +732,13 @@ export const handler: Handler = async (event) => {
     } else if (hasPreProcessedVideos) {
       segmentSize = 60; // Full render - videos are now safe spritesheets
       console.log(`✅ Pre-processed video spritesheets detected - using full ${segmentSize} frame rendering`);
+      
+      // CRITICAL: Additional safety check for large spritesheets
+      const hasLargeSpritesheet = uploadedFiles.some(f => f.data.length > 500 * 1024); // 500KB
+      if (hasLargeSpritesheet) {
+        segmentSize = 30; // Safer segmentation for large spritesheets
+        console.log(`⚠️ Large video spritesheet detected - reducing to ${segmentSize} frame segments for stability`);
+      }
     } else if (hasLargeAssets) {
       segmentSize = 45; // Moderate segmentation for large static assets
       console.log(`⚠️ Large static assets detected - using medium segments of ${segmentSize} frames`);
@@ -745,11 +752,25 @@ export const handler: Handler = async (event) => {
 
     console.log('✅ Using @sparticuz/chromium for serverless Chrome');
 
-    // Launch Chrome with @sparticuz/chromium
+    // Launch Chrome with @sparticuz/chromium (optimized for stability)
     browser = await puppeteer.launch({
       executablePath: await chromium.executablePath(),
-      args: chromium.args,
-      headless: 'shell'
+      args: [
+        ...chromium.args,
+        '--no-sandbox', // Essential for serverless
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage', // Overcome limited resource problems
+        '--disable-gpu', // Disable GPU hardware acceleration
+        '--single-process', // Run in single process mode
+        '--no-zygote', // Disable zygote process
+        '--memory-pressure-off', // Disable memory pressure notifications
+        '--max-old-space-size=512', // Limit V8 heap size
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding'
+      ],
+      headless: 'shell',
+      timeout: 15000 // Reduced browser launch timeout
     });
 
     console.log('✅ Chrome launched successfully');
@@ -778,8 +799,8 @@ export const handler: Handler = async (event) => {
     try {
       console.log('🎬 Starting browser page evaluation...');
       
-      // Set page evaluation timeout to prevent Chrome hanging
-      const pageTimeout = 25000; // 25 seconds (5s buffer before Lambda timeout)
+      // Set page evaluation timeout to prevent Chrome hanging (reduced for stability)
+      const pageTimeout = 20000; // 20 seconds (reduced from 25s to prevent Lambda timeout)
       console.log(`⏱️ Setting page evaluation timeout: ${pageTimeout}ms`);
       
       framesBase64 = await Promise.race([
