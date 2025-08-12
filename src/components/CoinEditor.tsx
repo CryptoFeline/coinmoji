@@ -1018,6 +1018,10 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       const isWebM = /\.webm$/i.test(url) || 
                      /data:video\/webm/i.test(url) ||
                      fileType === 'video/webm';
+                     
+      const isMP4 = /\.mp4$/i.test(url) || 
+                    /data:video\/mp4/i.test(url) ||
+                    fileType === 'video/mp4';
       
       if (isGif) {
         // Use proper GIF frame parsing
@@ -1063,8 +1067,9 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           }
         })();
 
-      } else if (isWebM) {
-        // Handle WebM as video texture
+      } else if (isWebM || isMP4) {
+        // Handle WebM and MP4 as video texture
+        console.log('🎥 Processing video:', isMP4 ? 'MP4' : 'WebM', 'URL:', url.substring(0, 50) + '...');
         const video = document.createElement('video');
         video.crossOrigin = 'anonymous';
         video.loop = true;

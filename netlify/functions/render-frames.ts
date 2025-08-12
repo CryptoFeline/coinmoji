@@ -173,18 +173,44 @@ async function decodeVideoToSpritesheet(videoData: Buffer | string, isDataUrl: b
   ];
   
   let ffmpegPath = '';
+  
+  // First try to find bundled FFmpeg binary
   for (const path of possibleFFmpegPaths) {
     try {
       await access(path);
       ffmpegPath = path;
-      console.log('✅ Found FFmpeg binary for video decoding:', ffmpegPath);
+      console.log('✅ Found bundled FFmpeg binary for video decoding:', ffmpegPath);
       break;
     } catch {}
   }
   
+  // If bundled binary not found, fall back to downloading to /tmp (matching make-webm.ts)
   if (!ffmpegPath) {
-    console.warn('⚠️ FFmpeg binary not found, skipping video decode');
-    return null;
+    console.log('📥 Bundled FFmpeg binary not found, downloading to /tmp...');
+    ffmpegPath = '/tmp/ffmpeg';
+    
+    try {
+      await access(ffmpegPath);
+      console.log('✅ FFmpeg already exists in /tmp');
+    } catch {
+      try {
+        console.log('📦 Downloading FFmpeg binary...');
+        const ffmpegUrl = 'https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-linux-x64';
+        
+        const response = await fetch(ffmpegUrl);
+        if (!response.ok) {
+          throw new Error(`Failed to download FFmpeg: ${response.status} ${response.statusText}`);
+        }
+        
+        const binaryBuffer = await response.arrayBuffer();
+        await writeFile(ffmpegPath, Buffer.from(binaryBuffer), { mode: 0o755 });
+        console.log('✅ FFmpeg binary downloaded and made executable');
+      } catch (downloadError) {
+        console.warn('⚠️ Failed to download FFmpeg binary:', downloadError);
+        console.warn('⚠️ Video decoding will be skipped');
+        return null;
+      }
+    }
   }
   
   const tmpDir = await mkdtemp(join(tmpdir(), 'video-decode-'));
@@ -1638,55 +1664,10 @@ export const handler: Handler = async (event) => {
       const processMP4 = async (url: string): Promise<{ texture: THREE.Texture, isAnimated: boolean }> => {
         console.log('🎥 Processing MP4 video for server-side rendering:', url.startsWith('data:') ? 'data URL' : 'external URL');
         
-        try {
-          // For server-side rendering, we'll treat MP4 as a static image fallback
-          // Since we can't play video in headless Chrome during frame capture,
-          // we'll create a placeholder texture
-          console.log('⚠️ MP4 detected - creating placeholder for server-side rendering');
-          
-          // Always create a placeholder for MP4 since browsers can't load MP4 as images
-          console.log('🎨 Creating MP4 placeholder texture...');
-          
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d')!;
-          canvas.width = 256;
-          canvas.height = 256;
-          
-          // Create a video-themed gradient placeholder
-          const gradient = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
-          gradient.addColorStop(0, '#3B82F6'); // Blue center
-          gradient.addColorStop(0.7, '#1E40AF'); // Darker blue
-          gradient.addColorStop(1, '#1E3A8A'); // Dark blue edge
-          ctx.fillStyle = gradient;
-          ctx.fillRect(0, 0, 256, 256);
-          
-          // Add play button symbol
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-          ctx.beginPath();
-          ctx.moveTo(96, 80);
-          ctx.lineTo(96, 176);
-          ctx.lineTo(176, 128);
-          ctx.closePath();
-          ctx.fill();
-          
-          // Add MP4 label
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-          ctx.font = 'bold 16px Arial';
-          ctx.textAlign = 'center';
-          ctx.fillText('MP4 Video', 128, 200);
-          
-          const texture = new THREE.CanvasTexture(canvas);
-          texture.colorSpace = THREE.SRGBColorSpace;
-          texture.flipY = true; // CanvasTexture uses flipY = true
-          texture.needsUpdate = true;
-          
-          console.log('✅ MP4 placeholder texture created successfully');
-          return { texture, isAnimated: false };
-          
-        } catch (error) {
-          console.error('❌ MP4 processing failed:', error);
-          throw new Error(`Failed to process MP4: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
+        // MP4 videos should have been preprocessed to spritesheets
+        // If we reach here, it means preprocessing failed
+        console.error('❌ MP4 video reached processMP4 - preprocessing should have converted it to spritesheet');
+        throw new Error('MP4 video preprocessing failed - video should have been converted to spritesheet format');
       };
 
       // Helper to detect if URL is a GIF or WebM (supports both URLs and data URIs)
