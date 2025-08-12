@@ -397,13 +397,13 @@ export const handler: Handler = async (event) => {
           
           if (sizeRatio > 2.5) {
             // Extremely large (2.5x+), jump by 10-8 CRF points
-            crfJump = Math.min(12, Math.max(8, Math.floor(sizeRatio * 2)));
+            crfJump = Math.min(15, Math.max(10, Math.floor(sizeRatio * 2)));
           } else if (sizeRatio > 1.8) {
             // Very large (1.8x+), jump by 6-4 CRF points
-            crfJump = Math.min(8, Math.max(4, Math.floor(sizeRatio * 2)));
+            crfJump = Math.min(10, Math.max(8, Math.floor(sizeRatio * 2)));
           } else if (sizeRatio > 1.3) {
             // Large (1.3x+), jump by 3-4 CRF points
-            crfJump = Math.min(5, Math.max(3, Math.floor(sizeRatio * 2)));
+            crfJump = Math.min(7, Math.max(5, Math.floor(sizeRatio * 2)));
           } else if (sizeRatio > 1.1) {
             // Slightly large (1.1x+), jump by 2 CRF points
             crfJump = 2;
