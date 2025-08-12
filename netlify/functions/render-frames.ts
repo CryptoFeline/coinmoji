@@ -2481,6 +2481,14 @@ export const handler: Handler = async (event) => {
     const nextStartFrame = startFrame + framesBase64.length;
     const isComplete = nextStartFrame >= request.exportSettings.frames;
 
+    console.log(`🔄 Segmentation info:`, {
+      startFrame,
+      framesRendered: framesBase64.length,
+      nextStartFrame,
+      totalFrames: request.exportSettings.frames,
+      isComplete
+    });
+
     return {
       statusCode: 200,
       headers: {

@@ -678,6 +678,8 @@ export class CoinExporter {
       // Update start frame for next segment
       startFrame = result.nextStartFrame;
       
+      console.log(`🔄 Loop check: startFrame=${startFrame}, frameCount=${frameCount}, shouldContinue=${startFrame !== null && startFrame < frameCount}`);
+      
     } while (startFrame !== null && startFrame < frameCount);
     
     console.log(`🎉 Segmented rendering complete: ${allFrames.length} total frames in ${segmentCount} segments`);

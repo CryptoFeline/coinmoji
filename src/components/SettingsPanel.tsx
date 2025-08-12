@@ -331,16 +331,16 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     setIsProcessingFile(prev => ({ ...prev, [type]: true }));
 
     // Enhanced format validation with specific error messages
-    const validTypes = /^(image|video)\/(jpeg|jpg|png|gif|webm)$/;
+    const validTypes = /^(image|video)\/(jpeg|jpg|png|gif|webm|mp4)$/;
     if (!file.type || !file.type.match(validTypes)) {
       const fileExtension = file.name.split('.').pop()?.toLowerCase();
-      let errorMessage = 'Please select a valid file (JPG, PNG, GIF, WebM)';
+      let errorMessage = 'Please select a valid file (JPG, PNG, GIF, WebM, MP4)';
       
       if (fileExtension) {
-        if (['jpg', 'jpeg', 'png', 'gif', 'webm'].includes(fileExtension)) {
+        if (['jpg', 'jpeg', 'png', 'gif', 'webm', 'mp4'].includes(fileExtension)) {
           errorMessage = `File appears to be ${fileExtension.toUpperCase()} but has invalid MIME type. Try re-saving the file.`;
         } else {
-          errorMessage = `${fileExtension.toUpperCase()} files are not supported. Please use JPG, PNG, GIF, or WebM.`;
+          errorMessage = `${fileExtension.toUpperCase()} files are not supported. Please use JPG, PNG, GIF, WebM, or MP4.`;
         }
       }
       
