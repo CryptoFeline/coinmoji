@@ -705,20 +705,36 @@ export const handler: Handler = async (event) => {
 
     // NEW: Adaptive segment sizing based on asset complexity
     const hasLargeAssets = uploadedFiles.some(f => f.data.length > 1024 * 1024); // 1MB+
+    
+    // CRITICAL FIX: Only check for GIFs since MP4s/WebMs are pre-converted to spritesheets
+    // Pre-processed videos (now spritesheets) are safe for full 60-frame rendering
     const hasAnimatedAssets = [
       processedSettings.bodyTextureUrl,
       processedSettings.overlayUrl,
       processedSettings.overlayUrl2
-    ].some(url => url && (isGifUrl(url) || isVideoUrl(url)));
+    ].some(url => url && isGifUrl(url)); // REMOVED: isVideoUrl(url) - videos are now spritesheets
+    
+    // Check if we have spritesheet metadata (indicates pre-processed video)
+    const hasPreProcessedVideos = !!(
+      (processedSettings as any).bodyTextureSpritesheet ||
+      (processedSettings as any).overlaySpritesheet ||
+      (processedSettings as any).overlaySpritesheet2
+    );
     
     // Reduce segment size for complex scenes to prevent timeouts
     let segmentSize = 60; // Default: render all frames
     if (hasLargeAssets && hasAnimatedAssets) {
-      segmentSize = 15; // Very conservative for large GIFs/videos
-      console.log(`⚠️ Large animated assets detected - using small segments of ${segmentSize} frames`);
-    } else if (hasLargeAssets || hasAnimatedAssets) {
-      segmentSize = 30; // Medium segments for moderate complexity
-      console.log(`⚠️ Complex assets detected - using medium segments of ${segmentSize} frames`);
+      segmentSize = 15; // Very conservative for large GIFs only
+      console.log(`⚠️ Large animated GIF assets detected - using small segments of ${segmentSize} frames`);
+    } else if (hasAnimatedAssets) {
+      segmentSize = 30; // Medium segments for GIFs only  
+      console.log(`⚠️ Animated GIF assets detected - using medium segments of ${segmentSize} frames`);
+    } else if (hasPreProcessedVideos) {
+      segmentSize = 60; // Full render - videos are now safe spritesheets
+      console.log(`✅ Pre-processed video spritesheets detected - using full ${segmentSize} frame rendering`);
+    } else if (hasLargeAssets) {
+      segmentSize = 45; // Moderate segmentation for large static assets
+      console.log(`⚠️ Large static assets detected - using medium segments of ${segmentSize} frames`);
     }
     
     // Calculate actual frame range for this segment
