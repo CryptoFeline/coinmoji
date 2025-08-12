@@ -677,6 +677,30 @@ export const handler: Handler = async (event) => {
       }
     }
 
+    // NEW: Adaptive segment sizing based on asset complexity
+    const hasLargeAssets = uploadedFiles.some(f => f.data.length > 1024 * 1024); // 1MB+
+    const hasAnimatedAssets = [
+      processedSettings.bodyTextureUrl,
+      processedSettings.overlayUrl,
+      processedSettings.overlayUrl2
+    ].some(url => url && (isGifUrl(url) || isVideoUrl(url)));
+    
+    // Reduce segment size for complex scenes to prevent timeouts
+    let segmentSize = 60; // Default: render all frames
+    if (hasLargeAssets && hasAnimatedAssets) {
+      segmentSize = 15; // Very conservative for large GIFs/videos
+      console.log(`⚠️ Large animated assets detected - using small segments of ${segmentSize} frames`);
+    } else if (hasLargeAssets || hasAnimatedAssets) {
+      segmentSize = 30; // Medium segments for moderate complexity
+      console.log(`⚠️ Complex assets detected - using medium segments of ${segmentSize} frames`);
+    }
+    
+    // Calculate actual frame range for this segment
+    const endFrame = Math.min(startFrame + segmentSize, request.exportSettings.frames);
+    const framesToRender = endFrame - startFrame;
+    
+    console.log(`🎬 This segment will render ${framesToRender} frames: ${startFrame} to ${endFrame - 1}`);
+
     console.log('✅ Using @sparticuz/chromium for serverless Chrome');
 
     // Launch Chrome with @sparticuz/chromium
@@ -717,7 +741,7 @@ export const handler: Handler = async (event) => {
       console.log(`⏱️ Setting page evaluation timeout: ${pageTimeout}ms`);
       
       framesBase64 = await Promise.race([
-        page.evaluate(async (renderRequest, startFrame) => {
+        page.evaluate(async (renderRequest, startFrame, endFrame) => {
       console.log('⏱️ Starting Three.js setup with performance monitoring...');
       const setupStart = Date.now();
       
@@ -2245,15 +2269,15 @@ export const handler: Handler = async (event) => {
       const frames: string[] = [];
       const { exportSettings } = renderRequest;
       
-      console.log(`🎬 Starting segmented frame capture: frames ${startFrame} to ${exportSettings.frames} (${exportSettings.frames - startFrame} frames to render)`);
+      console.log(`🎬 Starting segmented frame capture: frames ${startFrame} to ${endFrame} (${endFrame - startFrame} frames to render)`);
       const startTime = Date.now();
       
-      for (let i = startFrame; i < exportSettings.frames; i++) {
+      for (let i = startFrame; i < endFrame; i++) {
         // Check for timeout every 10 frames to prevent Lambda timeout (only after rendering some frames)
         if (i > startFrame && (i - startFrame) % 10 === 0) {
           const elapsed = Date.now() - startTime;
-          if (elapsed > 25000) { // 25s timeout (5s buffer before 30s Lambda limit)
-            console.warn(`⚠️ Approaching timeout at frame ${i}/${exportSettings.frames}, stopping capture`);
+          if (elapsed > 22000) { // 22s timeout (8s buffer before 30s Lambda limit) - reduced for smaller segments
+            console.warn(`⚠️ Approaching timeout at frame ${i}/${endFrame}, stopping capture`);
             break;
           }
         }
@@ -2437,7 +2461,7 @@ export const handler: Handler = async (event) => {
       console.log(`✅ Server-side frame capture complete: ${frames.length} frames in ${totalTime}ms`);
       return frames;
 
-    }, { ...request, settings: processedSettings }, startFrame),
+    }, { ...request, settings: processedSettings }, startFrame, endFrame),
     
     // Timeout promise to prevent hanging
     new Promise<never>((_, reject) => 

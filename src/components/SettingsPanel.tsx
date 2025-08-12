@@ -998,7 +998,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                     <input
                       ref={bodyTextureFileRef}
                       type="file"
-                      accept="image/*,video/webm"
+                      accept="image/*,video/webm,video/mp4"
                       onChange={(e) => validateAndSelectFile(e, 'bodyTexture')}
                       disabled={isProcessingFile.bodyTexture}
                       className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 disabled:opacity-50"
@@ -1202,7 +1202,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                     <input
                       ref={overlayFileRef}
                       type="file"
-                      accept="image/*,video/webm"
+                      accept="image/*,video/webm,video/mp4"
                       onChange={(e) => validateAndSelectFile(e, 'overlay')}
                       disabled={isProcessingFile.overlay}
                       className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 disabled:opacity-50"
@@ -1275,7 +1275,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                       <input
                         ref={overlayFileRef2}
                         type="file"
-                        accept="image/*,video/webm"
+                        accept="image/*,video/webm,video/mp4"
                         onChange={(e) => validateAndSelectFile(e, 'overlay2')}
                         disabled={isProcessingFile.overlay2}
                         className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 disabled:opacity-50"
