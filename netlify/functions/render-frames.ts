@@ -1770,7 +1770,7 @@ export const handler: Handler = async (event) => {
       };
 
       // Helper function to load images (URLs and data URLs - local files pre-converted)
-      const loadImageTexture = async (urlOrDataUrl: string): Promise<THREE.Texture> => {
+      const loadImageTexture = async (urlOrDataUrl: string, brightnessBoost: number = 1.0): Promise<THREE.Texture> => {
         const img = document.createElement('img');
         img.crossOrigin = 'anonymous';
         img.src = urlOrDataUrl;
@@ -1785,6 +1785,40 @@ export const handler: Handler = async (event) => {
           };
         });
         
+        // IMPROVED: Apply brightness boost for overlays
+        if (brightnessBoost !== 1.0) {
+          console.log(`✨ Applying brightness boost: ${brightnessBoost}x for better overlay visibility`);
+          
+          // Create canvas to apply brightness adjustment
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d')!;
+          canvas.width = img.width;
+          canvas.height = img.height;
+          
+          // Draw original image
+          ctx.drawImage(img, 0, 0);
+          
+          // Apply brightness adjustment
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const data = imageData.data;
+          
+          for (let i = 0; i < data.length; i += 4) {
+            // Boost RGB channels (preserve alpha)
+            data[i] = Math.min(255, data[i] * brightnessBoost);     // Red
+            data[i + 1] = Math.min(255, data[i + 1] * brightnessBoost); // Green
+            data[i + 2] = Math.min(255, data[i + 2] * brightnessBoost); // Blue
+            // data[i + 3] = alpha (unchanged)
+          }
+          
+          ctx.putImageData(imageData, 0, 0);
+          
+          // Create texture from brightened canvas
+          const texture = new THREE.CanvasTexture(canvas);
+          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.flipY = false; // FIXED: Match client-side flipY = false for static images
+          return texture;
+        }
+        
         const texture = new THREE.Texture(img);
         texture.needsUpdate = true;
         texture.colorSpace = THREE.SRGBColorSpace;
@@ -1795,8 +1829,11 @@ export const handler: Handler = async (event) => {
       // 🚀 NEW: Helper function to create animated spritesheet textures for videos
       const createSpritesheetTexture = async (spritesheetUrl: string, metadata: {
         cols: number; rows: number; frameWidth: number; frameHeight: number; frameCount: number; fps: number;
-      }): Promise<THREE.Texture | null> => {
+      }, brightnessBoost: number = 1.0): Promise<THREE.Texture | null> => {
         console.log('🎞️ Creating spritesheet texture:', metadata);
+        if (brightnessBoost !== 1.0) {
+          console.log(`✨ Applying brightness boost: ${brightnessBoost}x for video overlay`);
+        }
         
         try {
           // Load the spritesheet image
@@ -1857,6 +1894,22 @@ export const handler: Handler = async (event) => {
                 0, 0, canvas.width, canvas.height
               );
               
+              // IMPROVED: Apply brightness boost for overlays
+              if (brightnessBoost !== 1.0) {
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const data = imageData.data;
+                
+                for (let i = 0; i < data.length; i += 4) {
+                  // Boost RGB channels (preserve alpha)
+                  data[i] = Math.min(255, data[i] * brightnessBoost);     // Red
+                  data[i + 1] = Math.min(255, data[i + 1] * brightnessBoost); // Green
+                  data[i + 2] = Math.min(255, data[i + 2] * brightnessBoost); // Blue
+                  // data[i + 3] = alpha (unchanged)
+                }
+                
+                ctx.putImageData(imageData, 0, 0);
+              }
+              
               texture.needsUpdate = true;
             }
           };
@@ -1890,14 +1943,15 @@ export const handler: Handler = async (event) => {
           
           overlayTexture = await createSpritesheetTexture(
             settings.overlayUrl, // This is now the spritesheet data URL
-            spritesheetData
+            spritesheetData,
+            1.4 // IMPROVED: 40% brightness boost for video overlays
           );
           
           if (overlayTexture) {
             console.log('✅ Video spritesheet overlay applied');
           } else {
             console.warn('⚠️ Video spritesheet overlay processing failed, using static fallback');
-            overlayTexture = await loadImageTexture(settings.overlayUrl);
+            overlayTexture = await loadImageTexture(settings.overlayUrl, 1.4); // IMPROVED: 40% brightness boost for overlays
           }
         } else if (textureType === 'gif') {
           // Process GIF with gifuct-js (identical to client-side)
@@ -1922,7 +1976,7 @@ export const handler: Handler = async (event) => {
           }
         } else {
           // Process static image (URLs or local files)
-          overlayTexture = await loadImageTexture(settings.overlayUrl);
+          overlayTexture = await loadImageTexture(settings.overlayUrl, 1.4); // IMPROVED: 40% brightness boost for overlays
           console.log('✅ Static overlay applied');
         }
         
@@ -2068,14 +2122,15 @@ export const handler: Handler = async (event) => {
           
           overlayTexture = await createSpritesheetTexture(
             settings.overlayUrl2, // This is now the spritesheet data URL
-            spritesheetData
+            spritesheetData,
+            1.4 // IMPROVED: 40% brightness boost for video overlays
           );
           
           if (overlayTexture) {
             console.log('✅ Video spritesheet back overlay applied');
           } else {
             console.warn('⚠️ Video spritesheet back overlay processing failed, using static fallback');
-            overlayTexture = await loadImageTexture(settings.overlayUrl2);
+            overlayTexture = await loadImageTexture(settings.overlayUrl2, 1.4); // IMPROVED: 40% brightness boost for overlays
           }
         } else if (textureType === 'gif') {
           // Process GIF with gifuct-js (identical to client-side)
@@ -2100,7 +2155,7 @@ export const handler: Handler = async (event) => {
           }
         } else {
           // Process static image (URLs or local files)
-          overlayTexture = await loadImageTexture(settings.overlayUrl2);
+          overlayTexture = await loadImageTexture(settings.overlayUrl2, 1.4); // IMPROVED: 40% brightness boost for overlays
           console.log('✅ Static back overlay applied');
         }
         

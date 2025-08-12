@@ -190,13 +190,16 @@ export const handler: Handler = async (event) => {
           '-bufsize', `${targetBitrate * 2}k`, // Buffer size for rate control
           '-auto-alt-ref', '0',        // Preserve alpha channel
           '-lag-in-frames', '0',       // No lookahead for alpha transparency
-          '-deadline', 'good',         // Good quality with reasonable speed
-          '-cpu-used', '1',            // Faster encoding while maintaining quality
+          '-deadline', 'best',         // IMPROVED: Best quality (slower but better)
+          '-cpu-used', '0',            // IMPROVED: Highest quality encoding (slower)
           '-row-mt', '1',              // Safe multi-threading
-          '-threads', '1',             // Single thread for predictable memory
+          '-threads', '2',             // IMPROVED: Allow 2 threads for better quality
           '-tile-columns', '0',        // Disable tiling for small content
           '-frame-parallel', '0',      // Disable frame parallelism for alpha
           '-aq-mode', '3',             // Maximum adaptive quantization
+          '-arnr-maxframes', '7',      // IMPROVED: Noise reduction for cleaner output
+          '-arnr-strength', '5',       // IMPROVED: Strong noise reduction
+          '-sharpness', '2',           // IMPROVED: Increase sharpness for metallic surfaces
           '-tune-content', 'default',  // Default tuning for mixed content
           '-g', String(request.frames.length), // Keyframe interval = full loop
           '-pass', '1',                // Two-pass encoding for better quality
@@ -251,13 +254,16 @@ export const handler: Handler = async (event) => {
           '-bufsize', `${targetBitrate * 2}k`,
           '-auto-alt-ref', '0',
           '-lag-in-frames', '0',       // No lookahead for alpha transparency
-          '-deadline', 'good',         // Good quality with reasonable speed
-          '-cpu-used', '1',            // Faster encoding while maintaining quality
+          '-deadline', 'best',         // IMPROVED: Best quality (slower but better)
+          '-cpu-used', '0',            // IMPROVED: Highest quality encoding (slower)
           '-row-mt', '1',
-          '-threads', '1',
+          '-threads', '2',             // IMPROVED: Allow 2 threads for better quality
           '-tile-columns', '0',
           '-frame-parallel', '0',      // Disable frame parallelism for alpha
           '-aq-mode', '3',             // Maximum adaptive quantization
+          '-arnr-maxframes', '7',      // IMPROVED: Noise reduction for cleaner output
+          '-arnr-strength', '5',       // IMPROVED: Strong noise reduction
+          '-sharpness', '2',           // IMPROVED: Increase sharpness for metallic surfaces
           '-tune-content', 'default',  // Default tuning for mixed content
           '-g', String(request.frames.length),
           '-pass', '2',                // Second pass
