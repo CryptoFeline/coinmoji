@@ -2183,7 +2183,7 @@ export const handler: Handler = async (event) => {
             bottomTexture.colorSpace = THREE.SRGBColorSpace;
             bottomTexture.flipY = false; // FIXED: Dual mode back face uses flipY = false
             bottomTexture.wrapS = THREE.RepeatWrapping;
-            bottomTexture.repeat.x = -1; // FIXED: Add horizontal flip for dual mode back face
+            bottomTexture.repeat.x = 1; // FIXED: Add horizontal flip for dual mode back face
             bottomTexture.needsUpdate = true;
             // CRITICAL: Share the EXACT SAME userData object for synchronized animation
             bottomTexture.userData = overlayTexture.userData;
@@ -2193,7 +2193,7 @@ export const handler: Handler = async (event) => {
             bottomTexture = overlayTexture.clone();
             bottomTexture.flipY = false; // Keep flipY = false for dual mode
             bottomTexture.wrapS = THREE.RepeatWrapping;
-            bottomTexture.repeat.x = -1; // FIXED: Add horizontal flip for dual mode back face
+            bottomTexture.repeat.x = 1; // FIXED: Add horizontal flip for dual mode back face
             bottomTexture.needsUpdate = true;
             console.log('✅ Back overlay (static) applied to BOTTOM face with horizontal flip');
           }
