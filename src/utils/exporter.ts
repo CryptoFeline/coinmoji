@@ -447,144 +447,144 @@ export class CoinExporter {
   private async renderFramesOnServerWithStreaming(coinSettings: any, exportSettings: ExportSettings): Promise<string[]> {
     console.log('🎬 Server-side rendering with direct binary streaming...');
     
-    // Declare variables in function scope so they're accessible in catch block
-    let fileIndex = 0;
-    let totalUploadSize = 0;
+    // Calculate frames based on settings
+    const frameCount = Math.round(exportSettings.fps * exportSettings.duration);
     
-    try {
-      // Create FormData for multipart streaming with error handling
-      console.log('📦 Creating FormData for multipart upload...');
-      const formData = new FormData();
-      
-      // Add settings as JSON (small, no base64 needed)
-      const serverSettings = { ...coinSettings };
-      
-      // Handle uploaded files: add them as binary blobs, not base64
-      // Variables already declared in function scope above
-      
-      if (coinSettings.bodyTextureMode === 'upload' && coinSettings.bodyTextureFile) {
-        console.log(`📎 Adding body texture file: ${coinSettings.bodyTextureFile.name} (${coinSettings.bodyTextureFile.size} bytes)`);
-        formData.append(`file_${fileIndex}`, coinSettings.bodyTextureFile);
-        serverSettings.bodyTextureFileIndex = fileIndex;
-        delete serverSettings.bodyTextureBase64; // Remove base64 data
-        totalUploadSize += coinSettings.bodyTextureFile.size;
-        fileIndex++;
-        console.log('✅ Body texture file added to FormData successfully');
-      }
-      
-      if (coinSettings.overlayMode === 'upload' && coinSettings.overlayFile) {
-        console.log(`📎 Adding overlay file: ${coinSettings.overlayFile.name} (${coinSettings.overlayFile.size} bytes)`);
-        formData.append(`file_${fileIndex}`, coinSettings.overlayFile);
-        serverSettings.overlayFileIndex = fileIndex;
-        delete serverSettings.overlayBase64; // Remove base64 data
-        totalUploadSize += coinSettings.overlayFile.size;
-        fileIndex++;
-        console.log('✅ Overlay file added to FormData successfully');
-      }
-      
-      if (coinSettings.overlayMode2 === 'upload' && coinSettings.overlayFile2) {
-        console.log(`📎 Adding overlay2 file: ${coinSettings.overlayFile2.name} (${coinSettings.overlayFile2.size} bytes)`);
-        formData.append(`file_${fileIndex}`, coinSettings.overlayFile2);
-        serverSettings.overlayFileIndex2 = fileIndex;
-        delete serverSettings.overlayBase64_2; // Remove base64 data
-        totalUploadSize += coinSettings.overlayFile2.size;
-        fileIndex++;
-        console.log('✅ Overlay2 file added to FormData successfully');
-      }
-      
-      // Add settings and export settings as JSON fields
-      const settingsJson = JSON.stringify(serverSettings);
-      const exportSettingsJson = JSON.stringify({
-        fps: exportSettings.fps,
-        duration: exportSettings.duration,
-        frames: Math.round(exportSettings.fps * exportSettings.duration),
-        qualityMode: exportSettings.qualityMode || 'balanced'
-      });
-      
-      formData.append('settings', settingsJson);
-      formData.append('exportSettings', exportSettingsJson);
-      
-      console.log(`🚀 FormData prepared: ${fileIndex} files, ${(totalUploadSize/1024/1024).toFixed(1)}MB total`);
-      console.log('📋 Settings being sent to server:', {
-        bodyTextureMode: serverSettings.bodyTextureMode,
-        bodyTextureMapping: serverSettings.bodyTextureMapping,
-        bodyTextureFileIndex: serverSettings.bodyTextureFileIndex,
-        bodyGifSpeed: serverSettings.bodyGifSpeed,
-        overlayMode: serverSettings.overlayMode,
-        overlayMode2: serverSettings.overlayMode2,
-        overlayFileIndex: serverSettings.overlayFileIndex,
-        overlayFileIndex2: serverSettings.overlayFileIndex2,
-        gifAnimationSpeed: serverSettings.gifAnimationSpeed,
-        overlayGifSpeed: serverSettings.overlayGifSpeed,
-        hasUploadedFiles: fileIndex > 0
-      });
-      console.log('⏱️ Starting server request with extended timeout for large files...');
+    // 🚀 NEW: Segmented rendering loop for binary streaming
+    let startFrame = 0;
+    const allFrames: string[] = [];
+    let segmentCount = 0;
     
-      // Create AbortController for timeout handling
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        console.log('⏰ Request timeout after 60s');
-        controller.abort();
-      }, 60000); // 60 second timeout
-      
-      const response = await fetch(`${window.location.origin}/.netlify/functions/render-frames`, {
-        method: 'POST',
-        body: formData, // No Content-Type header - let browser set multipart boundary
-        signal: controller.signal, // Add abort signal
-      });
-      
-      clearTimeout(timeoutId); // Clear timeout on success
+    console.log(`🎬 Starting segmented binary streaming: ${frameCount} total frames`);
     
-    if (!response.ok) {
-      let errorResult;
+    do {
+      segmentCount++;
+      console.log(`📍 Streaming segment ${segmentCount}, starting from frame ${startFrame}`);
+      
+      // Declare variables in segment scope
+      let fileIndex = 0;
+      let totalUploadSize = 0;
+      
       try {
-        errorResult = await response.json();
-      } catch {
-        // If JSON parsing fails, get raw text
-        const errorText = await response.text();
-        throw new Error(`Server rendering failed (${response.status}): ${errorText}`);
-      }
-      throw new Error(`Server rendering failed: ${errorResult.error || response.statusText}`);
-    }
-    
-    const result = await response.json();
-    
-    if (!result.success || !result.frames) {
-      throw new Error(result.error || 'Server response missing frames');
-    }
-    
-    console.log('✅ Server-side binary streaming successful:', {
-      frames_count: result.frames_count,
-      environment: result.rendering_environment,
-      files_streamed: fileIndex,
-      first_frame_length: result.frames[0]?.length,
-      has_all_frames: result.frames.length === result.frames_count
-    });
-    
-    console.log('🎞️ Starting client-side frame processing...');
-
-    return result.frames;
-    
-    } catch (error) {
-      console.error('❌ Server streaming failed:', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        errorType: error instanceof Error ? error.constructor.name : typeof error,
-        totalUploadSize: totalUploadSize ? `${(totalUploadSize/1024/1024).toFixed(1)}MB` : 'unknown',
-        fileCount: fileIndex
-      });
+        // Create FormData for multipart streaming with error handling
+        console.log('📦 Creating FormData for multipart upload...');
+        const formData = new FormData();
+        
+        // Add settings as JSON (small, no base64 needed)
+        const serverSettings = { ...coinSettings };
+        
+        // Handle uploaded files: add them as binary blobs, not base64
+        if (coinSettings.bodyTextureMode === 'upload' && coinSettings.bodyTextureFile) {
+          console.log(`📎 Adding body texture file: ${coinSettings.bodyTextureFile.name} (${coinSettings.bodyTextureFile.size} bytes)`);
+          formData.append(`file_${fileIndex}`, coinSettings.bodyTextureFile);
+          serverSettings.bodyTextureFileIndex = fileIndex;
+          delete serverSettings.bodyTextureBase64; // Remove base64 data
+          totalUploadSize += coinSettings.bodyTextureFile.size;
+          fileIndex++;
+          console.log('✅ Body texture file added to FormData successfully');
+        }
+        
+        if (coinSettings.overlayMode === 'upload' && coinSettings.overlayFile) {
+          console.log(`📎 Adding overlay file: ${coinSettings.overlayFile.name} (${coinSettings.overlayFile.size} bytes)`);
+          formData.append(`file_${fileIndex}`, coinSettings.overlayFile);
+          serverSettings.overlayFileIndex = fileIndex;
+          delete serverSettings.overlayBase64; // Remove base64 data
+          totalUploadSize += coinSettings.overlayFile.size;
+          fileIndex++;
+          console.log('✅ Overlay file added to FormData successfully');
+        }
+        
+        if (coinSettings.overlayMode2 === 'upload' && coinSettings.overlayFile2) {
+          console.log(`📎 Adding overlay2 file: ${coinSettings.overlayFile2.name} (${coinSettings.overlayFile2.size} bytes)`);
+          formData.append(`file_${fileIndex}`, coinSettings.overlayFile2);
+          serverSettings.overlayFileIndex2 = fileIndex;
+          delete serverSettings.overlayBase64_2; // Remove base64 data
+          totalUploadSize += coinSettings.overlayFile2.size;
+          fileIndex++;
+          console.log('✅ Overlay2 file added to FormData successfully');
+        }
+        
+        // Add settings and export settings as JSON fields (with segmentation)
+        const settingsJson = JSON.stringify(serverSettings);
+        const exportSettingsJson = JSON.stringify({
+          fps: exportSettings.fps,
+          duration: exportSettings.duration,
+          frames: frameCount,
+          qualityMode: exportSettings.qualityMode || 'balanced',
+          startFrame: startFrame // NEW: Pass start frame for segmentation
+        });
+        
+        formData.append('settings', settingsJson);
+        formData.append('exportSettings', exportSettingsJson);
+        
+        console.log(`🚀 FormData prepared for segment ${segmentCount}: ${fileIndex} files, ${(totalUploadSize/1024/1024).toFixed(1)}MB total`);
+        console.log('⏱️ Starting server request with extended timeout for large files...');
       
-      // Re-throw with more context
-      if (error instanceof Error) {
-        if (error.message.includes('Body is disturbed') || error.message.includes('locked')) {
-          throw new Error(`Large file upload interrupted (${(totalUploadSize/1024/1024).toFixed(1)}MB). This can happen with slow connections. Please try a smaller file or check your internet connection.`);
+        // Create AbortController for timeout handling
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+          console.log('⏰ Request timeout after 60s');
+          controller.abort();
+        }, 60000); // 60 second timeout
+        
+        const response = await fetch(`${window.location.origin}/.netlify/functions/render-frames`, {
+          method: 'POST',
+          body: formData, // No Content-Type header - let browser set multipart boundary
+          signal: controller.signal, // Add abort signal
+        });
+        
+        clearTimeout(timeoutId); // Clear timeout on success
+      
+        if (!response.ok) {
+          let errorResult;
+          try {
+            errorResult = await response.json();
+          } catch {
+            // If JSON parsing fails, get raw text
+            const errorText = await response.text();
+            throw new Error(`Server rendering failed (${response.status}): ${errorText}`);
+          }
+          throw new Error(`Server rendering failed: ${errorResult.error || response.statusText}`);
         }
-        if (error.name === 'AbortError') {
-          throw new Error(`Upload timeout after 60s. File too large (${(totalUploadSize/1024/1024).toFixed(1)}MB) or connection too slow.`);
+        
+        const result = await response.json();
+        
+        if (!result.success || !result.frames) {
+          throw new Error(result.error || 'Server response missing frames');
         }
-        throw new Error(`Server request failed: ${error.message}`);
+        
+        console.log(`✅ Segment ${segmentCount} complete:`, {
+          frames_rendered: result.frames_count,
+          total_frames: result.total_frames,
+          current_start_frame: result.current_start_frame,
+          nextStartFrame: result.nextStartFrame,
+          is_complete: result.is_complete,
+          environment: result.rendering_environment
+        });
+        
+        // Add frames from this segment
+        allFrames.push(...result.frames);
+        
+        // Update start frame for next segment
+        startFrame = result.nextStartFrame;
+        
+        console.log(`🔄 Loop check: startFrame=${startFrame}, frameCount=${frameCount}, shouldContinue=${startFrame !== null && startFrame < frameCount}`);
+        
+      } catch (error) {
+        console.error('❌ Server streaming segment failed:', {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          segment: segmentCount,
+          startFrame: startFrame,
+          totalUploadSize: totalUploadSize ? `${(totalUploadSize/1024/1024).toFixed(1)}MB` : 'unknown',
+          fileCount: fileIndex
+        });
+        throw error;
       }
-      throw error;
-    }
+      
+    } while (startFrame !== null && startFrame < frameCount);
+    
+    console.log(`✅ All segments complete! Total frames rendered: ${allFrames.length}`);
+    return allFrames;
   }
 
   // Original method with base64 encoding (fallback for URLs)
@@ -871,7 +871,7 @@ export class CoinExporter {
       
       const payload = {
         frames: framesBase64,
-        framerate: Math.round(frames.length / settings.duration),
+        framerate: settings.fps, // Use explicit FPS from settings, not calculated from frame count
         duration: settings.duration
       };
       
