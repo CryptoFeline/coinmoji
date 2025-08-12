@@ -1634,6 +1634,61 @@ export const handler: Handler = async (event) => {
         }
       };
 
+      // Helper function to process MP4 videos server-side (matching client implementation)
+      const processMP4 = async (url: string): Promise<{ texture: THREE.Texture, isAnimated: boolean }> => {
+        console.log('🎥 Processing MP4 video for server-side rendering:', url.startsWith('data:') ? 'data URL' : 'external URL');
+        
+        try {
+          // For server-side rendering, we'll treat MP4 as a static image fallback
+          // Since we can't play video in headless Chrome during frame capture,
+          // we'll create a placeholder texture
+          console.log('⚠️ MP4 detected - creating placeholder for server-side rendering');
+          
+          // Always create a placeholder for MP4 since browsers can't load MP4 as images
+          console.log('🎨 Creating MP4 placeholder texture...');
+          
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d')!;
+          canvas.width = 256;
+          canvas.height = 256;
+          
+          // Create a video-themed gradient placeholder
+          const gradient = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+          gradient.addColorStop(0, '#3B82F6'); // Blue center
+          gradient.addColorStop(0.7, '#1E40AF'); // Darker blue
+          gradient.addColorStop(1, '#1E3A8A'); // Dark blue edge
+          ctx.fillStyle = gradient;
+          ctx.fillRect(0, 0, 256, 256);
+          
+          // Add play button symbol
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+          ctx.beginPath();
+          ctx.moveTo(96, 80);
+          ctx.lineTo(96, 176);
+          ctx.lineTo(176, 128);
+          ctx.closePath();
+          ctx.fill();
+          
+          // Add MP4 label
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+          ctx.font = 'bold 16px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText('MP4 Video', 128, 200);
+          
+          const texture = new THREE.CanvasTexture(canvas);
+          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.flipY = true; // CanvasTexture uses flipY = true
+          texture.needsUpdate = true;
+          
+          console.log('✅ MP4 placeholder texture created successfully');
+          return { texture, isAnimated: false };
+          
+        } catch (error) {
+          console.error('❌ MP4 processing failed:', error);
+          throw new Error(`Failed to process MP4: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      };
+
       // Helper to detect if URL is a GIF or WebM (supports both URLs and data URIs)
       const isGifUrl = (url: string): boolean => {
         return /\.gif$/i.test(url) || 
@@ -1647,10 +1702,21 @@ export const handler: Handler = async (event) => {
         // REMOVED: || url.includes('webm') - this was too broad and caught static images
       };
 
+      const isMP4Url = (url: string): boolean => {
+        return /\.mp4$/i.test(url) || 
+               /data:video\/mp4/i.test(url);
+      };
+
+      const isVideoUrl = (url: string): boolean => {
+        return isWebMUrl(url) || isMP4Url(url);
+      };
+
       // Enhanced texture type detection that also considers MIME types
-      const detectTextureType = (url: string): 'gif' | 'webm' | 'static' => {
+      const detectTextureType = (url: string): 'gif' | 'webm' | 'mp4' | 'video' | 'static' => {
         if (isGifUrl(url)) return 'gif';
         if (isWebMUrl(url)) return 'webm';
+        if (isMP4Url(url)) return 'mp4';
+        if (isVideoUrl(url)) return 'video'; // Generic video fallback
         return 'static';
       };
 
@@ -1826,6 +1892,13 @@ export const handler: Handler = async (event) => {
             overlayTexture = webmResult.texture;
             console.log('✅ WebM overlay applied with fallback');
           }
+        } else if (textureType === 'mp4') {
+          // Process MP4 video (with fallback handling)
+          const mp4Result = await processMP4(settings.overlayUrl);
+          if (mp4Result && mp4Result.texture) {
+            overlayTexture = mp4Result.texture;
+            console.log('✅ MP4 overlay applied with fallback');
+          }
         } else {
           // Process static image (URLs or local files)
           overlayTexture = await loadImageTexture(settings.overlayUrl);
@@ -1997,6 +2070,13 @@ export const handler: Handler = async (event) => {
             overlayTexture = webmResult.texture;
             console.log('✅ WebM back overlay applied with fallback');
           }
+        } else if (textureType === 'mp4') {
+          // Process MP4 video (with fallback handling)
+          const mp4Result = await processMP4(settings.overlayUrl2);
+          if (mp4Result && mp4Result.texture) {
+            overlayTexture = mp4Result.texture;
+            console.log('✅ MP4 back overlay applied with fallback');
+          }
         } else {
           // Process static image (URLs or local files)
           overlayTexture = await loadImageTexture(settings.overlayUrl2);
@@ -2148,6 +2228,16 @@ export const handler: Handler = async (event) => {
               console.log('✅ WebM body texture applied with fallback');
             } else {
               console.warn('⚠️ WebM processing returned null result');
+            }
+          } else if (textureType === 'mp4') {
+            // Process MP4 body texture (with fallback handling)
+            console.log('🎥 Processing MP4 body texture...');
+            const mp4Result = await processMP4(settings.bodyTextureUrl);
+            if (mp4Result && mp4Result.texture) {
+              bodyTexture = mp4Result.texture;
+              console.log('✅ MP4 body texture applied with fallback');
+            } else {
+              console.warn('⚠️ MP4 processing returned null result');
             }
           } else {
             // Process static body texture (URLs or local files)
