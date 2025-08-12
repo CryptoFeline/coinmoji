@@ -735,11 +735,12 @@ export const handler: Handler = async (event) => {
       segmentSize = 60; // Full render - videos are now safe spritesheets
       console.log(`✅ Pre-processed video spritesheets detected - using full ${segmentSize} frame rendering`);
       
-      // CRITICAL: Additional safety check for large spritesheets
+      // OPTIMIZED: Use 20-frame segments for high-quality spritesheets to ensure full 360° rotation
+      // This allows 3 segments of 20 frames each = 60 frames total = complete 360° spin
       const hasLargeSpritesheet = uploadedFiles.some(f => f.data.length > 800 * 1024); // 800KB threshold for 100x100 frames
       if (hasLargeSpritesheet) {
-        segmentSize = 45; // Moderate segmentation for large but high-quality spritesheets
-        console.log(`⚠️ Large video spritesheet detected - reducing to ${segmentSize} frame segments for stability`);
+        segmentSize = 20; // Optimized: 20-frame segments for full 360° (3 segments = 60 frames)
+        console.log(`🎯 Large video spritesheet detected - using ${segmentSize} frame segments for full 360° rotation (3 segments total)`);
       }
     } else if (hasLargeAssets) {
       segmentSize = 45; // Moderate segmentation for large static assets
