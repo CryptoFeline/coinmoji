@@ -169,12 +169,12 @@ export const handler: Handler = async (event) => {
       // ITERATIVE ENCODING: Try different CRF values until we get under target size
       let finalWebmBuffer: Buffer | null = null;
       let attempts = 0;
-      const maxAttempts = 20; // Prevent infinite loops
+      const maxAttempts = 10; // Reduced from 20 - smart CRF jumping should converge faster
       const maxCrf = 35; // Maximum reasonable CRF for VP9
       
       while (attempts < maxAttempts && crf <= maxCrf) {
         attempts++;
-        console.log(`🔄 Encoding attempt ${attempts}/${maxAttempts} with CRF=${crf} (target: ${(targetFileSize/1024).toFixed(1)}KB)`);
+        console.log(`🔄 Smart encoding attempt ${attempts}/${maxAttempts} with CRF=${crf} (target: ${(targetFileSize/1024).toFixed(1)}KB)`);
 
         // Prepare OPTIMIZED FFmpeg arguments for VP9 with alpha
         const outputPath = join(tmpDir, `out_crf${crf}.webm`);
@@ -320,8 +320,25 @@ export const handler: Handler = async (event) => {
           finalWebmBuffer = webmBuffer;
           break;
         } else {
-          console.log(`📈 File too large (${fileSizeKB.toFixed(1)}KB > ${targetSizeKB.toFixed(1)}KB), increasing CRF to ${crf + 1} and retrying...`);
-          crf += 1; // Increase CRF for more compression
+          // 🚀 SMART CRF ADJUSTMENT: Calculate optimal jump based on size difference
+          const sizeRatio = fileSizeKB / targetSizeKB; // How much larger we are
+          let crfJump = 1; // Default increment
+          
+          if (sizeRatio > 2.0) {
+            // Way too large (2x+), jump by 4-6 CRF points
+            crfJump = Math.min(6, Math.max(4, Math.floor(sizeRatio)));
+          } else if (sizeRatio > 1.5) {
+            // Quite large (1.5x+), jump by 2-3 CRF points
+            crfJump = Math.min(3, Math.max(2, Math.floor(sizeRatio)));
+          } else if (sizeRatio > 1.2) {
+            // Moderately large (1.2x+), jump by 2 CRF points
+            crfJump = 2;
+          }
+          // else: close to target (< 1.2x), use default jump of 1
+          
+          const newCrf = crf + crfJump;
+          console.log(`📈 File too large (${fileSizeKB.toFixed(1)}KB > ${targetSizeKB.toFixed(1)}KB), size ratio: ${sizeRatio.toFixed(2)}x, jumping CRF from ${crf} to ${newCrf} (+${crfJump}) for faster convergence...`);
+          crf = newCrf;
         }
       }
 
