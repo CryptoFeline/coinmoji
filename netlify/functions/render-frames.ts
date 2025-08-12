@@ -1800,25 +1800,25 @@ export const handler: Handler = async (event) => {
           // 🔥 STEP 3: Gentle bloom only for very bright pixels (increased threshold)
           const brightness = (newR + newG + newB) / 3;
           if (brightness > 200) { // Increased threshold from 180 to 200 for less bloom
-            const bloomStrength = 1.15; // Reduced from 1.3 to 1.15 for subtlety
+            const bloomStrength = 1.1; // Reduced from 1.3 to 1.1 for subtlety
             newR = Math.min(255, newR * bloomStrength);
             newG = Math.min(255, newG * bloomStrength);
             newB = Math.min(255, newB * bloomStrength);
           }
           
-          // 🌟 STEP 4: Gentle contrast for clarity (reduced from 1.25x to 1.15x)
-          const contrast = 1.15; // Reduced for more natural look
+          // 🌟 STEP 4: Gentle contrast for clarity (reduced from 1.25x to 1.05x)
+          const contrast = 1.05; // Reduced for more natural look
           newR = ((newR / 255 - 0.5) * contrast + 0.5) * 255;
           newG = ((newG / 255 - 0.5) * contrast + 0.5) * 255;
           newB = ((newB / 255 - 0.5) * contrast + 0.5) * 255;
           
           // 🎭 STEP 5: Subtle selective color enhancement (reduced boost)
           if (newR > newG && newR > newB) {
-            // Boost reds/oranges (warm tones) - reduced from 1.15x to 1.08x
-            newR = Math.min(255, newR * 1.08);
+            // Boost reds/oranges (warm tones) - reduced from 1.15x to 1.05x
+            newR = Math.min(255, newR * 1.05);
           } else if (newB > newR && newB > newG) {
-            // Boost blues/cyans (cool tones) - reduced from 1.15x to 1.08x
-            newB = Math.min(255, newB * 1.08);
+            // Boost blues/cyans (cool tones) - reduced from 1.15x to 1.05x
+            newB = Math.min(255, newB * 1.05);
           }
           
           // Apply final values with proper clamping
