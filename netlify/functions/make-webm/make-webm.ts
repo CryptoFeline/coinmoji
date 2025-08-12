@@ -325,11 +325,11 @@ export const handler: Handler = async (event) => {
           let crfJump = 1; // Default increment
           
           if (sizeRatio > 2.0) {
-            // Way too large (2x+), jump by 4-6 CRF points
-            crfJump = Math.min(6, Math.max(4, Math.floor(sizeRatio)));
+            // Way too large (2x+), jump by 8-6 CRF points
+            crfJump = Math.min(8, Math.max(6, Math.floor(sizeRatio)));
           } else if (sizeRatio > 1.5) {
-            // Quite large (1.5x+), jump by 2-3 CRF points
-            crfJump = Math.min(3, Math.max(2, Math.floor(sizeRatio)));
+            // Quite large (1.5x+), jump by 5-2 CRF points
+            crfJump = Math.min(5, Math.max(2, Math.floor(sizeRatio)));
           } else if (sizeRatio > 1.2) {
             // Moderately large (1.2x+), jump by 2 CRF points
             crfJump = 2;
