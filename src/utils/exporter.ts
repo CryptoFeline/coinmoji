@@ -589,7 +589,7 @@ export class CoinExporter {
 
   // Original method with base64 encoding (fallback for URLs)
   private async renderFramesOnServer(coinSettings: any, exportSettings: ExportSettings): Promise<string[]> {
-    console.log('📡 Sending render request to server...');
+    console.log('📡 Starting segmented server-side rendering...');
     
     // Prepare settings for server-side rendering
     // Use base64 data URLs for uploaded files instead of temp file paths
@@ -619,45 +619,71 @@ export class CoinExporter {
       console.log('🔄 Using base64 data URL for overlay 2');
     }
     
-    const payload = {
-      settings: serverSettings,
-      exportSettings: {
-        fps: exportSettings.fps,
-        duration: exportSettings.duration,
-        frames: Math.round(exportSettings.fps * exportSettings.duration),
-        qualityMode: exportSettings.qualityMode || 'balanced'
+    // Calculate frames based on settings
+    const frameCount = Math.round(exportSettings.fps * exportSettings.duration);
+    
+    // 🚀 NEW: Segmented rendering loop to handle 30s timeout
+    let startFrame = 0;
+    const allFrames: string[] = [];
+    let segmentCount = 0;
+    
+    console.log(`🎬 Starting segmented rendering: ${frameCount} total frames`);
+    
+    do {
+      segmentCount++;
+      console.log(`📍 Rendering segment ${segmentCount}, starting from frame ${startFrame}`);
+      
+      const payload = {
+        settings: serverSettings,
+        exportSettings: {
+          fps: exportSettings.fps,
+          duration: exportSettings.duration,
+          frames: frameCount,
+          qualityMode: exportSettings.qualityMode || 'balanced',
+          startFrame: startFrame // NEW: Pass start frame for segmentation
+        }
+      };
+
+      const response = await fetch(`${window.location.origin}/.netlify/functions/render-frames`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorResult = await response.json();
+        throw new Error(`Server rendering failed: ${errorResult.error || response.statusText}`);
       }
-    };
+
+      const result = await response.json();
+
+      if (!result.success || !result.frames) {
+        throw new Error(result.error || 'Server response missing frames');
+      }
+
+      console.log(`✅ Segment ${segmentCount} complete:`, {
+        frames_rendered: result.frames_count,
+        total_frames: result.total_frames,
+        current_start_frame: result.current_start_frame,
+        nextStartFrame: result.nextStartFrame,
+        is_complete: result.is_complete,
+        environment: result.rendering_environment
+      });
+
+      // Add frames from this segment
+      allFrames.push(...result.frames);
+      
+      // Update start frame for next segment
+      startFrame = result.nextStartFrame;
+      
+    } while (startFrame !== null && startFrame < frameCount);
     
-    const response = await fetch(`${window.location.origin}/.netlify/functions/render-frames`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-    
-    if (!response.ok) {
-      const errorResult = await response.json();
-      throw new Error(`Server rendering failed: ${errorResult.error || response.statusText}`);
-    }
-    
-    const result = await response.json();
-    
-    if (!result.success || !result.frames) {
-      throw new Error(result.error || 'Server response missing frames');
-    }
-    
-    console.log('✅ Server-side rendering successful:', {
-      frames_count: result.frames_count,
-      environment: result.rendering_environment,
-      first_frame_length: result.frames[0]?.length,
-      has_all_frames: result.frames.length === result.frames_count
-    });
-    
+    console.log(`🎉 Segmented rendering complete: ${allFrames.length} total frames in ${segmentCount} segments`);
     console.log('🎞️ Starting client-side frame processing...');
 
-    return result.frames;
+    return allFrames;
   }
   
   // Helper to get file extension from File object

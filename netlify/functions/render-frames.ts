@@ -24,10 +24,21 @@ const isWebMUrl = (url: string): boolean => {
   // REMOVED: || url.includes('webm') - this was too broad and caught static images
 };
 
+const isMP4Url = (url: string): boolean => {
+  return /\.mp4$/i.test(url) || 
+         /data:video\/mp4/i.test(url);
+};
+
+const isVideoUrl = (url: string): boolean => {
+  return isWebMUrl(url) || isMP4Url(url);
+};
+
 // Enhanced texture type detection that also considers MIME types
-const detectTextureType = (url: string): 'gif' | 'webm' | 'static' => {
+const detectTextureType = (url: string): 'gif' | 'webm' | 'mp4' | 'video' | 'static' => {
   if (isGifUrl(url)) return 'gif';
   if (isWebMUrl(url)) return 'webm';
+  if (isMP4Url(url)) return 'mp4';
+  if (isVideoUrl(url)) return 'video'; // Generic video fallback
   return 'static';
 };
 
@@ -135,6 +146,142 @@ Tip: Compress GIFs or use WebM!`;
   
   console.log('✅ GIF preprocessing complete - all GIFs validated');
   return processedSettings;
+}
+
+// Video decoding function using the same FFmpeg setup as make-webm.ts
+async function decodeVideoToSpritesheet(videoData: Buffer | string, isDataUrl: boolean = false): Promise<{
+  sheet: string; // base64 data URL
+  cols: number;
+  rows: number;
+  frameWidth: number;
+  frameHeight: number;
+  frameCount: number;
+  fps: number;
+} | null> {
+  
+  // Import FFmpeg setup from make-webm (reuse the same logic)
+  const { spawn } = await import('node:child_process');
+  const { writeFile, readFile, rm, mkdtemp, access } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  
+  // Reuse the same FFmpeg path resolution as make-webm.ts
+  const possibleFFmpegPaths = [
+    join(__dirname, '..', 'make-webm', 'ffmpeg'),
+    '/var/task/netlify/functions/make-webm/ffmpeg',
+    join(process.cwd(), 'netlify', 'functions', 'make-webm', 'ffmpeg')
+  ];
+  
+  let ffmpegPath = '';
+  for (const path of possibleFFmpegPaths) {
+    try {
+      await access(path);
+      ffmpegPath = path;
+      console.log('✅ Found FFmpeg binary for video decoding:', ffmpegPath);
+      break;
+    } catch {}
+  }
+  
+  if (!ffmpegPath) {
+    console.warn('⚠️ FFmpeg binary not found, skipping video decode');
+    return null;
+  }
+  
+  const tmpDir = await mkdtemp(join(tmpdir(), 'video-decode-'));
+  console.log('📁 Created temp directory for video decode:', tmpDir);
+  
+  try {
+    // Spritesheet configuration (conservative for payload size)
+    const COLS = 10;
+    const ROWS = 6;
+    const FRAME_COUNT = COLS * ROWS; // 60 frames
+    const FPS = 20;
+    const FRAME_W = 100; // Small frames to keep payload under 5MB
+    const FRAME_H = 100;
+    
+    // Write video data to temp file
+    const videoPath = join(tmpDir, 'input.video');
+    if (isDataUrl && typeof videoData === 'string') {
+      // Extract base64 data from data URL
+      const base64Data = videoData.split(',')[1];
+      const buffer = Buffer.from(base64Data, 'base64');
+      await writeFile(videoPath, buffer);
+    } else if (Buffer.isBuffer(videoData)) {
+      await writeFile(videoPath, videoData);
+    } else {
+      throw new Error('Invalid video data format');
+    }
+    
+    const sheetPath = join(tmpDir, 'spritesheet.png');
+    
+    console.log(`🎞️ Decoding video to ${COLS}x${ROWS} spritesheet (${FRAME_W}x${FRAME_H} frames)...`);
+    
+    // FFmpeg command to create spritesheet (similar to your plan)
+    const ffmpegArgs = [
+      '-i', videoPath,
+      '-vf', [
+        `fps=${FPS}`, // Extract at 20 FPS
+        `scale=${FRAME_W}:${FRAME_H}:flags=lanczos`, // Scale each frame
+        `tile=${COLS}x${ROWS}:padding=0:margin=0` // Create spritesheet
+      ].join(','),
+      '-frames:v', '1', // Output single spritesheet image
+      '-y',
+      sheetPath
+    ];
+    
+    await new Promise<void>((resolve, reject) => {
+      const process = spawn(ffmpegPath, ffmpegArgs);
+      let stderr = '';
+      
+      process.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+      
+      process.on('close', (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`FFmpeg video decode failed: ${stderr}`));
+        }
+      });
+      
+      process.on('error', reject);
+    });
+    
+    // Read spritesheet and convert to base64
+    const sheetBuffer = await readFile(sheetPath);
+    const sheetBase64 = sheetBuffer.toString('base64');
+    const sheetDataUrl = `data:image/png;base64,${sheetBase64}`;
+    
+    console.log(`✅ Video spritesheet created: ${(sheetBuffer.length/1024).toFixed(1)}KB`);
+    
+    // Check payload size (conservative limit)
+    if (sheetBuffer.length > 3 * 1024 * 1024) { // 3MB limit for spritesheet
+      console.warn(`⚠️ Spritesheet too large: ${(sheetBuffer.length/1024/1024).toFixed(1)}MB > 3MB`);
+      return null;
+    }
+    
+    return {
+      sheet: sheetDataUrl,
+      cols: COLS,
+      rows: ROWS,
+      frameWidth: FRAME_W,
+      frameHeight: FRAME_H,
+      frameCount: FRAME_COUNT,
+      fps: FPS
+    };
+    
+  } catch (error) {
+    console.error('❌ Video decoding failed:', error);
+    return null;
+  } finally {
+    // Clean up temp directory
+    try {
+      await rm(tmpDir, { recursive: true, force: true });
+    } catch (cleanupError) {
+      console.warn('⚠️ Failed to clean up video decode temp directory:', cleanupError);
+    }
+  }
 }
 
 function parseMultipartData(body: string, boundary: string): { fields: Record<string, string>, files: ParsedFile[] } {
@@ -252,6 +399,7 @@ interface RenderFramesRequest {
     duration: number;
     frames: number;
     qualityMode: 'high' | 'balanced' | 'compact';
+    startFrame?: number; // NEW: For segmented rendering
   };
 }
 
@@ -378,9 +526,14 @@ export const handler: Handler = async (event) => {
     request.exportSettings.duration = 3;
     request.exportSettings.frames = Math.round(maxSafeFPS * 3); // Always 60 frames at 20 FPS
     
+    // NEW: Extract startFrame for segmented rendering
+    const startFrame = Number(request.exportSettings.startFrame) || 0;
+    console.log(`📋 Segmented rendering: starting from frame ${startFrame} of ${request.exportSettings.frames} total frames`);
+    
     console.log('📋 Render request (after FPS cap):', {
       settings: request.settings,
-      exportSettings: request.exportSettings
+      exportSettings: request.exportSettings,
+      startFrame: startFrame
     });
 
     // All uploaded files are now sent as either data URLs (JSON) or binary files (multipart)
@@ -458,6 +611,72 @@ export const handler: Handler = async (event) => {
     console.log('🎞️ Pre-processing GIFs before Chrome launch...');
     processedSettings = await preprocessGifs(processedSettings);
 
+    // 🚀 NEW: Pre-process videos to spritesheets
+    console.log('🎞️ Pre-processing videos to spritesheets...');
+    
+    // Process main body texture
+    if (processedSettings.bodyTextureUrl && isVideoUrl(processedSettings.bodyTextureUrl)) {
+      console.log('🎞️ Detecting video body texture, decoding to spritesheet...');
+      const videoResult = await decodeVideoToSpritesheet(processedSettings.bodyTextureUrl, true);
+      if (videoResult) {
+        // Replace video URL with spritesheet data
+        processedSettings.bodyTextureUrl = videoResult.sheet;
+        // Store spritesheet metadata using type casting
+        (processedSettings as any).bodyTextureSpritesheet = {
+          cols: videoResult.cols,
+          rows: videoResult.rows,
+          frameWidth: videoResult.frameWidth,
+          frameHeight: videoResult.frameHeight,
+          frameCount: videoResult.frameCount,
+          fps: videoResult.fps
+        };
+        console.log(`✅ Video body texture converted to spritesheet: ${videoResult.cols}x${videoResult.rows}`);
+      } else {
+        console.warn('⚠️ Video body texture decode failed, falling back to first frame');
+        // Keep original URL as fallback
+      }
+    }
+    
+    // Process overlay textures
+    if (processedSettings.overlayUrl && isVideoUrl(processedSettings.overlayUrl)) {
+      console.log('🎞️ Detecting video overlay texture, decoding to spritesheet...');
+      const videoResult = await decodeVideoToSpritesheet(processedSettings.overlayUrl, true);
+      if (videoResult) {
+        processedSettings.overlayUrl = videoResult.sheet;
+        (processedSettings as any).overlaySpritesheet = {
+          cols: videoResult.cols,
+          rows: videoResult.rows,
+          frameWidth: videoResult.frameWidth,
+          frameHeight: videoResult.frameHeight,
+          frameCount: videoResult.frameCount,
+          fps: videoResult.fps
+        };
+        console.log(`✅ Video overlay texture converted to spritesheet: ${videoResult.cols}x${videoResult.rows}`);
+      } else {
+        console.warn('⚠️ Video overlay texture decode failed, falling back to first frame');
+      }
+    }
+    
+    // Process second overlay texture
+    if (processedSettings.overlayUrl2 && isVideoUrl(processedSettings.overlayUrl2)) {
+      console.log('🎞️ Detecting video overlay2 texture, decoding to spritesheet...');
+      const videoResult = await decodeVideoToSpritesheet(processedSettings.overlayUrl2, true);
+      if (videoResult) {
+        processedSettings.overlayUrl2 = videoResult.sheet;
+        (processedSettings as any).overlaySpritesheet2 = {
+          cols: videoResult.cols,
+          rows: videoResult.rows,
+          frameWidth: videoResult.frameWidth,
+          frameHeight: videoResult.frameHeight,
+          frameCount: videoResult.frameCount,
+          fps: videoResult.fps
+        };
+        console.log(`✅ Video overlay2 texture converted to spritesheet: ${videoResult.cols}x${videoResult.rows}`);
+      } else {
+        console.warn('⚠️ Video overlay2 texture decode failed, falling back to first frame');
+      }
+    }
+
     console.log('✅ Using @sparticuz/chromium for serverless Chrome');
 
     // Launch Chrome with @sparticuz/chromium
@@ -498,7 +717,7 @@ export const handler: Handler = async (event) => {
       console.log(`⏱️ Setting page evaluation timeout: ${pageTimeout}ms`);
       
       framesBase64 = await Promise.race([
-        page.evaluate(async (renderRequest) => {
+        page.evaluate(async (renderRequest, startFrame) => {
       console.log('⏱️ Starting Three.js setup with performance monitoring...');
       const setupStart = Date.now();
       
@@ -1462,6 +1681,87 @@ export const handler: Handler = async (event) => {
         return texture;
       };
 
+      // 🚀 NEW: Helper function to create animated spritesheet textures for videos
+      const createSpritesheetTexture = async (spritesheetUrl: string, metadata: {
+        cols: number; rows: number; frameWidth: number; frameHeight: number; frameCount: number; fps: number;
+      }): Promise<THREE.Texture | null> => {
+        console.log('🎞️ Creating spritesheet texture:', metadata);
+        
+        try {
+          // Load the spritesheet image
+          const spritesheetImg = document.createElement('img');
+          spritesheetImg.crossOrigin = 'anonymous';
+          spritesheetImg.src = spritesheetUrl;
+          
+          await new Promise((resolve, reject) => {
+            spritesheetImg.onload = resolve;
+            spritesheetImg.onerror = (error) => {
+              console.error('❌ Failed to load spritesheet:', error);
+              reject(new Error('Failed to load spritesheet image'));
+            };
+          });
+          
+          // Create canvas for extracting individual frames
+          const canvas = document.createElement('canvas');
+          canvas.width = metadata.frameWidth;
+          canvas.height = metadata.frameHeight;
+          const ctx = canvas.getContext('2d');
+          
+          if (!ctx) {
+            throw new Error('Failed to get canvas 2D context');
+          }
+          
+          // Create CanvasTexture
+          const texture = new THREE.CanvasTexture(canvas);
+          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.flipY = false;
+          
+          // Add animation metadata to userData
+          texture.userData = {
+            isSpritesheetVideo: true,
+            spritesheet: spritesheetImg,
+            metadata: metadata,
+            currentFrame: 0,
+            update: (frame?: number) => {
+              const totalFrames = metadata.frameCount;
+              const currentFrame = (frame !== undefined ? frame : texture.userData.currentFrame) % totalFrames;
+              
+              // Update internal frame counter if using internal animation
+              if (frame === undefined) {
+                texture.userData.currentFrame = (texture.userData.currentFrame + 1) % totalFrames;
+              }
+              
+              // Calculate spritesheet position
+              const col = currentFrame % metadata.cols;
+              const row = Math.floor(currentFrame / metadata.cols);
+              
+              const sourceX = col * metadata.frameWidth;
+              const sourceY = row * metadata.frameHeight;
+              
+              // Clear canvas and draw the current frame
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              ctx.drawImage(
+                spritesheetImg,
+                sourceX, sourceY, metadata.frameWidth, metadata.frameHeight,
+                0, 0, canvas.width, canvas.height
+              );
+              
+              texture.needsUpdate = true;
+            }
+          };
+          
+          // Initialize with first frame
+          texture.userData.update(0);
+          
+          console.log('✅ Spritesheet texture created successfully');
+          return texture;
+          
+        } catch (error) {
+          console.error('❌ Failed to create spritesheet texture:', error);
+          return null;
+        }
+      };
+
       // Apply front overlay (FIXED: use overlayUrl directly with enhanced type detection)
       if (settings.overlayUrl) {
         console.log('🖼️ Applying front overlay');
@@ -1471,7 +1771,24 @@ export const handler: Handler = async (event) => {
         
         console.log(`🔍 Detected overlay texture type: ${textureType} for URL: ${settings.overlayUrl.substring(0, 50)}...`);
         
-        if (textureType === 'gif') {
+        // 🚀 NEW: Check for video spritesheet metadata
+        if ((settings as any).overlaySpritesheet) {
+          console.log('🎞️ Processing video overlay spritesheet...');
+          const spritesheetData = (settings as any).overlaySpritesheet;
+          console.log('📊 Overlay spritesheet metadata:', spritesheetData);
+          
+          overlayTexture = await createSpritesheetTexture(
+            settings.overlayUrl, // This is now the spritesheet data URL
+            spritesheetData
+          );
+          
+          if (overlayTexture) {
+            console.log('✅ Video spritesheet overlay applied');
+          } else {
+            console.warn('⚠️ Video spritesheet overlay processing failed, using static fallback');
+            overlayTexture = await loadImageTexture(settings.overlayUrl);
+          }
+        } else if (textureType === 'gif') {
           // Process GIF with gifuct-js (identical to client-side)
           const gifResult = await processGIF(settings.overlayUrl, settings.overlayGifSpeed || 'normal');
           if (gifResult && gifResult.texture) {
@@ -1625,7 +1942,24 @@ export const handler: Handler = async (event) => {
         
         console.log(`🔍 Detected back overlay texture type: ${textureType} for URL: ${settings.overlayUrl2.substring(0, 50)}...`);
         
-        if (textureType === 'gif') {
+        // 🚀 NEW: Check for video spritesheet metadata
+        if ((settings as any).overlaySpritesheet2) {
+          console.log('🎞️ Processing video back overlay spritesheet...');
+          const spritesheetData = (settings as any).overlaySpritesheet2;
+          console.log('📊 Back overlay spritesheet metadata:', spritesheetData);
+          
+          overlayTexture = await createSpritesheetTexture(
+            settings.overlayUrl2, // This is now the spritesheet data URL
+            spritesheetData
+          );
+          
+          if (overlayTexture) {
+            console.log('✅ Video spritesheet back overlay applied');
+          } else {
+            console.warn('⚠️ Video spritesheet back overlay processing failed, using static fallback');
+            overlayTexture = await loadImageTexture(settings.overlayUrl2);
+          }
+        } else if (textureType === 'gif') {
           // Process GIF with gifuct-js (identical to client-side)
           const gifResult = await processGIF(settings.overlayUrl2, settings.overlayGifSpeed || 'normal');
           if (gifResult && gifResult.texture) {
@@ -1745,7 +2079,24 @@ export const handler: Handler = async (event) => {
           
           console.log(`🔍 Detected body texture type: ${textureType} for URL`);
           
-          if (textureType === 'gif') {
+          // 🚀 NEW: Check for video spritesheet metadata
+          if ((settings as any).bodyTextureSpritesheet) {
+            console.log('🎞️ Processing video body texture spritesheet...');
+            const spritesheetData = (settings as any).bodyTextureSpritesheet;
+            console.log('📊 Spritesheet metadata:', spritesheetData);
+            
+            bodyTexture = await createSpritesheetTexture(
+              settings.bodyTextureUrl, // This is now the spritesheet data URL
+              spritesheetData
+            );
+            
+            if (bodyTexture) {
+              console.log('✅ Video spritesheet body texture applied');
+            } else {
+              console.warn('⚠️ Video spritesheet processing failed, using static fallback');
+              bodyTexture = await loadImageTexture(settings.bodyTextureUrl);
+            }
+          } else if (textureType === 'gif') {
             // Process GIF body texture with animation speed compatibility
             console.log('🎞️ Processing GIF body texture...');
             
@@ -1894,12 +2245,12 @@ export const handler: Handler = async (event) => {
       const frames: string[] = [];
       const { exportSettings } = renderRequest;
       
-      console.log(`🎬 Starting frame capture: ${exportSettings.frames} frames at ${exportSettings.fps} FPS`);
+      console.log(`🎬 Starting segmented frame capture: frames ${startFrame} to ${exportSettings.frames} (${exportSettings.frames - startFrame} frames to render)`);
       const startTime = Date.now();
       
-      for (let i = 0; i < exportSettings.frames; i++) {
-        // Check for timeout every 10 frames to prevent Lambda timeout
-        if (i > 0 && i % 10 === 0) {
+      for (let i = startFrame; i < exportSettings.frames; i++) {
+        // Check for timeout every 10 frames to prevent Lambda timeout (only after rendering some frames)
+        if (i > startFrame && (i - startFrame) % 10 === 0) {
           const elapsed = Date.now() - startTime;
           if (elapsed > 25000) { // 25s timeout (5s buffer before 30s Lambda limit)
             console.warn(`⚠️ Approaching timeout at frame ${i}/${exportSettings.frames}, stopping capture`);
@@ -1970,20 +2321,40 @@ export const handler: Handler = async (event) => {
           turntable.rotation.y = 0; // Keep Y axis stable for up/down animation
         }
 
-        // Update animated GIF textures (identical to client-side animation loop)
+        // Update animated GIF textures and video spritesheets (identical to client-side animation loop)
         if (overlayTop.material && overlayTop.material.map && overlayTop.material.map.userData?.update) {
-          overlayTop.material.map.userData.update();
+          // Pass current frame for spritesheet animation
+          if (overlayTop.material.map.userData.isSpritesheetVideo) {
+            overlayTop.material.map.userData.update(i); // Pass frame index for video animation
+          } else {
+            overlayTop.material.map.userData.update();
+          }
         }
         if (overlayBot.material && overlayBot.material.map && overlayBot.material.map.userData?.update) {
-          overlayBot.material.map.userData.update();
+          // Pass current frame for spritesheet animation
+          if (overlayBot.material.map.userData.isSpritesheetVideo) {
+            overlayBot.material.map.userData.update(i); // Pass frame index for video animation
+          } else {
+            overlayBot.material.map.userData.update();
+          }
         }
         
-        // Update animated body texture (if any)
+        // Update animated body texture and video spritesheets (if any)
         if (rimMat.map && rimMat.map.userData?.update) {
-          rimMat.map.userData.update();
+          // Pass current frame for spritesheet animation
+          if (rimMat.map.userData.isSpritesheetVideo) {
+            rimMat.map.userData.update(i); // Pass frame index for video animation
+          } else {
+            rimMat.map.userData.update();
+          }
         }
         if (faceMat.map && faceMat.map.userData?.update && faceMat.map !== rimMat.map) {
-          faceMat.map.userData.update();
+          // Pass current frame for spritesheet animation
+          if (faceMat.map.userData.isSpritesheetVideo) {
+            faceMat.map.userData.update(i); // Pass frame index for video animation
+          } else {
+            faceMat.map.userData.update();
+          }
         }
 
         // Render frame
@@ -2066,7 +2437,7 @@ export const handler: Handler = async (event) => {
       console.log(`✅ Server-side frame capture complete: ${frames.length} frames in ${totalTime}ms`);
       return frames;
 
-    }, { ...request, settings: processedSettings }),
+    }, { ...request, settings: processedSettings }, startFrame),
     
     // Timeout promise to prevent hanging
     new Promise<never>((_, reject) => 
@@ -2082,6 +2453,10 @@ export const handler: Handler = async (event) => {
 
     console.log(`✅ Server-side rendering complete: ${framesBase64.length} frames captured`);
 
+    // Calculate next start frame for segmented rendering
+    const nextStartFrame = startFrame + framesBase64.length;
+    const isComplete = nextStartFrame >= request.exportSettings.frames;
+
     return {
       statusCode: 200,
       headers: {
@@ -2092,7 +2467,11 @@ export const handler: Handler = async (event) => {
         success: true,
         frames: framesBase64,
         frames_count: framesBase64.length,
-        rendering_environment: 'headless_chrome_threejs'
+        total_frames: request.exportSettings.frames,
+        current_start_frame: startFrame,
+        nextStartFrame: isComplete ? null : nextStartFrame,
+        is_complete: isComplete,
+        rendering_environment: 'headless_chrome_threejs_segmented'
       }),
     };
 
