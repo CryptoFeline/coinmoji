@@ -170,7 +170,7 @@ export const handler: Handler = async (event) => {
       let finalWebmBuffer: Buffer | null = null;
       let attempts = 0;
       const maxAttempts = 10; // Reduced from 20 - smart CRF jumping should converge faster
-      const maxCrf = 35; // Maximum reasonable CRF for VP9
+      const maxCrf = 50; // Maximum reasonable CRF for VP9
       
       while (attempts < maxAttempts && crf <= maxCrf) {
         attempts++;
