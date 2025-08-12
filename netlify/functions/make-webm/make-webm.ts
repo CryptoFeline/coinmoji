@@ -169,140 +169,205 @@ export const handler: Handler = async (event) => {
       // ITERATIVE ENCODING: Try different CRF values until we get under target size
       let finalWebmBuffer: Buffer | null = null;
       let attempts = 0;
-      const maxAttempts = 20; // Reduced from 20 - smart CRF jumping should converge faster
+      const maxAttempts = 20; // OPTIMIZED: Smart CRF jumping should converge in ~4-6 attempts
       const maxCrf = 50; // Maximum reasonable CRF for VP9
       
       while (attempts < maxAttempts && crf <= maxCrf) {
         attempts++;
         console.log(`🔄 Smart encoding attempt ${attempts}/${maxAttempts} with CRF=${crf} (target: ${(targetFileSize/1024).toFixed(1)}KB)`);
 
+        // SPEED OPTIMIZATION: Use single-pass for first attempts, two-pass for final quality
+        const useTwoPass = attempts >= 3; // Use two-pass only after finding ballpark CRF
+        const passLogFile = join(tmpDir, `ffmpeg2pass_${crf}`); // Unique log file per attempt
+        
+        console.log(`🚀 Using ${useTwoPass ? 'two-pass' : 'single-pass'} encoding for ${useTwoPass ? 'final quality' : 'speed estimation'}`);
+
         // Prepare OPTIMIZED FFmpeg arguments for VP9 with alpha
         const outputPath = join(tmpDir, `out_crf${crf}.webm`);
-        const passLogFile = join(tmpDir, `ffmpeg2pass_${crf}`); // Unique log file per attempt
-        const pass1Args = [
-          '-framerate', String(request.framerate),
-          '-i', join(tmpDir, 'f%04d.webp'),
-          '-pix_fmt', 'yuva420p',      // VP9 with alpha channel
-          '-c:v', 'libvpx-vp9',        // VP9 codec
-          '-crf', String(crf),         // Dynamic quality based on target size
-          '-b:v', `${targetBitrate}k`, // Target bitrate for size control
-          '-maxrate', `${maxBitrate}k`, // Maximum bitrate
-          '-bufsize', `${targetBitrate * 2}k`, // Buffer size for rate control
-          '-auto-alt-ref', '0',        // Preserve alpha channel
-          '-lag-in-frames', '0',       // No lookahead for alpha transparency
-          '-deadline', 'best',         // IMPROVED: Best quality (slower but better)
-          '-cpu-used', '0',            // IMPROVED: Highest quality encoding (slower)
-          '-row-mt', '1',              // Safe multi-threading
-          '-threads', '2',             // IMPROVED: Allow 2 threads for better quality
-          '-tile-columns', '0',        // Disable tiling for small content
-          '-frame-parallel', '0',      // Disable frame parallelism for alpha
-          '-aq-mode', '3',             // Maximum adaptive quantization
-          '-arnr-maxframes', '7',      // IMPROVED: Noise reduction for cleaner output
-          '-arnr-strength', '5',       // IMPROVED: Strong noise reduction
-          '-sharpness', '2',           // IMPROVED: Increase sharpness for metallic surfaces
-          '-tune-content', 'default',  // Default tuning for mixed content
-          '-g', String(request.frames.length), // Keyframe interval = full loop
-          '-pass', '1',                // Two-pass encoding for better quality
-          '-passlogfile', passLogFile, // Specify log file location in /tmp
-          '-f', 'null',                // First pass output to null
-          '/dev/null'                  // Linux null device
-        ];
-
         console.log(`🔧 Starting FFmpeg encoding with CRF=${crf}...`);
 
-        // PASS 1: Analysis
-        await new Promise<void>((resolve, reject) => {
-          const ffmpegProcess = spawn(ffmpegPath, pass1Args, {
-            stdio: ['ignore', 'pipe', 'pipe']
+        if (useTwoPass) {
+          // TWO-PASS ENCODING for final quality (attempts 3+)
+          const pass1Args = [
+            '-framerate', String(request.framerate),
+            '-i', join(tmpDir, 'f%04d.webp'),
+            '-pix_fmt', 'yuva420p',      // VP9 with alpha channel
+            '-c:v', 'libvpx-vp9',        // VP9 codec
+            '-crf', String(crf),         // Dynamic quality based on target size
+            '-b:v', `${targetBitrate}k`, // Target bitrate for size control
+            '-maxrate', `${maxBitrate}k`, // Maximum bitrate
+            '-bufsize', `${targetBitrate * 2}k`, // Buffer size for rate control
+            '-auto-alt-ref', '0',        // Preserve alpha channel
+            '-lag-in-frames', '0',       // No lookahead for alpha transparency
+            '-deadline', 'good',         // BALANCED: Good quality (faster than 'best')
+            '-cpu-used', '1',            // BALANCED: Good quality encoding (faster than 0)
+            '-row-mt', '1',              // Safe multi-threading
+            '-threads', '4',             // OPTIMIZED: Use 4 threads for faster encoding
+            '-tile-columns', '1',        // OPTIMIZED: Enable minimal tiling for speed
+            '-frame-parallel', '0',      // Disable frame parallelism for alpha
+            '-aq-mode', '2',             // BALANCED: Good adaptive quantization (faster than 3)
+            '-arnr-maxframes', '5',      // OPTIMIZED: Reduced noise reduction frames for speed
+            '-arnr-strength', '3',       // BALANCED: Moderate noise reduction
+            '-sharpness', '1',           // BALANCED: Moderate sharpness for speed
+            '-tune-content', 'default',  // Default tuning for mixed content
+            '-g', String(request.frames.length), // Keyframe interval = full loop
+            '-pass', '1',                // Two-pass encoding for better quality
+            '-passlogfile', passLogFile, // Specify log file location in /tmp
+            '-f', 'null',                // First pass output to null
+            '/dev/null'                  // Linux null device
+          ];
+
+          // PASS 1: Analysis
+          await new Promise<void>((resolve, reject) => {
+            const ffmpegProcess = spawn(ffmpegPath, pass1Args, {
+              stdio: ['ignore', 'pipe', 'pipe']
+            });
+
+            let stderr = '';
+
+            ffmpegProcess.stderr?.on('data', (data) => {
+              stderr += data.toString();
+              if (data.toString().includes('frame=')) {
+                console.log(`📊 FFmpeg Pass 1 (CRF=${crf}) progress:`, data.toString().trim());
+              }
+            });
+
+            ffmpegProcess.on('close', (code) => {
+              if (code === 0) {
+                console.log(`✅ FFmpeg Pass 1 (CRF=${crf}) completed`);
+                resolve();
+              } else {
+                console.error(`❌ FFmpeg Pass 1 (CRF=${crf}) failed with code:`, code);
+                console.error('FFmpeg stderr:', stderr);
+                reject(new Error(`FFmpeg Pass 1 exit code ${code}: ${stderr}`));
+              }
+            });
+
+            ffmpegProcess.on('error', (error) => {
+              console.error(`❌ FFmpeg Pass 1 (CRF=${crf}) spawn error:`, error);
+              reject(error);
+            });
           });
 
-          let stderr = '';
+          // PASS 2: Final encoding
+          const pass2Args = [
+            '-framerate', String(request.framerate),
+            '-i', join(tmpDir, 'f%04d.webp'),
+            '-pix_fmt', 'yuva420p',
+            '-c:v', 'libvpx-vp9',
+            '-crf', String(crf),
+            '-b:v', `${targetBitrate}k`,
+            '-maxrate', `${maxBitrate}k`,
+            '-bufsize', `${targetBitrate * 2}k`,
+            '-auto-alt-ref', '0',
+            '-lag-in-frames', '0',       // No lookahead for alpha transparency
+            '-deadline', 'good',         // BALANCED: Good quality (faster than 'best')
+            '-cpu-used', '1',            // BALANCED: Good quality encoding (faster than 0)
+            '-row-mt', '1',
+            '-threads', '4',             // OPTIMIZED: Use 4 threads for faster encoding
+            '-tile-columns', '1',        // OPTIMIZED: Enable minimal tiling for speed
+            '-frame-parallel', '0',      // Disable frame parallelism for alpha
+            '-aq-mode', '2',             // BALANCED: Good adaptive quantization (faster than 3)
+            '-arnr-maxframes', '5',      // OPTIMIZED: Reduced noise reduction frames for speed
+            '-arnr-strength', '3',       // BALANCED: Moderate noise reduction
+            '-sharpness', '1',           // BALANCED: Moderate sharpness for speed
+            '-tune-content', 'default',  // Default tuning for mixed content
+            '-g', String(request.frames.length),
+            '-pass', '2',                // Second pass
+            '-passlogfile', passLogFile, // Use same log file location
+            '-y',                        // Overwrite output
+            outputPath
+          ];
 
-          ffmpegProcess.stderr?.on('data', (data) => {
-            stderr += data.toString();
-            if (data.toString().includes('frame=')) {
-              console.log(`📊 FFmpeg Pass 1 (CRF=${crf}) progress:`, data.toString().trim());
-            }
+          // Spawn FFmpeg process for Pass 2
+          await new Promise<void>((resolve, reject) => {
+            const ffmpegProcess = spawn(ffmpegPath, pass2Args, {
+              stdio: ['ignore', 'pipe', 'pipe']
+            });
+
+            let stderr = '';
+
+            ffmpegProcess.stderr?.on('data', (data) => {
+              stderr += data.toString();
+              if (data.toString().includes('frame=')) {
+                console.log(`📊 FFmpeg Pass 2 (CRF=${crf}) progress:`, data.toString().trim());
+              }
+            });
+
+            ffmpegProcess.on('close', (code) => {
+              if (code === 0) {
+                console.log(`✅ FFmpeg Pass 2 (CRF=${crf}) completed`);
+                resolve();
+              } else {
+                console.error(`❌ FFmpeg Pass 2 (CRF=${crf}) failed with code:`, code);
+                console.error('FFmpeg stderr:', stderr);
+                reject(new Error(`FFmpeg Pass 2 exit code ${code}: ${stderr}`));
+              }
+            });
+
+            ffmpegProcess.on('error', (error) => {
+              console.error(`❌ FFmpeg Pass 2 (CRF=${crf}) spawn error:`, error);
+              reject(error);
+            });
           });
+        } else {
+          // SINGLE-PASS ENCODING for speed estimation (attempts 1-2)
+          const singlePassArgs = [
+            '-framerate', String(request.framerate),
+            '-i', join(tmpDir, 'f%04d.webp'),
+            '-pix_fmt', 'yuva420p',
+            '-c:v', 'libvpx-vp9',
+            '-crf', String(crf),
+            '-b:v', `${targetBitrate}k`,
+            '-maxrate', `${maxBitrate}k`,
+            '-bufsize', `${targetBitrate * 2}k`,
+            '-auto-alt-ref', '0',
+            '-lag-in-frames', '0',
+            '-deadline', 'realtime',     // SPEED: Fastest encoding for estimation
+            '-cpu-used', '5',            // SPEED: Fast encoding (lower quality but much faster)
+            '-row-mt', '1',
+            '-threads', '4',
+            '-tile-columns', '2',        // More tiling for speed
+            '-frame-parallel', '0',
+            '-aq-mode', '0',             // Disable adaptive quantization for speed
+            '-tune-content', 'default',
+            '-g', String(request.frames.length),
+            '-y',                        // Overwrite output
+            outputPath
+          ];
 
-          ffmpegProcess.on('close', (code) => {
-            if (code === 0) {
-              console.log(`✅ FFmpeg Pass 1 (CRF=${crf}) completed`);
-              resolve();
-            } else {
-              console.error(`❌ FFmpeg Pass 1 (CRF=${crf}) failed with code:`, code);
-              console.error('FFmpeg stderr:', stderr);
-              reject(new Error(`FFmpeg Pass 1 exit code ${code}: ${stderr}`));
-            }
+          // Single-pass encoding
+          await new Promise<void>((resolve, reject) => {
+            const ffmpegProcess = spawn(ffmpegPath, singlePassArgs, {
+              stdio: ['ignore', 'pipe', 'pipe']
+            });
+
+            let stderr = '';
+
+            ffmpegProcess.stderr?.on('data', (data) => {
+              stderr += data.toString();
+              if (data.toString().includes('frame=')) {
+                console.log(`📊 FFmpeg Single-pass (CRF=${crf}) progress:`, data.toString().trim());
+              }
+            });
+
+            ffmpegProcess.on('close', (code) => {
+              if (code === 0) {
+                console.log(`✅ FFmpeg Single-pass (CRF=${crf}) completed`);
+                resolve();
+              } else {
+                console.error(`❌ FFmpeg Single-pass (CRF=${crf}) failed with code:`, code);
+                console.error('FFmpeg stderr:', stderr);
+                reject(new Error(`FFmpeg Single-pass exit code ${code}: ${stderr}`));
+              }
+            });
+
+            ffmpegProcess.on('error', (error) => {
+              console.error(`❌ FFmpeg Single-pass (CRF=${crf}) spawn error:`, error);
+              reject(error);
+            });
           });
-
-          ffmpegProcess.on('error', (error) => {
-            console.error(`❌ FFmpeg Pass 1 (CRF=${crf}) spawn error:`, error);
-            reject(error);
-          });
-        });
-
-        // PASS 2: Final encoding
-        const pass2Args = [
-          '-framerate', String(request.framerate),
-          '-i', join(tmpDir, 'f%04d.webp'),
-          '-pix_fmt', 'yuva420p',
-          '-c:v', 'libvpx-vp9',
-          '-crf', String(crf),
-          '-b:v', `${targetBitrate}k`,
-          '-maxrate', `${maxBitrate}k`,
-          '-bufsize', `${targetBitrate * 2}k`,
-          '-auto-alt-ref', '0',
-          '-lag-in-frames', '0',       // No lookahead for alpha transparency
-          '-deadline', 'best',         // IMPROVED: Best quality (slower but better)
-          '-cpu-used', '0',            // IMPROVED: Highest quality encoding (slower)
-          '-row-mt', '1',
-          '-threads', '2',             // IMPROVED: Allow 2 threads for better quality
-          '-tile-columns', '0',
-          '-frame-parallel', '0',      // Disable frame parallelism for alpha
-          '-aq-mode', '3',             // Maximum adaptive quantization
-          '-arnr-maxframes', '7',      // IMPROVED: Noise reduction for cleaner output
-          '-arnr-strength', '5',       // IMPROVED: Strong noise reduction
-          '-sharpness', '2',           // IMPROVED: Increase sharpness for metallic surfaces
-          '-tune-content', 'default',  // Default tuning for mixed content
-          '-g', String(request.frames.length),
-          '-pass', '2',                // Second pass
-          '-passlogfile', passLogFile, // Use same log file location
-          '-y',                        // Overwrite output
-          outputPath
-        ];
-
-        // Spawn FFmpeg process for Pass 2
-        await new Promise<void>((resolve, reject) => {
-          const ffmpegProcess = spawn(ffmpegPath, pass2Args, {
-            stdio: ['ignore', 'pipe', 'pipe']
-          });
-
-          let stderr = '';
-
-          ffmpegProcess.stderr?.on('data', (data) => {
-            stderr += data.toString();
-            if (data.toString().includes('frame=')) {
-              console.log(`📊 FFmpeg Pass 2 (CRF=${crf}) progress:`, data.toString().trim());
-            }
-          });
-
-          ffmpegProcess.on('close', (code) => {
-            if (code === 0) {
-              console.log(`✅ FFmpeg Pass 2 (CRF=${crf}) completed`);
-              resolve();
-            } else {
-              console.error(`❌ FFmpeg Pass 2 (CRF=${crf}) failed with code:`, code);
-              console.error('FFmpeg stderr:', stderr);
-              reject(new Error(`FFmpeg Pass 2 exit code ${code}: ${stderr}`));
-            }
-          });
-
-          ffmpegProcess.on('error', (error) => {
-            console.error(`❌ FFmpeg Pass 2 (CRF=${crf}) spawn error:`, error);
-            reject(error);
-          });
-        });
+        }
 
         // Read the generated WebM file and check size
         console.log(`📖 Reading generated WebM file (CRF=${crf})...`);
@@ -326,22 +391,24 @@ export const handler: Handler = async (event) => {
           finalWebmBuffer = webmBuffer;
           break;
         } else {
-          // 🚀 SMART CRF ADJUSTMENT: Calculate optimal jump based on size difference
+          // 🚀 ULTRA-SMART CRF ADJUSTMENT: More aggressive jumping for speed
           const sizeRatio = fileSizeKB / targetSizeKB; // How much larger we are
           let crfJump = 1; // Default increment
           
-          if (sizeRatio > 2.0) {
-            // Way too large (2x+), jump by 8-6 CRF points
-            crfJump = Math.min(8, Math.max(6, Math.floor(sizeRatio)));
-          } else if (sizeRatio > 1.5) {
-            // Quite large (1.5x+), jump by 5-2 CRF points
-            crfJump = Math.min(5, Math.max(3, Math.floor(sizeRatio)));
-          } else if (sizeRatio > 1.2) {
-            // Moderately large (1.2x+), jump by 2 CRF points
+          if (sizeRatio > 2.5) {
+            // Extremely large (2.5x+), jump by 10-8 CRF points
+            crfJump = Math.min(12, Math.max(8, Math.floor(sizeRatio * 2)));
+          } else if (sizeRatio > 1.8) {
+            // Very large (1.8x+), jump by 6-4 CRF points
+            crfJump = Math.min(8, Math.max(4, Math.floor(sizeRatio * 2)));
+          } else if (sizeRatio > 1.3) {
+            // Large (1.3x+), jump by 3-4 CRF points
+            crfJump = Math.min(5, Math.max(3, Math.floor(sizeRatio * 2)));
+          } else if (sizeRatio > 1.1) {
+            // Slightly large (1.1x+), jump by 2 CRF points
             crfJump = 2;
-
           }
-          // else: close to target (< 1.2x), use default jump of 1
+          // else: very close to target (< 1.1x), use default jump of 1
           
           const newCrf = crf + crfJump;
           console.log(`📈 File too large (${fileSizeKB.toFixed(1)}KB > ${targetSizeKB.toFixed(1)}KB), size ratio: ${sizeRatio.toFixed(2)}x, jumping CRF from ${crf} to ${newCrf} (+${crfJump}) for faster convergence...`);
@@ -353,7 +420,7 @@ export const handler: Handler = async (event) => {
         throw new Error('Failed to generate WebM within size constraints after all attempts');
       }
 
-      console.log(`✅ Final WebM created: ${finalWebmBuffer.length} bytes (${(finalWebmBuffer.length/1024).toFixed(1)}KB) using CRF=${crf} after ${attempts} attempts`);
+      console.log(`✅ ULTRA-OPTIMIZED WebM created: ${finalWebmBuffer.length} bytes (${(finalWebmBuffer.length/1024).toFixed(1)}KB) using CRF=${crf} after ${attempts} attempts with hybrid single/two-pass encoding`);
 
       // Clean up temp directory
       await rm(tmpDir, { recursive: true, force: true });
