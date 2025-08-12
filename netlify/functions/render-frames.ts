@@ -1769,12 +1769,12 @@ export const handler: Handler = async (event) => {
         texture.needsUpdate = true;
       };
 
-      // 🌟 ULTRA-ENHANCED: Advanced overlay enhancement with bloom and color pop
-      const enhanceOverlayTexture = (canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, brightnessBoost: number = 2.0) => {
+      // 🌟 REFINED: Balanced overlay enhancement with sharpness preservation
+      const enhanceOverlayTexture = (canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, brightnessBoost: number = 1.6) => {
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const data = imageData.data;
         
-        console.log(`🎨 Applying ULTRA overlay enhancement: ${brightnessBoost}x brightness + bloom + color pop`);
+        console.log(`🎨 Applying REFINED overlay enhancement: ${brightnessBoost}x brightness + subtle bloom + color clarity`);
         
         for (let i = 0; i < data.length; i += 4) {
           const r = data[i];
@@ -1785,40 +1785,40 @@ export const handler: Handler = async (event) => {
           // Skip fully transparent pixels
           if (a === 0) continue;
           
-          // 🎯 STEP 1: Enhanced brightness boost
+          // 🎯 STEP 1: Moderate brightness boost (reduced from 2.0x)
           let newR = r * brightnessBoost;
           let newG = g * brightnessBoost;
           let newB = b * brightnessBoost;
           
-          // 🌈 STEP 2: Color vibrance boost (increase saturation)
+          // 🌈 STEP 2: Subtle color vibrance boost (reduced from 1.6x to 1.3x)
           const luminance = 0.299 * newR + 0.587 * newG + 0.114 * newB;
-          const vibrance = 1.6; // 60% more vibrant colors
+          const vibrance = 1.3; // 30% more vibrant colors (reduced for subtlety)
           newR = luminance + (newR - luminance) * vibrance;
           newG = luminance + (newG - luminance) * vibrance;
           newB = luminance + (newB - luminance) * vibrance;
           
-          // 🔥 STEP 3: Bloom effect for bright pixels
+          // 🔥 STEP 3: Gentle bloom only for very bright pixels (increased threshold)
           const brightness = (newR + newG + newB) / 3;
-          if (brightness > 180) { // Bright pixels get bloom
-            const bloomStrength = 1.3;
+          if (brightness > 200) { // Increased threshold from 180 to 200 for less bloom
+            const bloomStrength = 1.15; // Reduced from 1.3 to 1.15 for subtlety
             newR = Math.min(255, newR * bloomStrength);
             newG = Math.min(255, newG * bloomStrength);
             newB = Math.min(255, newB * bloomStrength);
           }
           
-          // 🌟 STEP 4: Contrast enhancement for mid-tones
-          const contrast = 1.25;
+          // 🌟 STEP 4: Gentle contrast for clarity (reduced from 1.25x to 1.15x)
+          const contrast = 1.15; // Reduced for more natural look
           newR = ((newR / 255 - 0.5) * contrast + 0.5) * 255;
           newG = ((newG / 255 - 0.5) * contrast + 0.5) * 255;
           newB = ((newB / 255 - 0.5) * contrast + 0.5) * 255;
           
-          // 🎭 STEP 5: Selective color enhancement (boost warm/cool tones)
+          // 🎭 STEP 5: Subtle selective color enhancement (reduced boost)
           if (newR > newG && newR > newB) {
-            // Boost reds/oranges (warm tones)
-            newR = Math.min(255, newR * 1.15);
+            // Boost reds/oranges (warm tones) - reduced from 1.15x to 1.08x
+            newR = Math.min(255, newR * 1.08);
           } else if (newB > newR && newB > newG) {
-            // Boost blues/cyans (cool tones)
-            newB = Math.min(255, newB * 1.15);
+            // Boost blues/cyans (cool tones) - reduced from 1.15x to 1.08x
+            newB = Math.min(255, newB * 1.08);
           }
           
           // Apply final values with proper clamping
@@ -1847,11 +1847,11 @@ export const handler: Handler = async (event) => {
           };
         });
         
-        // ULTRA-ENHANCED: Apply advanced overlay enhancement
+        // REFINED: Apply balanced overlay enhancement
         if (brightnessBoost !== 1.0) {
-          console.log(`🌟 Applying ULTRA overlay enhancement: ${brightnessBoost}x + bloom + color pop for maximum visibility`);
+          console.log(`🌟 Applying REFINED overlay enhancement: ${brightnessBoost}x + subtle bloom + clarity for optimal visibility`);
           
-          // Create canvas to apply ultra enhancement
+          // Create canvas to apply refined enhancement
           const canvas = document.createElement('canvas');
           const ctx = canvas.getContext('2d')!;
           canvas.width = img.width;
@@ -1860,10 +1860,10 @@ export const handler: Handler = async (event) => {
           // Draw original image
           ctx.drawImage(img, 0, 0);
           
-          // Apply ultra enhancement
+          // Apply refined enhancement
           enhanceOverlayTexture(canvas, ctx, brightnessBoost);
           
-          // Create texture from ultra-enhanced canvas
+          // Create texture from refined-enhanced canvas
           const texture = new THREE.CanvasTexture(canvas);
           texture.colorSpace = THREE.SRGBColorSpace;
           texture.flipY = false; // FIXED: Match client-side flipY = false for static images
@@ -1945,7 +1945,7 @@ export const handler: Handler = async (event) => {
                 0, 0, canvas.width, canvas.height
               );
               
-              // ULTRA-ENHANCED: Apply advanced overlay enhancement
+              // REFINED: Apply balanced overlay enhancement
               if (brightnessBoost !== 1.0) {
                 enhanceOverlayTexture(canvas, ctx, brightnessBoost);
               }
@@ -1984,14 +1984,14 @@ export const handler: Handler = async (event) => {
           overlayTexture = await createSpritesheetTexture(
             settings.overlayUrl, // This is now the spritesheet data URL
             spritesheetData,
-            2.0 // ULTRA-ENHANCED: 100% brightness boost + bloom + color pop for maximum visibility
+            1.6 // REFINED: 60% brightness boost + subtle bloom + clarity
           );
           
           if (overlayTexture) {
             console.log('✅ Video spritesheet overlay applied');
           } else {
             console.warn('⚠️ Video spritesheet overlay processing failed, using static fallback');
-            overlayTexture = await loadImageTexture(settings.overlayUrl, 2.0); // ULTRA-ENHANCED: 100% brightness boost + bloom + color pop
+            overlayTexture = await loadImageTexture(settings.overlayUrl, 1.6); // REFINED: 60% brightness boost + subtle bloom + clarity
           }
         } else if (textureType === 'gif') {
           // Process GIF with gifuct-js (identical to client-side)
@@ -2016,7 +2016,7 @@ export const handler: Handler = async (event) => {
           }
         } else {
           // Process static image (URLs or local files)
-          overlayTexture = await loadImageTexture(settings.overlayUrl, 2.0); // ULTRA-ENHANCED: 100% brightness boost + bloom + color pop
+          overlayTexture = await loadImageTexture(settings.overlayUrl, 1.6); // REFINED: 60% brightness boost + subtle bloom + clarity
           console.log('✅ Static overlay applied');
         }
         
@@ -2163,14 +2163,14 @@ export const handler: Handler = async (event) => {
           overlayTexture = await createSpritesheetTexture(
             settings.overlayUrl2, // This is now the spritesheet data URL
             spritesheetData,
-            2.0 // ULTRA-ENHANCED: 100% brightness boost + bloom + color pop for maximum visibility
+            1.6 // REFINED: 60% brightness boost + subtle bloom + clarity
           );
           
           if (overlayTexture) {
             console.log('✅ Video spritesheet back overlay applied');
           } else {
             console.warn('⚠️ Video spritesheet back overlay processing failed, using static fallback');
-            overlayTexture = await loadImageTexture(settings.overlayUrl2, 2.0); // ULTRA-ENHANCED: 100% brightness boost + bloom + color pop
+            overlayTexture = await loadImageTexture(settings.overlayUrl2, 1.6); // REFINED: 60% brightness boost + subtle bloom + clarity
           }
         } else if (textureType === 'gif') {
           // Process GIF with gifuct-js (identical to client-side)
@@ -2195,7 +2195,7 @@ export const handler: Handler = async (event) => {
           }
         } else {
           // Process static image (URLs or local files)
-          overlayTexture = await loadImageTexture(settings.overlayUrl2, 2.0); // ULTRA-ENHANCED: 100% brightness boost + bloom + color pop
+          overlayTexture = await loadImageTexture(settings.overlayUrl2, 1.6); // REFINED: 60% brightness boost + subtle bloom + clarity
           console.log('✅ Static back overlay applied');
         }
         
