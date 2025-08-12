@@ -2482,7 +2482,7 @@ export const handler: Handler = async (event) => {
         // Check for timeout every 10 frames to prevent Lambda timeout (only after rendering some frames)
         if (i > startFrame && (i - startFrame) % 10 === 0) {
           const elapsed = Date.now() - startTime;
-          if (elapsed > 22000) { // 22s timeout (8s buffer before 30s Lambda limit) - reduced for smaller segments
+          if (elapsed > 25000) { // 25s timeout (5s buffer before 30s Lambda limit) - reduced for smaller segments
             console.warn(`⚠️ Approaching timeout at frame ${i}/${endFrame}, stopping capture`);
             break;
           }
