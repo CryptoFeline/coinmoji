@@ -2181,9 +2181,9 @@ export const handler: Handler = async (event) => {
             // For animated GIFs, create new texture instance but share canvas for sync
             bottomTexture = new THREE.CanvasTexture(overlayTexture.image);
             bottomTexture.colorSpace = THREE.SRGBColorSpace;
-            bottomTexture.flipY = false; // FIXED: Dual mode back face uses flipY = false
+            bottomTexture.flipY = true; // FIXED: Dual mode back face uses flipY = false
             bottomTexture.wrapS = THREE.RepeatWrapping;
-            bottomTexture.repeat.x = 1; // FIXED: Add horizontal flip for dual mode back face
+            bottomTexture.repeat.x = -1; // FIXED: Add horizontal flip for dual mode back face
             bottomTexture.needsUpdate = true;
             // CRITICAL: Share the EXACT SAME userData object for synchronized animation
             bottomTexture.userData = overlayTexture.userData;
@@ -2191,9 +2191,9 @@ export const handler: Handler = async (event) => {
           } else {
             // For static images, add horizontal flip for dual mode back face
             bottomTexture = overlayTexture.clone();
-            bottomTexture.flipY = false; // Keep flipY = false for dual mode
+            bottomTexture.flipY = true; // Keep flipY = false for dual mode
             bottomTexture.wrapS = THREE.RepeatWrapping;
-            bottomTexture.repeat.x = 1; // FIXED: Add horizontal flip for dual mode back face
+            bottomTexture.repeat.x = -1; // FIXED: Add horizontal flip for dual mode back face
             bottomTexture.needsUpdate = true;
             console.log('✅ Back overlay (static) applied to BOTTOM face with horizontal flip');
           }
