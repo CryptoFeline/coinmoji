@@ -418,7 +418,8 @@ export class CoinExporter {
       // Texture settings - CRITICAL: Include all texture configuration
       bodyTextureUrl: '',
       bodyTextureMode: 'url' as const,
-      bodyTextureMapping: 'cylindrical' as const, // FIX: Add missing texture mapping
+      bodyTextureMapping: 'surface' as const, // FIX: Add missing texture mapping
+      bodyTextureRimMapping: 'surface' as const, // FIX: Add missing rim texture mapping
       
       // Overlay settings - CRITICAL: Include all overlay configuration  
       overlayUrl: '',

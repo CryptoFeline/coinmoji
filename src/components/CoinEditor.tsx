@@ -104,8 +104,8 @@ export interface CoinSettings {
   bodyTextureMode: 'url' | 'upload';
   bodyTextureFile: File | null;
   bodyTextureBlobUrl: string;
-  bodyTextureMapping: 'planar' | 'cylindrical' | 'spherical';  // Face texture mapping
-  bodyTextureRimMapping: 'planar' | 'cylindrical' | 'spherical';  // NEW: Rim texture mapping
+  bodyTextureMapping: 'surface' | 'planar' | 'spherical';  // Face texture mapping
+  bodyTextureRimMapping: 'surface' | 'planar' | 'spherical';  // NEW: Rim texture mapping
   bodyTextureRotation: number;    // NEW: 0-360 degrees
   bodyTextureScale: number;       // NEW: 0.1-5.0 scale multiplier
   bodyTextureOffsetX: number;     // NEW: -1 to 1 offset
@@ -280,8 +280,8 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     bodyTextureMode: 'url',
     bodyTextureFile: null,
     bodyTextureBlobUrl: '',
-    bodyTextureMapping: 'planar',
-    bodyTextureRimMapping: 'cylindrical',  // Default to cylindrical for rim
+    bodyTextureMapping: 'surface',
+    bodyTextureRimMapping: 'surface',  // Default to surface for rim
     bodyTextureRotation: 0,
     bodyTextureScale: 1.0,
     bodyTextureOffsetX: 0,
@@ -748,51 +748,6 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       // Apply scale and offset
       u = (u - 0.5) * scale + 0.5 + offsetX;
       v = (v - 0.5) * scale + 0.5 + offsetY;
-      
-      uvArray[i * 2] = u;
-      uvArray[i * 2 + 1] = v;
-    }
-
-    geometry.setAttribute('uv', new THREE.BufferAttribute(uvArray, 2));
-  };
-  
-  // Cylindrical UV mapping helper
-  const cylindricalMapUVs = (geometry: THREE.BufferGeometry, settings: {
-    rotation?: number;
-    scale?: number;
-    offsetX?: number;
-    offsetY?: number;
-  } = {}) => {
-    geometry.computeBoundingBox();
-    const bb = geometry.boundingBox!;
-    
-    const position = geometry.attributes.position;
-    const uvArray = new Float32Array(position.count * 2);
-
-    const rotation = (settings.rotation || 0) * Math.PI / 180;
-    const scale = settings.scale || 1.0;
-    const offsetX = settings.offsetX || 0;
-    const offsetY = settings.offsetY || 0;
-
-    for (let i = 0; i < position.count; i++) {
-      const x = position.getX(i);
-      const y = position.getY(i);
-      const z = position.getZ(i);
-      
-      // Cylindrical coordinates
-      const angle = Math.atan2(z, x) + rotation;
-      const height = (y - bb.min.y) / (bb.max.y - bb.min.y);
-      
-      let u = (angle + Math.PI) / (2 * Math.PI);
-      let v = height;
-      
-      // Apply scale and offset
-      u = u * scale + offsetX;
-      v = v * scale + offsetY;
-      
-      // Wrap UV coordinates
-      u = ((u % 1) + 1) % 1;
-      v = Math.max(0, Math.min(1, v));
       
       uvArray[i * 2] = u;
       uvArray[i * 2 + 1] = v;
@@ -1472,8 +1427,9 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           
           faces.forEach(face => {
             switch (currentSettings.bodyTextureMapping) {
-              case 'cylindrical':
-                cylindricalMapUVs(face.geometry, {
+              case 'surface':
+                // Surface mapping: like face overlays, direct texture application
+                planarMapUVs(face.geometry, {
                   rotation: currentSettings.bodyTextureRotation,
                   scale: currentSettings.bodyTextureScale,
                   offsetX: currentSettings.bodyTextureOffsetX,
@@ -1490,7 +1446,12 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
                 break;
               case 'planar':
               default:
-                planarMapUVs(face.geometry);
+                planarMapUVs(face.geometry, {
+                  rotation: currentSettings.bodyTextureRotation,
+                  scale: currentSettings.bodyTextureScale,
+                  offsetX: currentSettings.bodyTextureOffsetX,
+                  offsetY: currentSettings.bodyTextureOffsetY
+                });
                 break;
             }
           });
@@ -1503,8 +1464,9 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           
           rims.forEach(rim => {
             switch (currentSettings.bodyTextureRimMapping) {
-              case 'cylindrical':
-                cylindricalMapUVs(rim.geometry, {
+              case 'surface':
+                // Surface mapping: like face overlays, direct texture application
+                planarMapUVs(rim.geometry, {
                   rotation: currentSettings.bodyTextureRotation,
                   scale: currentSettings.bodyTextureScale,
                   offsetX: currentSettings.bodyTextureOffsetX,
@@ -1521,7 +1483,12 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
                 break;
               case 'planar':
               default:
-                planarMapUVs(rim.geometry);
+                planarMapUVs(rim.geometry, {
+                  rotation: currentSettings.bodyTextureRotation,
+                  scale: currentSettings.bodyTextureScale,
+                  offsetX: currentSettings.bodyTextureOffsetX,
+                  offsetY: currentSettings.bodyTextureOffsetY
+                });
                 break;
             }
           });

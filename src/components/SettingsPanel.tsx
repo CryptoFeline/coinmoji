@@ -31,8 +31,8 @@ export interface CoinSettings {
   bodyTextureMode: 'url' | 'upload';
   bodyTextureFile: File | null;
   bodyTextureBlobUrl: string;
-  bodyTextureMapping: 'planar' | 'cylindrical' | 'spherical';  // Face texture mapping
-  bodyTextureRimMapping: 'planar' | 'cylindrical' | 'spherical';  // NEW: Separate rim mapping
+  bodyTextureMapping: 'surface' | 'planar' | 'spherical';  // Face texture mapping
+  bodyTextureRimMapping: 'surface' | 'planar' | 'spherical';  // NEW: Separate rim mapping
   bodyTextureRotation: number;    // NEW: 0-360 degrees
   bodyTextureScale: number;       // NEW: 0.1-5.0 scale multiplier
   bodyTextureOffsetX: number;     // NEW: -1 to 1 offset
@@ -1083,7 +1083,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                   <div className="space-y-2">
                     <label className="block text-sm font-medium text-gray-700">Face Mapping</label>
                     <div className="grid grid-cols-3 gap-2">
-                      {(['planar', 'cylindrical', 'spherical'] as const).map((mode) => (
+                      {(['surface', 'planar', 'spherical'] as const).map((mode) => (
                         <button
                           key={mode}
                           onClick={() => updateSetting('bodyTextureMapping', mode)}
@@ -1103,7 +1103,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                   <div className="space-y-2">
                     <label className="block text-sm font-medium text-gray-700">Rim Mapping</label>
                     <div className="grid grid-cols-3 gap-2">
-                      {(['planar', 'cylindrical', 'spherical'] as const).map((mode) => (
+                      {(['surface', 'planar', 'spherical'] as const).map((mode) => (
                         <button
                           key={mode}
                           onClick={() => updateSetting('bodyTextureRimMapping', mode)}
