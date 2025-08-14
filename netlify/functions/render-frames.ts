@@ -2585,17 +2585,35 @@ export const handler: Handler = async (event) => {
         if (overlayTop.material && overlayTop.material.map && overlayTop.material.map.userData?.update) {
           // Pass current frame for spritesheet animation
           if (overlayTop.material.map.userData.isSpritesheetVideo) {
-            overlayTop.material.map.userData.update(i); // Pass frame index for video animation
+            // For spritesheet videos, calculate proper video frame based on animation progress
+            const videoFrameCount = overlayTop.material.map.userData.metadata.frameCount;
+            const totalRenderFrames = renderRequest.exportSettings.frames;
+            const videoFrame = Math.floor((i / totalRenderFrames) * videoFrameCount) % videoFrameCount;
+            overlayTop.material.map.userData.update(videoFrame);
+            console.log(`🎞️ Front face video frame: ${videoFrame}/${videoFrameCount} (render frame ${i}/${totalRenderFrames})`);
           } else {
             overlayTop.material.map.userData.update();
           }
         }
+        
         if (overlayBot.material && overlayBot.material.map && overlayBot.material.map.userData?.update) {
-          // Pass current frame for spritesheet animation
-          if (overlayBot.material.map.userData.isSpritesheetVideo) {
-            overlayBot.material.map.userData.update(i); // Pass frame index for video animation
+          // For back face, only update if it's NOT sharing the same userData (to avoid double updates)
+          const isSharedUserData = overlayTop.material?.map?.userData === overlayBot.material.map.userData;
+          
+          if (!isSharedUserData) {
+            // Pass current frame for spritesheet animation
+            if (overlayBot.material.map.userData.isSpritesheetVideo) {
+              // For spritesheet videos, calculate proper video frame based on animation progress
+              const videoFrameCount = overlayBot.material.map.userData.metadata.frameCount;
+              const totalRenderFrames = renderRequest.exportSettings.frames;
+              const videoFrame = Math.floor((i / totalRenderFrames) * videoFrameCount) % videoFrameCount;
+              overlayBot.material.map.userData.update(videoFrame);
+              console.log(`🎞️ Back face video frame: ${videoFrame}/${videoFrameCount} (render frame ${i}/${totalRenderFrames})`);
+            } else {
+              overlayBot.material.map.userData.update();
+            }
           } else {
-            overlayBot.material.map.userData.update();
+            console.log(`🔗 Back face sharing userData with front face - skipping duplicate update`);
           }
         }
         

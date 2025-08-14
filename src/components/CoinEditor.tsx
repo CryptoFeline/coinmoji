@@ -120,6 +120,13 @@ export interface CoinSettings {
   overlayMetalness: 'low' | 'normal' | 'high';
   overlayRoughness: 'low' | 'normal' | 'high';
   
+  // Body Enhancement Settings (for metallic body textures)
+  bodyEnhancement: boolean;           // Enable body texture enhancement
+  bodyBrightness: number;             // Body brightness multiplier (1.0-1.6, default 1.2)
+  bodyContrast: number;               // Body contrast multiplier (1.0-1.15, default 1.05)
+  bodyVibrance: number;               // Body vibrance multiplier (1.0-1.3, default 1.1)
+  bodyBloom: boolean;                 // Enable body selective bloom
+  
   // Overlay Enhancement Settings (replaces glow system)
   overlayEnhancement: boolean;        // Enable overlay enhancement
   overlayBrightness: number;          // Brightness multiplier (1.0-3.0, default 1.6)
@@ -287,6 +294,13 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     overlayMetallic: false,
     overlayMetalness: 'normal',
     overlayRoughness: 'low',
+    
+    // Body Enhancement Settings (for metallic textures)
+    bodyEnhancement: false,           // Disabled by default
+    bodyBrightness: 1.2,              // Same range as overlay (1.0-1.6, default 1.2)
+    bodyContrast: 1.05,               // Same range as overlay (1.0-1.15, default 1.05)
+    bodyVibrance: 1.1,                // Same range as overlay (1.0-1.3, default 1.1)
+    bodyBloom: true,                  // Enabled by default
     
     // Overlay Enhancement Settings (adjusted ranges - old defaults are now max values)
     overlayEnhancement: false,        // Disabled by default
@@ -937,13 +951,17 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
         );
         
         // 🌟 CLIENT-SIDE ENHANCEMENT: Apply overlay enhancement to match server-side
-        // Check if this is an overlay GIF by examining the current URL context
-        const shouldEnhanceOverlay = url === currentSettings.overlayUrl || 
-                                   url === currentSettings.overlayUrl2 ||
-                                   url === currentSettings.overlayBlobUrl ||
-                                   url === currentSettings.overlayBlobUrl2;
+        // Enhanced overlay detection logic
+        const isOverlayUrl = url === currentSettings.overlayUrl || 
+                           url === currentSettings.overlayUrl2 ||
+                           url === currentSettings.overlayBlobUrl ||
+                           url === currentSettings.overlayBlobUrl2 ||
+                           url.includes('overlay') ||
+                           url.startsWith('blob:'); // Include all blob URLs as potentially overlays
         
-        if (shouldEnhanceOverlay && currentSettings.overlayEnhancement) {
+        console.log(`🔍 CLIENT-SIDE GIF: URL check - isOverlay: ${isOverlayUrl}, enhancementEnabled: ${currentSettings.overlayEnhancement}`);
+        
+        if (isOverlayUrl && currentSettings.overlayEnhancement) {
           console.log('🎨 Applying CLIENT-SIDE GIF frame enhancement with user settings');
           enhanceOverlayTexture(canvas, ctx, {
             brightness: currentSettings.overlayBrightness,
@@ -1138,14 +1156,18 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
         
         img.onload = () => {
           try {
-            // For overlay textures, apply client-side enhancement to match server-side
-            const shouldEnhanceOverlay = url.includes('overlay') || 
-                                       currentSettings.overlayUrl === url || 
-                                       currentSettings.overlayUrl2 === url ||
-                                       currentSettings.overlayBlobUrl === url ||
-                                       currentSettings.overlayBlobUrl2 === url;
+            // Enhanced overlay detection logic
+            const isOverlayUrl = url === currentSettings.overlayUrl || 
+                               url === currentSettings.overlayUrl2 ||
+                               url === currentSettings.overlayBlobUrl ||
+                               url === currentSettings.overlayBlobUrl2 ||
+                               url.includes('overlay') ||
+                               url.startsWith('blob:'); // Include all blob URLs as potentially overlays
             
-            if (shouldEnhanceOverlay && currentSettings.overlayEnhancement) {
+            console.log(`🔍 CLIENT-SIDE: URL check - isOverlay: ${isOverlayUrl}, enhancementEnabled: ${currentSettings.overlayEnhancement}`);
+            console.log(`🔍 URLs - current: ${url.substring(0, 50)}, overlay1: ${currentSettings.overlayUrl?.substring(0, 30)}, overlay2: ${currentSettings.overlayUrl2?.substring(0, 30)}`);
+            
+            if (isOverlayUrl && currentSettings.overlayEnhancement) {
               console.log('🌟 Applying CLIENT-SIDE overlay enhancement with user settings');
               
               // Create canvas to apply enhancement
@@ -1333,7 +1355,57 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
                       currentSettings.bodyTextureFile.type : undefined;
       
       createTextureFromUrl(currentSettings.bodyTextureUrl, fileType, currentSettings.bodyGifSpeed)
-        .then((texture) => {
+        .then((originalTexture) => {
+          let texture = originalTexture;
+          
+          // Apply body enhancement if enabled and metallic is on
+          if (currentSettings.bodyMetallic && currentSettings.bodyEnhancement) {
+            console.log('🌟 Applying CLIENT-SIDE body texture enhancement');
+            
+            if (texture instanceof THREE.CanvasTexture) {
+              // For animated textures (GIF, video), enhance the canvas
+              const canvas = texture.image;
+              const ctx = canvas.getContext('2d')!;
+              
+              // Apply body enhancement with user settings
+              enhanceOverlayTexture(canvas, ctx, {
+                brightness: currentSettings.bodyBrightness,
+                contrast: currentSettings.bodyContrast,
+                vibrance: currentSettings.bodyVibrance,
+                bloom: currentSettings.bodyBloom
+              });
+              texture.needsUpdate = true;
+            } else if (texture instanceof THREE.Texture && texture.image) {
+              // For static images, create enhanced canvas version
+              const img = texture.image;
+              const canvas = document.createElement('canvas');
+              const ctx = canvas.getContext('2d')!;
+              canvas.width = img.width;
+              canvas.height = img.height;
+              
+              // Draw original image
+              ctx.drawImage(img, 0, 0);
+              
+              // Apply enhancement
+              enhanceOverlayTexture(canvas, ctx, {
+                brightness: currentSettings.bodyBrightness,
+                contrast: currentSettings.bodyContrast,
+                vibrance: currentSettings.bodyVibrance,
+                bloom: currentSettings.bodyBloom
+              });
+              
+              // Create new enhanced texture
+              const enhancedTexture = new THREE.CanvasTexture(canvas);
+              enhancedTexture.colorSpace = THREE.SRGBColorSpace;
+              enhancedTexture.flipY = texture.flipY;
+              enhancedTexture.needsUpdate = true;
+              
+              // Replace with enhanced version
+              originalTexture.dispose();
+              texture = enhancedTexture;
+            }
+          }
+          
           // Dispose of previous textures first
           (rimMat.map as any)?.userData?.dispose?.();
           (faceMat.map as any)?.userData?.dispose?.();
@@ -1462,7 +1534,28 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     faceMat.metalness = bodyMetalness;
     rimMat.roughness = bodyRoughness;
     faceMat.roughness = bodyRoughness;
-  }, [currentSettings.fillMode, currentSettings.bodyColor, currentSettings.gradientStart, currentSettings.gradientEnd, currentSettings.bodyMetallic, currentSettings.bodyMetalness, currentSettings.bodyRoughness, currentSettings.bodyTextureUrl, currentSettings.bodyTextureMapping, currentSettings.bodyTextureRotation, currentSettings.bodyTextureScale, currentSettings.bodyTextureOffsetX, currentSettings.bodyTextureOffsetY, currentSettings.bodyGifSpeed]);
+  }, [
+    currentSettings.fillMode, 
+    currentSettings.bodyColor, 
+    currentSettings.gradientStart, 
+    currentSettings.gradientEnd, 
+    currentSettings.bodyMetallic, 
+    currentSettings.bodyMetalness, 
+    currentSettings.bodyRoughness, 
+    currentSettings.bodyTextureUrl, 
+    currentSettings.bodyTextureMapping, 
+    currentSettings.bodyTextureRotation, 
+    currentSettings.bodyTextureScale, 
+    currentSettings.bodyTextureOffsetX, 
+    currentSettings.bodyTextureOffsetY, 
+    currentSettings.bodyGifSpeed,
+    // Add body enhancement settings to trigger reload when enhancement changes
+    currentSettings.bodyEnhancement,
+    currentSettings.bodyBrightness,
+    currentSettings.bodyContrast,
+    currentSettings.bodyVibrance,
+    currentSettings.bodyBloom
+  ]);
 
   // Update overlay material properties when metalness/roughness settings change
   useEffect(() => {

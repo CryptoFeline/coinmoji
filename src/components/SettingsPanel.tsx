@@ -47,6 +47,13 @@ export interface CoinSettings {
   overlayMetalness: 'low' | 'normal' | 'high';
   overlayRoughness: 'low' | 'normal' | 'high';
   
+  // Body Enhancement Settings (for metallic textures)
+  bodyEnhancement: boolean;           // Enable body texture enhancement
+  bodyBrightness: number;             // Body brightness multiplier (1.0-1.6, default 1.2)
+  bodyContrast: number;               // Body contrast multiplier (1.0-1.15, default 1.05)
+  bodyVibrance: number;               // Body vibrance multiplier (1.0-1.3, default 1.1)
+  bodyBloom: boolean;                 // Enable body selective bloom
+  
   // Overlay Enhancement Settings (replaces glow system)
   overlayEnhancement: boolean;        // Enable overlay enhancement
   overlayBrightness: number;          // Brightness multiplier (1.0-1.6, default 1.2)
@@ -868,6 +875,98 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
               )}
             </div>
 
+            {/* Body Enhancement Section - Only show when metallic is enabled */}
+            {settings.bodyMetallic && (
+              <div className="space-y-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-base font-medium text-gray-900">Body Enhancement</h3>
+                  <Toggle 
+                    checked={settings.bodyEnhancement ?? false} 
+                    onChange={(checked) => updateSetting('bodyEnhancement', checked)} 
+                  />
+                </div>
+                
+                {settings.bodyEnhancement && (
+                  <div className="space-y-3">
+                    {/* Brightness Control */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-gray-800 text-xs font-medium">Brightness</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="range"
+                          min="1.0"
+                          max="1.6"
+                          step="0.1"
+                          value={settings.bodyBrightness || 1.2}
+                          onChange={(e) => updateSetting('bodyBrightness', parseFloat(e.target.value))}
+                          className="w-20 accent-blue-500"
+                        />
+                        <span className="text-xs text-gray-600 w-12 text-right">
+                          {(settings.bodyBrightness || 1.2).toFixed(1)}x
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Contrast Control */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-gray-800 text-xs font-medium">Contrast</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="range"
+                          min="1.0"
+                          max="1.15"
+                          step="0.02"
+                          value={settings.bodyContrast || 1.05}
+                          onChange={(e) => updateSetting('bodyContrast', parseFloat(e.target.value))}
+                          className="w-20 accent-blue-500"
+                        />
+                        <span className="text-xs text-gray-600 w-12 text-right">
+                          {(settings.bodyContrast || 1.05).toFixed(2)}x
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Vibrance Control */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-gray-800 text-xs font-medium">Vibrance</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="range"
+                          min="1.0"
+                          max="1.3"
+                          step="0.05"
+                          value={settings.bodyVibrance || 1.1}
+                          onChange={(e) => updateSetting('bodyVibrance', parseFloat(e.target.value))}
+                          className="w-20 accent-blue-500"
+                        />
+                        <span className="text-xs text-gray-600 w-12 text-right">
+                          {(settings.bodyVibrance || 1.1).toFixed(1)}x
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Bloom Effect Toggle */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-gray-800 text-xs font-medium">Bloom Effect</span>
+                        <p className="text-xs text-gray-500">Highlights bright areas</p>
+                      </div>
+                      <Toggle 
+                        checked={settings.bodyBloom ?? true} 
+                        onChange={(checked) => updateSetting('bodyBloom', checked)} 
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Body Texture Section (Enhanced) */}
             {settings.fillMode === 'texture' && (
               <div className="space-y-4 p-4 bg-gray-50 rounded-lg border">
@@ -1419,7 +1518,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                       <p className="text-xs text-gray-500">Highlights bright areas</p>
                     </div>
                     <Toggle 
-                      checked={settings.overlayBloom || true} 
+                      checked={settings.overlayBloom ?? true} 
                       onChange={(checked) => updateSetting('overlayBloom', checked)} 
                     />
                   </div>

@@ -210,9 +210,12 @@ overlayBloom: boolean;              // Enable selective bloom
 - ✅ Adjust enhancement slider ranges (old defaults now max values)
 
 ### Step 5: Test & Polish ✅ COMPLETED
-- ✅ Validated client-server visual parity fixes
-- ✅ Performance testing - build successful (2.34s)
-- ✅ Enhancement UI range adjustments complete
+- ✅ Fixed bloom toggle functionality (was always true due to `|| true` logic)
+- ✅ Enhanced client-side enhancement detection (added blob URL support)
+- ✅ Fixed server-side MP4 animation synchronization issues
+- ✅ Added body texture enhancement system under metallic toggle
+- ✅ Performance testing - build successful (2.17s)
+- ✅ All enhancement systems fully functional
 
 ## Critical Issues Fixed:
 
@@ -222,22 +225,33 @@ overlayBloom: boolean;              // Enable selective bloom
 - **Result**: Enhancement properly disabled (1.0x) when toggled off, applies user's brightness when enabled
 
 ### 2. Client-Side Enhancement Application ✅  
-- **Problem**: Client overlay enhancement not updating when settings changed
-- **Solution**: Added enhancement settings to overlay useEffect dependencies
-- **Result**: Client now reloads overlays when enhancement settings change
+- **Problem**: Client overlay enhancement not updating when settings changed + not detecting blob URLs
+- **Solution**: Added enhancement settings to overlay useEffect dependencies + enhanced URL detection
+- **Result**: Client now reloads overlays when enhancement settings change, detects all overlay types
 
-### 3. MP4 Back Face Animation Speed Sync ✅
-- **Problem**: Server-side spritesheet videos had different animation speed on back face
-- **Solution**: Ensured proper userData sharing for spritesheet video textures
-- **Result**: Front and back face animations now synchronized
+### 3. Bloom Toggle Malfunction ✅
+- **Problem**: Bloom toggle was always true due to `||` fallback logic 
+- **Solution**: Changed `settings.overlayBloom || true` to `settings.overlayBloom ?? true`
+- **Result**: Bloom toggle now properly controls bloom effect on/off
 
-### 4. Enhancement Slider Ranges ✅
-- **Problem**: Current enhancement values should be maximum, not defaults
-- **Solution**: Adjusted slider ranges and defaults:
-  - Brightness: 1.0-1.6 (default: 1.2, was 1.6 max 3.0)
-  - Contrast: 1.0-1.15 (default: 1.05, was 1.15 max 2.0) 
-  - Vibrance: 1.0-1.3 (default: 1.1, was 1.3 max 2.0)
-- **Result**: More controlled enhancement ranges with previous defaults as maximum values
+### 4. MP4 Back Face Animation Issues ✅
+- **Problem**: Server-side spritesheet videos had animation stopping after few frames on back face
+- **Solution**: Fixed video frame calculation and prevented double userData updates
+- **Result**: Front and back face animations now properly synchronized and continuous
+
+### 5. Body Texture Enhancement System ✅ NEW FEATURE
+- **Problem**: Only overlay textures had enhancement, body textures lacked enhancement options
+- **Solution**: Added complete body enhancement system:
+  - New settings: bodyEnhancement, bodyBrightness, bodyContrast, bodyVibrance, bodyBloom
+  - UI controls under metallic toggle (only shows when bodyMetallic is enabled)
+  - Client-side enhancement for both static and animated body textures
+  - Same enhancement ranges as overlay system
+- **Result**: Body textures now have full enhancement control matching overlay system
+
+### 6. Enhanced Client-Side Detection ✅
+- **Problem**: Client enhancement wasn't detecting all overlay types
+- **Solution**: Added comprehensive URL detection including blob URLs
+- **Result**: All overlay types (uploaded files, URLs, blob URLs) now properly enhanced
 
 ## Benefits of Migration
 
