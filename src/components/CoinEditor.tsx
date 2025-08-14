@@ -1383,6 +1383,26 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
                 bloom: currentSettings.bodyBloom
               });
               texture.needsUpdate = true;
+              
+              // For animated GIF textures, also enhance the update function
+              if (texture.userData && texture.userData.update) {
+                const originalUpdate = texture.userData.update;
+                texture.userData.update = () => {
+                  // Call original update to draw new frame
+                  originalUpdate();
+                  
+                  // Apply enhancement to the new frame
+                  enhanceOverlayTexture(canvas, ctx, {
+                    brightness: currentSettings.bodyBrightness,
+                    contrast: currentSettings.bodyContrast,
+                    vibrance: currentSettings.bodyVibrance,
+                    bloom: currentSettings.bodyBloom
+                  });
+                  texture.needsUpdate = true;
+                };
+                console.log('🎬 Enhanced GIF update function for body texture');
+              }
+              
             } else if (texture instanceof THREE.Texture && texture.image) {
               // For static images, create enhanced canvas version
               const img = texture.image;
@@ -1409,9 +1429,13 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
               enhancedTexture.needsUpdate = true;
               
               // Replace with enhanced version
-              originalTexture.dispose();
+              texture.dispose();
               texture = enhancedTexture;
+              
+              console.log('✅ Created enhanced static texture for body');
             }
+            
+            console.log('✅ Body texture enhancement applied successfully');
           }
           
           // Dispose of previous textures first

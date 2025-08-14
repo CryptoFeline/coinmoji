@@ -895,8 +895,13 @@ export const handler: Handler = async (event) => {
 
       console.log('🎯 Created identical Three.js setup');
 
-      // Planar UV mapping helper (identical to CoinEditor.tsx)
-      const planarMapUVs = (geometry) => {
+      // Planar UV mapping helper (identical to CoinEditor.tsx with transformations)
+      const planarMapUVs = (geometry: any, settings: {
+        rotation?: number;
+        scale?: number;
+        offsetX?: number;
+        offsetY?: number;
+      } = {}) => {
         geometry.computeBoundingBox();
         const bb = geometry.boundingBox;
         const r = Math.max(
@@ -909,11 +914,80 @@ export const handler: Handler = async (event) => {
         const position = geometry.attributes.position;
         const uvArray = new Float32Array(position.count * 2);
 
+        const rotation = (settings.rotation || 0) * Math.PI / 180; // Convert to radians
+        const scale = settings.scale || 1.0;
+        const offsetX = settings.offsetX || 0;
+        const offsetY = settings.offsetY || 0;
+        
+        const cos = Math.cos(rotation);
+        const sin = Math.sin(rotation);
+
         for (let i = 0; i < position.count; i++) {
           const x = position.getX(i);
           const z = position.getZ(i);
-          const u = 0.5 + (x / r) * 0.48;
-          const v = 1 - (0.5 + (z / r) * 0.48);
+          
+          // Base UV coordinates
+          let u = 0.5 + (x / r) * 0.48;
+          let v = 1 - (0.5 + (z / r) * 0.48);
+          
+          // Apply rotation around center
+          u -= 0.5; v -= 0.5;
+          const rotatedU = u * cos - v * sin;
+          const rotatedV = u * sin + v * cos;
+          u = rotatedU + 0.5; v = rotatedV + 0.5;
+          
+          // Apply scale and offset
+          u = (u - 0.5) * scale + 0.5 + offsetX;
+          v = (v - 0.5) * scale + 0.5 + offsetY;
+          
+          uvArray[i * 2] = u;
+          uvArray[i * 2 + 1] = v;
+        }
+
+        geometry.setAttribute('uv', new THREE.BufferAttribute(uvArray, 2));
+      };
+
+      // Spherical UV mapping helper (identical to CoinEditor.tsx)
+      const sphericalMapUVs = (geometry: any, settings: {
+        rotation?: number;
+        scale?: number;
+        offsetX?: number;
+        offsetY?: number;
+      } = {}) => {
+        const position = geometry.attributes.position;
+        const uvArray = new Float32Array(position.count * 2);
+
+        const rotation = (settings.rotation || 0) * Math.PI / 180;
+        const scale = settings.scale || 1.0;
+        const offsetX = settings.offsetX || 0;
+        const offsetY = settings.offsetY || 0;
+
+        for (let i = 0; i < position.count; i++) {
+          const x = position.getX(i);
+          const y = position.getY(i);
+          const z = position.getZ(i);
+          
+          // Normalize to unit sphere
+          const length = Math.sqrt(x * x + y * y + z * z);
+          const nx = x / length;
+          const ny = y / length;
+          const nz = z / length;
+          
+          // Spherical coordinates with rotation
+          const phi = Math.atan2(nz, nx) + rotation;
+          const theta = Math.acos(ny);
+          
+          let u = (phi + Math.PI) / (2 * Math.PI);
+          let v = theta / Math.PI;
+          
+          // Apply scale and offset
+          u = u * scale + offsetX;
+          v = v * scale + offsetY;
+          
+          // Wrap UV coordinates
+          u = ((u % 1) + 1) % 1;
+          v = Math.max(0, Math.min(1, v));
+          
           uvArray[i * 2] = u;
           uvArray[i * 2 + 1] = v;
         }
@@ -2612,6 +2686,56 @@ export const handler: Handler = async (event) => {
             faceMat.map = faceTexture;
             rimMat.color.set('#ffffff'); // Base white for texture
             faceMat.color.set('#ffffff');
+            
+            // 🔧 CRITICAL FIX: Apply proper UV mapping to geometry to match client-side
+            console.log('🎯 Applying SERVER-SIDE body texture UV mapping:', settings.bodyTextureMapping);
+            
+            // Apply UV mapping to face geometries based on selected mode
+            const faces = [topFace, bottomFace]; // Apply to coin faces
+            const textureSettings = {
+              rotation: settings.bodyTextureRotation || 0,
+              scale: settings.bodyTextureScale || 1.0,
+              offsetX: settings.bodyTextureOffsetX || 0,
+              offsetY: settings.bodyTextureOffsetY || 0
+            };
+            
+            faces.forEach(face => {
+              switch (settings.bodyTextureMapping) {
+                case 'surface':
+                case 'planar':
+                  planarMapUVs(face.geometry, textureSettings);
+                  break;
+                case 'spherical':
+                  sphericalMapUVs(face.geometry, textureSettings);
+                  break;
+                default:
+                  planarMapUVs(face.geometry, textureSettings);
+                  break;
+              }
+            });
+            
+            // Apply UV mapping to rim geometry (could use different mapping if specified)
+            const rimTextureSettings = {
+              rotation: settings.bodyTextureRotation || 0,
+              scale: settings.bodyTextureScale || 1.0,
+              offsetX: settings.bodyTextureOffsetX || 0,
+              offsetY: settings.bodyTextureOffsetY || 0
+            };
+            
+            switch (settings.bodyTextureRimMapping || settings.bodyTextureMapping) {
+              case 'surface':
+              case 'planar':
+                // Apply planar mapping to cylinder (rim) if needed
+                planarMapUVs(cylinder.geometry, rimTextureSettings);
+                break;
+              case 'spherical':
+                sphericalMapUVs(cylinder.geometry, rimTextureSettings);
+                break;
+              default:
+                planarMapUVs(cylinder.geometry, rimTextureSettings);
+                break;
+            }
+            
             rimMat.needsUpdate = true;
             faceMat.needsUpdate = true;
             
