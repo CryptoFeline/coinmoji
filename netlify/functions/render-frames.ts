@@ -367,17 +367,24 @@ interface RenderFramesRequest {
     bodyMetallic: boolean;          // NEW: Separate from overlay metallic
     bodyMetalness: 'low' | 'normal' | 'high';  // NEW: Body metallic intensity
     bodyRoughness: 'low' | 'normal' | 'high';  // NEW: Body roughness control
-    bodyGlow: boolean;              // NEW: Enable glow effect for body
-    bodyGlowScale?: number;         // NEW: Body glow scale (1.0 - 1.5)
-    bodyGlowIntensity?: number;     // NEW: Body glow brightness control (0.5 - 5.0)
-    bodyGlowSharpness?: number;     // NEW: Body glow edge sharpness (0.1 - 2.0)
+    bodyGlow: boolean;              // DEPRECATED: Use bodyEnhancement instead
+    bodyGlowScale?: number;         // DEPRECATED: Use bodyEnhancement settings
+    bodyGlowIntensity?: number;     // DEPRECATED: Use bodyEnhancement settings
+    bodyGlowSharpness?: number;     // DEPRECATED: Use bodyEnhancement settings
+    
+    // Body Enhancement Settings (NEW: Replace bodyGlow system)
+    bodyEnhancement?: boolean;           // Enable body texture/color enhancement
+    bodyBrightness?: number;             // Body brightness multiplier (1.0-1.6)
+    bodyContrast?: number;               // Body contrast multiplier (1.0-1.15)
+    bodyVibrance?: number;               // Body vibrance multiplier (1.0-1.3)
+    bodyBloom?: boolean;                 // Enable body selective bloom
     
     // Body Texture Settings
     bodyTextureUrl: string;
     bodyTextureMode: 'url' | 'upload';
     bodyTextureTempId?: string;
     bodyTextureFileIndex?: number; // Index of file in multipart data
-    bodyTextureMapping: 'planar' | 'cylindrical' | 'spherical';  // NEW: Texture mapping options
+    bodyTextureMapping: 'surface' | 'planar' | 'spherical';  // FIXED: Align with client-side mapping
     bodyTextureRotation: number;    // NEW: 0-360 degrees
     bodyTextureScale: number;       // NEW: 0.1-5.0 scale multiplier
     bodyTextureOffsetX: number;     // NEW: -1 to 1 offset
@@ -1324,6 +1331,7 @@ export const handler: Handler = async (event) => {
         rimMat.color.set(settings.bodyColor);
         faceMat.color.set(settings.bodyColor);
         console.log('🎯 Applied solid color:', settings.bodyColor);
+        // TODO: Add body enhancement for solid colors (will be added after helper functions)
         
         // Update body glow materials for solid colors
         const bodyGlowIntensity = settings.bodyGlowIntensity || 2.2;
@@ -1833,6 +1841,90 @@ export const handler: Handler = async (event) => {
           } else if (newB > newR && newB > newG) {
             // Boost blues/cyans (cool tones) - reduced from 1.15x to 1.05x
             newB = Math.min(255, newB * 1.05);
+          }
+          
+          // Apply final values with proper clamping
+          data[i] = Math.min(255, Math.max(0, newR));
+          data[i + 1] = Math.min(255, Math.max(0, newG));
+          data[i + 2] = Math.min(255, Math.max(0, newB));
+          // Alpha unchanged: data[i + 3] = a;
+        }
+        
+        ctx.putImageData(imageData, 0, 0);
+      };
+
+      // Helper function to get body enhancement multiplier based on user settings
+      const getBodyEnhancementMultiplier = (settings: any): number => {
+        // If body enhancement is disabled, return 1.0 (no enhancement)
+        if (!settings.bodyEnhancement) {
+          console.log('🚫 Body enhancement DISABLED by user - using original brightness');
+          return 1.0;
+        }
+        
+        // If body enhancement is enabled, use user's brightness setting (default 1.2)
+        const brightness = settings.bodyBrightness || 1.2;
+        console.log(`✨ Body enhancement ENABLED - using ${brightness}x brightness boost`);
+        return brightness;
+      };
+
+      // 🌟 Body Enhancement: Enhanced body texture processing with user settings
+      const enhanceBodyTexture = (canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, settings: any) => {
+        if (!settings.bodyEnhancement) return; // Skip if enhancement disabled
+        
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imageData.data;
+        
+        // Use user's enhancement settings
+        const brightness = settings.bodyBrightness || 1.2;
+        const contrast = settings.bodyContrast || 1.05;
+        const vibrance = settings.bodyVibrance || 1.1;
+        const bloom = settings.bodyBloom !== undefined ? settings.bodyBloom : true;
+        
+        console.log(`🎨 Applying SERVER-SIDE body enhancement:`, {
+          brightness: brightness + 'x',
+          contrast: contrast + 'x',
+          vibrance: vibrance + 'x',
+          bloom: bloom ? 'enabled' : 'disabled'
+        });
+        
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+          const a = data[i + 3];
+          
+          // Skip fully transparent pixels
+          if (a === 0) continue;
+          
+          // 🎯 STEP 1: Brightness boost (user configurable)
+          let newR = r * brightness;
+          let newG = g * brightness;
+          let newB = b * brightness;
+          
+          // 🌈 STEP 2: Vibrance boost (user configurable)
+          if (vibrance !== 1.0) {
+            const luminance = 0.299 * newR + 0.587 * newG + 0.114 * newB;
+            newR = luminance + (newR - luminance) * vibrance;
+            newG = luminance + (newG - luminance) * vibrance;
+            newB = luminance + (newB - luminance) * vibrance;
+          }
+          
+          // 🔥 STEP 3: Bloom effect (user configurable)
+          if (bloom) {
+            const brightnessLevel = (newR + newG + newB) / 3;
+            if (brightnessLevel > 200) { // Apply bloom to bright pixels
+              const bloomStrength = 1.1;
+              newR = Math.min(255, newR * bloomStrength);
+              newG = Math.min(255, newG * bloomStrength);
+              newB = Math.min(255, newB * bloomStrength);
+            }
+          }
+          
+          // 🌟 STEP 4: Contrast adjustment (user configurable)
+          if (contrast !== 1.0) {
+            newR = ((newR / 255 - 0.5) * contrast + 0.5) * 255;
+            newG = ((newG / 255 - 0.5) * contrast + 0.5) * 255;
+            newB = ((newB / 255 - 0.5) * contrast + 0.5) * 255;
           }
           
           // Apply final values with proper clamping
@@ -2360,8 +2452,41 @@ export const handler: Handler = async (event) => {
             
             const gifResult = await processGIF(settings.bodyTextureUrl, gifSpeed);
             if (gifResult && gifResult.texture) {
-              bodyTexture = gifResult.texture;
-              console.log('✅ Animated GIF body texture applied with speed:', gifSpeed);
+              const gifTexture = gifResult.texture;
+              
+              // Apply body enhancement to GIF texture if enabled
+              if (settings.bodyEnhancement) {
+                console.log('🌟 Applying SERVER-SIDE body enhancement to GIF texture');
+                
+                // Get the canvas from the GIF texture
+                const canvas = gifTexture.image as HTMLCanvasElement;
+                const ctx = canvas.getContext('2d')!;
+                
+                // Apply body enhancement to current frame
+                enhanceBodyTexture(canvas, ctx, settings);
+                gifTexture.needsUpdate = true;
+                
+                // Store original update function
+                const originalUpdate = gifTexture.userData?.update;
+                
+                // Wrap the update function to apply enhancement to each frame
+                if (originalUpdate) {
+                  gifTexture.userData.update = () => {
+                    // Call original update to draw new frame
+                    originalUpdate();
+                    
+                    // Apply enhancement to the new frame
+                    enhanceBodyTexture(canvas, ctx, settings);
+                    gifTexture.needsUpdate = true;
+                  };
+                }
+                
+                console.log('✅ Enhanced animated GIF body texture applied');
+              } else {
+                console.log('✅ Animated GIF body texture applied with speed:', gifSpeed);
+              }
+              
+              bodyTexture = gifTexture;
             } else {
               console.warn('⚠️ GIF processing returned null result');
             }
@@ -2388,8 +2513,47 @@ export const handler: Handler = async (event) => {
           } else {
             // Process static body texture (URLs or local files)
             console.log('🖼️ Processing static body texture...');
-            bodyTexture = await loadImageTexture(settings.bodyTextureUrl);
-            console.log('✅ Static body texture applied');
+            
+            if (settings.bodyEnhancement) {
+              console.log('🌟 Loading static body texture with SERVER-SIDE enhancement');
+              // Load image normally first
+              const img = document.createElement('img');
+              img.crossOrigin = 'anonymous';
+              img.src = settings.bodyTextureUrl;
+              
+              await new Promise((resolve, reject) => {
+                img.onload = resolve;
+                img.onerror = (error) => {
+                  console.error('❌ Failed to load body texture image:', error);
+                  reject(new Error('Failed to load body texture image'));
+                };
+              });
+              
+              // Create canvas to apply body enhancement
+              const canvas = document.createElement('canvas');
+              const ctx = canvas.getContext('2d')!;
+              canvas.width = img.width;
+              canvas.height = img.height;
+              
+              // Draw original image
+              ctx.drawImage(img, 0, 0);
+              
+              // Apply body enhancement with user settings
+              enhanceBodyTexture(canvas, ctx, settings);
+              
+              // Create enhanced texture
+              const enhancedTexture = new THREE.CanvasTexture(canvas);
+              enhancedTexture.colorSpace = THREE.SRGBColorSpace;
+              enhancedTexture.flipY = false; // Match client-side setting
+              enhancedTexture.needsUpdate = true;
+              bodyTexture = enhancedTexture;
+              
+              console.log('✅ Enhanced static body texture applied');
+            } else {
+              // Regular static body texture (no enhancement)
+              bodyTexture = await loadImageTexture(settings.bodyTextureUrl);
+              console.log('✅ Static body texture applied');
+            }
           }
           
           if (bodyTexture) {
@@ -2433,7 +2597,7 @@ export const handler: Handler = async (event) => {
                   case 'planar':
                     texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
                     break;
-                  case 'cylindrical':
+                  case 'surface':
                   case 'spherical':
                     texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
                     break;
@@ -2490,12 +2654,108 @@ export const handler: Handler = async (event) => {
               scale: settings.bodyTextureScale || 1,
               offsetX: settings.bodyTextureOffsetX || 0,
               offsetY: settings.bodyTextureOffsetY || 0,
-              mapping: settings.bodyTextureMapping || 'cylindrical'
+              mapping: settings.bodyTextureMapping || 'surface'
             });
           }
         } catch (error) {
           console.error('❌ Failed to load body texture:', error);
           // Continue without body texture
+        }
+      }
+
+      // 🌟 SERVER-SIDE: Apply body enhancement to solid colors and gradients if not using body texture
+      if (!settings.bodyTextureUrl && settings.bodyEnhancement) {
+        console.log('🌟 Applying SERVER-SIDE body enhancement to solid color/gradient materials');
+        
+        if (settings.fillMode === 'solid') {
+          console.log('🎨 Creating enhanced solid color texture');
+          
+          // Create enhanced solid color texture
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d')!;
+          canvas.width = 256;
+          canvas.height = 256;
+          
+          // Fill with solid color
+          ctx.fillStyle = settings.bodyColor;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          
+          // Apply body enhancement
+          enhanceBodyTexture(canvas, ctx, settings);
+          
+          // Create enhanced texture
+          const enhancedTexture = new THREE.CanvasTexture(canvas);
+          enhancedTexture.colorSpace = THREE.SRGBColorSpace;
+          
+          // Apply enhanced texture to both materials (replace color)
+          rimMat.map = enhancedTexture;
+          faceMat.map = enhancedTexture.clone();
+          rimMat.color.set('#ffffff'); // Base white for texture
+          faceMat.color.set('#ffffff');
+          rimMat.needsUpdate = true;
+          faceMat.needsUpdate = true;
+          
+          console.log('✅ Applied enhanced solid color texture');
+        } else if (settings.fillMode === 'gradient') {
+          console.log('🌈 Creating enhanced gradient textures');
+          
+          // Helper function to create enhanced gradient texture 
+          const createEnhancedGradientTexture = (color1: string, color2: string, isRim = false) => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d')!;
+
+            if (isRim) {
+              canvas.width = 512;
+              canvas.height = 16;
+              
+              // Left half: color1 -> color2
+              const grad1 = ctx.createLinearGradient(0, 0, canvas.width / 2, 0);
+              grad1.addColorStop(0, color1);
+              grad1.addColorStop(1, color2);
+              ctx.fillStyle = grad1;
+              ctx.fillRect(0, 0, canvas.width / 2, canvas.height);
+
+              // Right half: color2 -> color1
+              const grad2 = ctx.createLinearGradient(canvas.width / 2, 0, canvas.width, 0);
+              grad2.addColorStop(0, color2);
+              grad2.addColorStop(1, color1);
+              ctx.fillStyle = grad2;
+              ctx.fillRect(canvas.width / 2, 0, canvas.width / 2, canvas.height);
+            } else {
+              canvas.width = 256;
+              canvas.height = 256;
+              
+              const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+              gradient.addColorStop(0, color1);
+              gradient.addColorStop(1, color2);
+              ctx.fillStyle = gradient;
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+
+            // Apply body enhancement
+            enhanceBodyTexture(canvas, ctx, settings);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.colorSpace = THREE.SRGBColorSpace;
+            return texture;
+          };
+          
+          // Create enhanced textures for rim and faces
+          const enhancedFaceTexture = createEnhancedGradientTexture(settings.gradientStart || '#00eaff', settings.gradientEnd || '#ee00ff');
+          const enhancedRimTexture = createEnhancedGradientTexture(settings.gradientStart || '#00eaff', settings.gradientEnd || '#ee00ff', true);
+          
+          // Replace existing gradient textures with enhanced versions
+          if (rimMat.map) rimMat.map.dispose();
+          if (faceMat.map) faceMat.map.dispose();
+          
+          rimMat.map = enhancedRimTexture;
+          faceMat.map = enhancedFaceTexture;
+          rimMat.color.set('#ffffff'); // Base white for texture
+          faceMat.color.set('#ffffff');
+          rimMat.needsUpdate = true;
+          faceMat.needsUpdate = true;
+          
+          console.log('✅ Applied enhanced gradient textures');
         }
       }
 

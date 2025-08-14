@@ -876,12 +876,19 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
               )}
             </div>
 
-            {/* Body Enhancement Section - Always visible for all body materials */}
+            {/* Body Enhancement Section - FIXED: Always visible, works on ALL body materials */}
             <div className="space-y-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
               <div className="flex justify-between items-center">
                 <div>
                   <h3 className="text-base font-medium text-gray-900">Body Enhancement</h3>
-                  <p className="text-xs text-gray-500">Enhances body colors, gradients, and textures</p>
+                  <p className="text-xs text-gray-500">
+                    {settings.fillMode === 'texture' && settings.bodyTextureUrl ? 
+                      'Enhances the current texture' :
+                      settings.fillMode === 'gradient' ? 
+                      'Enhances the current gradient' :
+                      'Enhances the current color'
+                    }
+                  </p>
                 </div>
                 <Toggle 
                   checked={settings.bodyEnhancement ?? false} 
