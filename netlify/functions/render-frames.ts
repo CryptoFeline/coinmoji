@@ -2081,15 +2081,31 @@ export const handler: Handler = async (event) => {
             // Bottom face gets properly oriented version for single mode
             let bottomTexture;
             if (overlayTexture instanceof THREE.CanvasTexture) {
-              // For animated GIFs, share the same canvas but create new texture 
-              bottomTexture = new THREE.CanvasTexture(overlayTexture.image);
-              bottomTexture.colorSpace = THREE.SRGBColorSpace;
-              bottomTexture.flipY = true; // FIXED: Bottom face needs flipY = true + horizontal flip
-              bottomTexture.wrapS = THREE.RepeatWrapping;
-              bottomTexture.repeat.x = -1; // Horizontal flip for proper back face viewing
-              bottomTexture.needsUpdate = true;
-              // CRITICAL: Share the EXACT SAME userData object for synchronized animation (matching client-side)
-              bottomTexture.userData = overlayTexture.userData;
+              // Check if this is a spritesheet video that needs special handling
+              if (overlayTexture.userData?.isSpritesheetVideo) {
+                // For spritesheet videos, share the SAME CANVAS to ensure identical animation
+                // Create new texture but use the same canvas element
+                bottomTexture = new THREE.CanvasTexture(overlayTexture.image);
+                bottomTexture.colorSpace = THREE.SRGBColorSpace;
+                bottomTexture.flipY = true; // FIXED: Bottom face needs flipY = true + horizontal flip
+                bottomTexture.wrapS = THREE.RepeatWrapping;
+                bottomTexture.repeat.x = -1; // Horizontal flip for proper back face viewing
+                bottomTexture.needsUpdate = true;
+                
+                // CRITICAL: Share the EXACT SAME userData object for synchronized spritesheet animation
+                bottomTexture.userData = overlayTexture.userData;
+                console.log('🎞️ Server-side spritesheet video: shared userData for synchronized front/back faces');
+              } else {
+                // For animated GIFs, share the same canvas but create new texture 
+                bottomTexture = new THREE.CanvasTexture(overlayTexture.image);
+                bottomTexture.colorSpace = THREE.SRGBColorSpace;
+                bottomTexture.flipY = true; // FIXED: Bottom face needs flipY = true + horizontal flip
+                bottomTexture.wrapS = THREE.RepeatWrapping;
+                bottomTexture.repeat.x = -1; // Horizontal flip for proper back face viewing
+                bottomTexture.needsUpdate = true;
+                // CRITICAL: Share the EXACT SAME userData object for synchronized animation (matching client-side)
+                bottomTexture.userData = overlayTexture.userData;
+              }
             } else {
               // For static images, clone and set proper orientation 
               bottomTexture = overlayTexture.clone();

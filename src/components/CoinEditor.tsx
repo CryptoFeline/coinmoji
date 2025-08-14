@@ -288,11 +288,11 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     overlayMetalness: 'normal',
     overlayRoughness: 'low',
     
-    // Overlay Enhancement Settings (default values match server-side)
+    // Overlay Enhancement Settings (adjusted ranges - old defaults are now max values)
     overlayEnhancement: false,        // Disabled by default
-    overlayBrightness: 1.6,           // Server-side default
-    overlayContrast: 1.15,            // Server-side default
-    overlayVibrance: 1.3,             // Server-side default
+    overlayBrightness: 1.2,           // Reduced from 1.6 (now max is 1.6)
+    overlayContrast: 1.05,            // Reduced from 1.15 (now max is 1.15)
+    overlayVibrance: 1.1,             // Reduced from 1.3 (now max is 1.3)
     overlayBloom: true,               // Enabled by default
     
     overlayGifSpeed: 'normal',
@@ -1731,7 +1731,17 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
                        currentSettings.overlayFile2.type : undefined;
       applyOverlay(currentSettings.overlayUrl2, true, reqId, fileType2);
     }
-  }, [currentSettings.overlayUrl, currentSettings.overlayUrl2, currentSettings.dualOverlay]);
+  }, [
+    currentSettings.overlayUrl, 
+    currentSettings.overlayUrl2, 
+    currentSettings.dualOverlay,
+    // Add enhancement settings to trigger overlay reload when enhancement changes
+    currentSettings.overlayEnhancement,
+    currentSettings.overlayBrightness,
+    currentSettings.overlayContrast,
+    currentSettings.overlayVibrance,
+    currentSettings.overlayBloom
+  ]);
 
   return (
     <div className={`relative w-full h-full ${className}`}>

@@ -49,9 +49,9 @@ export interface CoinSettings {
   
   // Overlay Enhancement Settings (replaces glow system)
   overlayEnhancement: boolean;        // Enable overlay enhancement
-  overlayBrightness: number;          // Brightness multiplier (1.0-3.0, default 1.6)
-  overlayContrast: number;            // Contrast multiplier (1.0-2.0, default 1.15)
-  overlayVibrance: number;            // Color vibrance (1.0-2.0, default 1.3)
+  overlayBrightness: number;          // Brightness multiplier (1.0-1.6, default 1.2)
+  overlayContrast: number;            // Contrast multiplier (1.0-1.15, default 1.05)
+  overlayVibrance: number;            // Color vibrance (1.0-1.3, default 1.1)
   overlayBloom: boolean;              // Enable selective bloom effect
   
   overlayGifSpeed: 'slow' | 'normal' | 'fast';  // RENAMED: from gifAnimationSpeed
@@ -1358,14 +1358,14 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                       <input
                         type="range"
                         min="1.0"
-                        max="3.0"
+                        max="1.6"
                         step="0.1"
-                        value={settings.overlayBrightness || 1.6}
+                        value={settings.overlayBrightness || 1.2}
                         onChange={(e) => updateSetting('overlayBrightness', parseFloat(e.target.value))}
                         className="w-20 accent-blue-500"
                       />
                       <span className="text-xs text-gray-600 w-12 text-right">
-                        {(settings.overlayBrightness || 1.6).toFixed(1)}x
+                        {(settings.overlayBrightness || 1.2).toFixed(1)}x
                       </span>
                     </div>
                   </div>
@@ -1379,14 +1379,14 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                       <input
                         type="range"
                         min="1.0"
-                        max="2.0"
-                        step="0.05"
-                        value={settings.overlayContrast || 1.15}
+                        max="1.15"
+                        step="0.02"
+                        value={settings.overlayContrast || 1.05}
                         onChange={(e) => updateSetting('overlayContrast', parseFloat(e.target.value))}
                         className="w-20 accent-blue-500"
                       />
                       <span className="text-xs text-gray-600 w-12 text-right">
-                        {(settings.overlayContrast || 1.15).toFixed(2)}x
+                        {(settings.overlayContrast || 1.05).toFixed(2)}x
                       </span>
                     </div>
                   </div>
@@ -1400,14 +1400,14 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                       <input
                         type="range"
                         min="1.0"
-                        max="2.0"
-                        step="0.1"
-                        value={settings.overlayVibrance || 1.3}
+                        max="1.3"
+                        step="0.05"
+                        value={settings.overlayVibrance || 1.1}
                         onChange={(e) => updateSetting('overlayVibrance', parseFloat(e.target.value))}
                         className="w-20 accent-blue-500"
                       />
                       <span className="text-xs text-gray-600 w-12 text-right">
-                        {(settings.overlayVibrance || 1.3).toFixed(1)}x
+                        {(settings.overlayVibrance || 1.1).toFixed(1)}x
                       </span>
                     </div>
                   </div>
