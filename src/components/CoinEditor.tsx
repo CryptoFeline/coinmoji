@@ -1,9 +1,84 @@
 import { useRef, useEffect, useState, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
 import { CoinExporter } from '../utils/exporter';
-import GlowMapMaterial from '../materials/GlowMapMaterial';
 // @ts-ignore - gifuct-js doesn't have types
 import { parseGIF, decompressFrames } from 'gifuct-js';
+
+// 🌟 Client-Side Overlay Enhancement System (matching server-side render-frames.ts)
+const enhanceOverlayTexture = (
+  canvas: HTMLCanvasElement, 
+  ctx: CanvasRenderingContext2D, 
+  settings: { 
+    brightness?: number, 
+    contrast?: number, 
+    vibrance?: number, 
+    bloom?: boolean 
+  } = {}
+) => {
+  const brightnessBoost = settings.brightness || 1.6;
+  const contrastBoost = settings.contrast || 1.15;
+  const vibranceBoost = settings.vibrance || 1.3;
+  const bloomEnabled = settings.bloom !== false;
+  
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  
+  console.log(`🎨 Applying CLIENT-SIDE overlay enhancement: ${brightnessBoost}x brightness + ${vibranceBoost}x vibrance + ${contrastBoost}x contrast + bloom: ${bloomEnabled}`);
+  
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const a = data[i + 3];
+    
+    // Skip fully transparent pixels
+    if (a === 0) continue;
+    
+    // 🎯 STEP 1: Dynamic brightness boost
+    let newR = r * brightnessBoost;
+    let newG = g * brightnessBoost;
+    let newB = b * brightnessBoost;
+    
+    // 🌈 STEP 2: Dynamic color vibrance boost
+    const luminance = 0.299 * newR + 0.587 * newG + 0.114 * newB;
+    newR = luminance + (newR - luminance) * vibranceBoost;
+    newG = luminance + (newG - luminance) * vibranceBoost;
+    newB = luminance + (newB - luminance) * vibranceBoost;
+    
+    // 🔥 STEP 3: Conditional bloom for very bright pixels
+    if (bloomEnabled) {
+      const brightness = (newR + newG + newB) / 3;
+      if (brightness > 200) { // Server-side threshold
+        const bloomStrength = 1.15; // Server-side strength
+        newR = Math.min(255, newR * bloomStrength);
+        newG = Math.min(255, newG * bloomStrength);
+        newB = Math.min(255, newB * bloomStrength);
+      }
+    }
+    
+    // 🌟 STEP 4: Dynamic contrast for clarity
+    newR = ((newR / 255 - 0.5) * contrastBoost + 0.5) * 255;
+    newG = ((newG / 255 - 0.5) * contrastBoost + 0.5) * 255;
+    newB = ((newB / 255 - 0.5) * contrastBoost + 0.5) * 255;
+    
+    // 🎭 STEP 5: Selective color enhancement (server-side matching)
+    if (newR > newG && newR > newB) {
+      // Boost reds/oranges (warm tones)
+      newR = Math.min(255, newR * 1.08);
+    } else if (newB > newR && newB > newG) {
+      // Boost blues/cyans (cool tones)
+      newB = Math.min(255, newB * 1.08);
+    }
+    
+    // Apply final values with proper clamping
+    data[i] = Math.min(255, Math.max(0, newR));
+    data[i + 1] = Math.min(255, Math.max(0, newG));
+    data[i + 2] = Math.min(255, Math.max(0, newB));
+    // Alpha unchanged: data[i + 3] = a;
+  }
+  
+  ctx.putImageData(imageData, 0, 0);
+};
 
 interface CoinEditorProps {
   className?: string;
@@ -23,10 +98,6 @@ export interface CoinSettings {
   bodyMetallic: boolean;          // NEW: Separate from overlay metallic
   bodyMetalness: 'low' | 'normal' | 'high';  // NEW: Body metallic intensity
   bodyRoughness: 'low' | 'normal' | 'high';  // NEW: Body roughness control
-  bodyGlow: boolean;              // NEW: Enable glow effect for body
-  bodyGlowScale: number;          // NEW: Glow size/spread control (1.0 - 1.5)
-  bodyGlowIntensity: number;      // NEW: Glow brightness control (0.5 - 5.0)
-  bodyGlowSharpness: number;      // NEW: Glow edge sharpness (0.1 - 2.0)
   
   // Body Texture Settings
   bodyTextureUrl: string;
@@ -48,10 +119,14 @@ export interface CoinSettings {
   overlayMetallic: boolean;       // NEW: Separate toggle for overlays
   overlayMetalness: 'low' | 'normal' | 'high';
   overlayRoughness: 'low' | 'normal' | 'high';
-  overlayGlow: boolean;           // NEW: Enable glow effect for overlays
-  overlayGlowScale: number;       // NEW: Overlay glow size/spread control (1.0 - 1.5)
-  overlayGlowIntensity: number;   // NEW: Overlay glow brightness control (0.5 - 5.0)
-  overlayGlowSharpness: number;   // NEW: Overlay glow edge sharpness (0.1 - 2.0)
+  
+  // Overlay Enhancement Settings (replaces glow system)
+  overlayEnhancement: boolean;        // Enable overlay enhancement
+  overlayBrightness: number;          // Brightness multiplier (1.0-3.0, default 1.6)
+  overlayContrast: number;            // Contrast multiplier (1.0-2.0, default 1.15)
+  overlayVibrance: number;            // Color vibrance (1.0-2.0, default 1.3)
+  overlayBloom: boolean;              // Enable selective bloom effect
+  
   overlayGifSpeed: 'slow' | 'normal' | 'fast';  // RENAMED: from gifAnimationSpeed
   overlayRotation: number;        // NEW: 0-360 degrees overlay rotation
   overlayScale: number;           // NEW: 0.1-5.0 overlay scale multiplier
@@ -174,12 +249,6 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     faceMat: THREE.MeshStandardMaterial;
     overlayTop: THREE.Mesh;
     overlayBot: THREE.Mesh;
-    // Glow meshes
-    cylinderGlow: THREE.Mesh;
-    topGlow: THREE.Mesh;
-    bottomGlow: THREE.Mesh;
-    overlayTopGlow: THREE.Mesh;
-    overlayBotGlow: THREE.Mesh;
     animationId?: number;
     hemiLight: THREE.HemisphereLight;
     dirLight: THREE.DirectionalLight;
@@ -197,10 +266,6 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     bodyMetallic: true,
     bodyMetalness: 'normal',
     bodyRoughness: 'normal',
-    bodyGlow: false,             // NEW: Default glow disabled
-    bodyGlowScale: 1.08,         // NEW: Default glow scale
-    bodyGlowIntensity: 2.2,      // NEW: Default glow intensity
-    bodyGlowSharpness: 0.6,      // NEW: Default glow sharpness
     
     // Body Texture Settings
     bodyTextureUrl: '',
@@ -222,10 +287,14 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     overlayMetallic: false,
     overlayMetalness: 'normal',
     overlayRoughness: 'low',
-    overlayGlow: false,          // NEW: Default glow disabled
-    overlayGlowScale: 1.06,      // NEW: Default overlay glow scale
-    overlayGlowIntensity: 2.8,   // NEW: Default overlay glow intensity
-    overlayGlowSharpness: 0.7,   // NEW: Default overlay glow sharpness
+    
+    // Overlay Enhancement Settings (default values match server-side)
+    overlayEnhancement: false,        // Disabled by default
+    overlayBrightness: 1.6,           // Server-side default
+    overlayContrast: 1.15,            // Server-side default
+    overlayVibrance: 1.3,             // Server-side default
+    overlayBloom: true,               // Enabled by default
+    
     overlayGifSpeed: 'normal',
     overlayRotation: 0,          // NEW: Default overlay rotation
     overlayScale: 1.0,           // NEW: Default overlay scale  
@@ -495,81 +564,10 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     const overlayTop = createOverlay(true);
     const overlayBot = createOverlay(false);
 
-    // Glow meshes - create scaled clones that read body maps/colors
-    const cylinderGlow = new THREE.Mesh(
-      cylinderGeometry,
-      new GlowMapMaterial({
-        map: rimMat.map ?? null,            // gradient/texture, or null
-        color: rimMat.color,                // used if map is null (solid fill)
-        threshold: 0.0,                     // Fixed: Always 0, not user-adjustable
-        intensity: 2.2,                     // Higher intensity for better visibility
-        sharpness: 0.6,                     // Balanced sharpness for smooth edges
-      })
-    );
-    cylinderGlow.scale.setScalar(1.01);     // Fixed scale for consistent glow appearance
-    cylinderGlow.visible = false; // Start hidden, controlled by settings
-    cylinderGlow.renderOrder = 1;    // Render after main geometry
-
-    const topGlow = new THREE.Mesh(
-      topFace.geometry.clone(),
-      new GlowMapMaterial({
-        map: faceMat.map ?? null,
-        color: faceMat.color,
-        threshold: 0.0,                     // Fixed: Always 0, not user-adjustable
-        intensity: 2.2,
-        sharpness: 0.6,
-      })
-    );
-    topGlow.scale.setScalar(1.01);          // Fixed scale for consistent glow appearance
-    topGlow.visible = false;
-    topGlow.renderOrder = 1;
-
-    const bottomGlow = new THREE.Mesh(
-      bottomFace.geometry.clone(),
-      new GlowMapMaterial({
-        map: faceMat.map ?? null,
-        color: faceMat.color,
-        threshold: 0.0,                     // Fixed: Always 0, not user-adjustable
-        intensity: 2.2,
-        sharpness: 0.6,
-      })
-    );
-    bottomGlow.scale.setScalar(1.01);       // Fixed scale for consistent glow appearance
-    bottomGlow.visible = false;
-    bottomGlow.renderOrder = 1;
-
-    // Overlay glow meshes - read overlay textures; start hidden
-    const overlayTopGlow = new THREE.Mesh(
-      overlayTop.geometry,
-      new GlowMapMaterial({ 
-        threshold: 0.0,                     // Fixed: Always 0, not user-adjustable
-        intensity: 2.8,                     // Higher intensity for overlay visibility
-        sharpness: 0.7                      // Sharper for detailed overlays
-      })
-    );
-    overlayTopGlow.scale.setScalar(1.01);   // Fixed scale for consistent glow appearance
-    overlayTopGlow.visible = false;
-    overlayTopGlow.renderOrder = 2;    // Render after body glow
-
-    const overlayBotGlow = new THREE.Mesh(
-      overlayBot.geometry,
-      new GlowMapMaterial({ 
-        threshold: 0.0,                     // Fixed: Always 0, not user-adjustable
-        intensity: 2.8, 
-        sharpness: 0.7 
-      })
-    );
-    overlayBotGlow.scale.setScalar(1.01);   // Fixed scale for consistent glow appearance
-    overlayBotGlow.visible = false;
-    overlayBotGlow.renderOrder = 2;
-    // Apply geometric rotation to fix glow orientation on back face
-    overlayBotGlow.rotation.y = Math.PI; // 180 degree rotation to match proper back face orientation
-
     // Coin assembly
     const coinGroup = new THREE.Group();
     coinGroup.add(
-      cylinder, topFace, bottomFace, overlayTop, overlayBot,
-      cylinderGlow, topGlow, bottomGlow, overlayTopGlow, overlayBotGlow
+      cylinder, topFace, bottomFace, overlayTop, overlayBot
     );
     coinGroup.rotation.x = Math.PI / 2; // Stand on edge
 
@@ -588,11 +586,6 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       faceMat,
       overlayTop,
       overlayBot,
-      cylinderGlow,
-      topGlow,
-      bottomGlow,
-      overlayTopGlow,
-      overlayBotGlow,
       hemiLight,
       dirLight
     };
@@ -660,29 +653,6 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
             }
           });
         }
-      });
-      
-      // Update glow material textures for GIF animations
-      const updateGlowTexture = (glowMesh: THREE.Mesh) => {
-        if (!glowMesh.material) return;
-        const material = glowMesh.material as any; // GlowMapMaterial
-        if (material.uniforms?.map?.value) {
-          const map = material.uniforms.map.value;
-          if (map instanceof THREE.CanvasTexture && typeof map.userData?.update === 'function') {
-            map.userData.update();
-          }
-        }
-      };
-      
-      // Update all glow meshes
-      [
-        sceneRef.current.cylinderGlow,
-        sceneRef.current.topGlow,
-        sceneRef.current.bottomGlow,
-        sceneRef.current.overlayTopGlow,
-        sceneRef.current.overlayBotGlow
-      ].forEach(glowMesh => {
-        if (glowMesh) updateGlowTexture(glowMesh);
       });
       
       sceneRef.current.renderer.render(sceneRef.current.scene, sceneRef.current.camera);
@@ -965,6 +935,23 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           frame.dims.width,
           frame.dims.height
         );
+        
+        // 🌟 CLIENT-SIDE ENHANCEMENT: Apply overlay enhancement to match server-side
+        // Check if this is an overlay GIF by examining the current URL context
+        const shouldEnhanceOverlay = url === currentSettings.overlayUrl || 
+                                   url === currentSettings.overlayUrl2 ||
+                                   url === currentSettings.overlayBlobUrl ||
+                                   url === currentSettings.overlayBlobUrl2;
+        
+        if (shouldEnhanceOverlay && currentSettings.overlayEnhancement) {
+          console.log('🎨 Applying CLIENT-SIDE GIF frame enhancement with user settings');
+          enhanceOverlayTexture(canvas, ctx, {
+            brightness: currentSettings.overlayBrightness,
+            contrast: currentSettings.overlayContrast,
+            vibrance: currentSettings.overlayVibrance,
+            bloom: currentSettings.overlayBloom
+          });
+        }
       };
       
       // Draw initial frame
@@ -1142,22 +1129,86 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
         }, 3000);
         
       } else {
-        // Use standard texture loader for static images (JPG, PNG, etc.)
-        const loader = new THREE.TextureLoader();
-        loader.setCrossOrigin('anonymous');
-        loader.load(
-          url,
-          (texture) => {
-            texture.colorSpace = THREE.SRGBColorSpace;
-            texture.flipY = false;
-            if (sceneRef.current) {
-              texture.anisotropy = sceneRef.current.renderer.capabilities.getMaxAnisotropy();
+        // Use enhanced texture loading for static images (JPG, PNG, etc.) with overlay enhancement
+        console.log('🖼️ Loading static image with potential overlay enhancement');
+        
+        // Load image normally first
+        const img = document.createElement('img');
+        img.crossOrigin = 'anonymous';
+        
+        img.onload = () => {
+          try {
+            // For overlay textures, apply client-side enhancement to match server-side
+            const shouldEnhanceOverlay = url.includes('overlay') || 
+                                       currentSettings.overlayUrl === url || 
+                                       currentSettings.overlayUrl2 === url ||
+                                       currentSettings.overlayBlobUrl === url ||
+                                       currentSettings.overlayBlobUrl2 === url;
+            
+            if (shouldEnhanceOverlay && currentSettings.overlayEnhancement) {
+              console.log('🌟 Applying CLIENT-SIDE overlay enhancement with user settings');
+              
+              // Create canvas to apply enhancement
+              const canvas = document.createElement('canvas');
+              const ctx = canvas.getContext('2d')!;
+              canvas.width = img.width;
+              canvas.height = img.height;
+              
+              // Draw original image
+              ctx.drawImage(img, 0, 0);
+              
+              // Apply enhancement with user settings
+              enhanceOverlayTexture(canvas, ctx, {
+                brightness: currentSettings.overlayBrightness,
+                contrast: currentSettings.overlayContrast,
+                vibrance: currentSettings.overlayVibrance,
+                bloom: currentSettings.overlayBloom
+              });
+              
+              // Create texture from enhanced canvas
+              const texture = new THREE.CanvasTexture(canvas);
+              texture.colorSpace = THREE.SRGBColorSpace;
+              texture.flipY = false; // Match server-side setting
+              texture.needsUpdate = true;
+              
+              if (sceneRef.current) {
+                texture.anisotropy = sceneRef.current.renderer.capabilities.getMaxAnisotropy();
+              }
+              
+              resolve(texture);
+            } else {
+              // Regular texture loading for non-overlay images
+              const texture = new THREE.Texture(img);
+              texture.needsUpdate = true;
+              texture.colorSpace = THREE.SRGBColorSpace;
+              texture.flipY = false;
+              
+              if (sceneRef.current) {
+                texture.anisotropy = sceneRef.current.renderer.capabilities.getMaxAnisotropy();
+              }
+              
+              resolve(texture);
             }
-            resolve(texture);
-          },
-          undefined,
-          reject
-        );
+          } catch (error) {
+            console.error('Failed to process image texture:', error);
+            reject(error);
+          }
+        };
+        
+        img.onerror = (error) => {
+          console.error('Failed to load image:', error);
+          // Show user-friendly CORS error message
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          if (errorMsg.includes('CORS') || 
+              errorMsg.includes('cross-origin') ||
+              errorMsg.includes('NetworkError') ||
+              errorMsg.includes('Failed to fetch')) {
+            alert("We can't access that URL! Please try a different image URL or use a direct image link.");
+          }
+          reject(error);
+        };
+        
+        img.src = url;
       }
     });
   };
@@ -1411,32 +1462,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     faceMat.metalness = bodyMetalness;
     rimMat.roughness = bodyRoughness;
     faceMat.roughness = bodyRoughness;
-
-    // Update body glow materials to match body appearance
-    if (sceneRef.current) {
-      const { cylinderGlow, topGlow, bottomGlow } = sceneRef.current;
-      
-      const updateBodyGlow = (glowMaterial: GlowMapMaterial, bodyMaterial: THREE.MeshStandardMaterial) => {
-        glowMaterial.updateGlowSource(bodyMaterial.map, bodyMaterial.color);
-        glowMaterial.setGlowParams(
-          currentSettings.bodyGlowIntensity || 2.2, 
-          0.0, // Threshold always 0 as requested
-          currentSettings.bodyGlowSharpness || 0.6
-        );
-        // Scale is now fixed at 1.01 - no dynamic adjustment
-      };
-
-      updateBodyGlow(cylinderGlow.material as GlowMapMaterial, rimMat);
-      updateBodyGlow(topGlow.material as GlowMapMaterial, faceMat);
-      updateBodyGlow(bottomGlow.material as GlowMapMaterial, faceMat);
-
-      // Update body glow visibility
-      const bodyGlowVisible = !!currentSettings.bodyGlow;
-      cylinderGlow.visible = bodyGlowVisible;
-      topGlow.visible = bodyGlowVisible;
-      bottomGlow.visible = bodyGlowVisible;
-    }
-  }, [currentSettings.fillMode, currentSettings.bodyColor, currentSettings.gradientStart, currentSettings.gradientEnd, currentSettings.bodyMetallic, currentSettings.bodyMetalness, currentSettings.bodyRoughness, currentSettings.bodyTextureUrl, currentSettings.bodyTextureMapping, currentSettings.bodyTextureRotation, currentSettings.bodyTextureScale, currentSettings.bodyTextureOffsetX, currentSettings.bodyTextureOffsetY, currentSettings.bodyGifSpeed, currentSettings.bodyGlow, currentSettings.bodyGlowIntensity, currentSettings.bodyGlowSharpness]);
+  }, [currentSettings.fillMode, currentSettings.bodyColor, currentSettings.gradientStart, currentSettings.gradientEnd, currentSettings.bodyMetallic, currentSettings.bodyMetalness, currentSettings.bodyRoughness, currentSettings.bodyTextureUrl, currentSettings.bodyTextureMapping, currentSettings.bodyTextureRotation, currentSettings.bodyTextureScale, currentSettings.bodyTextureOffsetX, currentSettings.bodyTextureOffsetY, currentSettings.bodyGifSpeed]);
 
   // Update overlay material properties when metalness/roughness settings change
   useEffect(() => {
@@ -1470,28 +1496,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       roughness: overlayRoughness,
       metalnessEnabled: currentSettings.metallic
     });
-
-    // Update overlay glow visibility and parameters
-    const { overlayTopGlow, overlayBotGlow } = sceneRef.current;
-    const overlayGlowEnabled = !!currentSettings.overlayGlow;
-    
-    // Update overlay glow parameters
-    const updateOverlayGlow = (glowMesh: THREE.Mesh) => {
-      const glowMaterial = glowMesh.material as GlowMapMaterial;
-      glowMaterial.setGlowParams(
-        currentSettings.overlayGlowIntensity || 2.8,
-        0.0, // Threshold always 0 as requested
-        currentSettings.overlayGlowSharpness || 0.7
-      );
-      // Scale is now fixed at 1.01 - no dynamic adjustment
-    };
-    
-    updateOverlayGlow(overlayTopGlow);
-    updateOverlayGlow(overlayBotGlow);
-    
-    overlayTopGlow.visible = overlayGlowEnabled && overlayTop.visible;
-    overlayBotGlow.visible = overlayGlowEnabled && overlayBot.visible;
-  }, [currentSettings.overlayMetallic, currentSettings.overlayMetalness, currentSettings.overlayRoughness, currentSettings.overlayGlow, currentSettings.overlayGlowIntensity, currentSettings.overlayGlowSharpness]);
+  }, [currentSettings.overlayMetallic, currentSettings.overlayMetalness, currentSettings.overlayRoughness]);
 
   // Note: Coin shape changes require rebuilding geometry, so we handle this in the initial setup
   // The shape setting is applied during the createFace function using dynamic bulge value
@@ -1582,27 +1587,6 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           material.transparent = true;
           material.needsUpdate = true;
           sceneRef.current!.overlayBot.visible = true;
-          
-          // Update bottom overlay glow - flip both horizontally and vertically to match back face view
-          const botGlow = sceneRef.current!.overlayBotGlow.material as GlowMapMaterial;
-          if (texture instanceof THREE.VideoTexture) {
-            const video = (texture as any).image;
-            const glowTexture = new THREE.VideoTexture(video);
-            glowTexture.colorSpace = THREE.SRGBColorSpace;
-            glowTexture.flipY = false; // Flip Y to fix upside down
-            glowTexture.wrapS = THREE.RepeatWrapping; // Allow wrapping for flipping
-            glowTexture.repeat.x = -1; // Horizontal flip for dual mode back face
-            glowTexture.needsUpdate = true;
-            botGlow.updateGlowSource(glowTexture, new THREE.Color(0xffffff));
-          } else {
-            const glowTexture = texture.clone();
-            glowTexture.flipY = false; // Flip Y to fix upside down
-            glowTexture.wrapS = THREE.RepeatWrapping; // Allow wrapping for flipping
-            glowTexture.repeat.x = -1; // Horizontal flip for dual mode back face
-            glowTexture.needsUpdate = true;
-            botGlow.updateGlowSource(glowTexture, new THREE.Color(0xffffff));
-          }
-          sceneRef.current!.overlayBotGlow.visible = !!currentSettings.overlayGlow;
         } else if (currentSettings.dualOverlay && !isSecond) {
           // Apply to top only
           const material = sceneRef.current!.overlayTop.material as THREE.MeshStandardMaterial;
@@ -1611,11 +1595,6 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           material.transparent = true;
           material.needsUpdate = true;
           sceneRef.current!.overlayTop.visible = true;
-          
-          // Update top overlay glow
-          const topGlow = sceneRef.current!.overlayTopGlow.material as GlowMapMaterial;
-          topGlow.updateGlowSource(texture, new THREE.Color(0xffffff));
-          sceneRef.current!.overlayTopGlow.visible = !!currentSettings.overlayGlow;
         } else {
           // Apply to both faces - single image mode
           const topMaterial = sceneRef.current!.overlayTop.material as THREE.MeshStandardMaterial;
@@ -1671,49 +1650,6 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           botMaterial.transparent = true;
           botMaterial.needsUpdate = true;
           sceneRef.current!.overlayBot.visible = true;
-          
-          // Update overlay glows for single image mode
-          const topGlow = sceneRef.current!.overlayTopGlow.material as GlowMapMaterial;
-          const botGlow = sceneRef.current!.overlayBotGlow.material as GlowMapMaterial;
-          
-          // Top glow gets original texture
-          topGlow.updateGlowSource(texture, new THREE.Color(0xffffff));
-          
-          // Bottom glow uses flipped texture both horizontally and vertically
-          if (texture instanceof THREE.VideoTexture) {
-            const video = (texture as any).image;
-            const bottomGlowTexture = new THREE.VideoTexture(video);
-            bottomGlowTexture.colorSpace = THREE.SRGBColorSpace;
-            bottomGlowTexture.flipY = false; // Flip Y to fix upside down
-            bottomGlowTexture.wrapS = THREE.RepeatWrapping; // Allow wrapping for flipping
-            bottomGlowTexture.repeat.x = -1; // Horizontal flip to match back face overlay
-            bottomGlowTexture.needsUpdate = true;
-            if ((texture as any).userData?.dispose) {
-              bottomGlowTexture.userData.dispose = (texture as any).userData.dispose;
-            }
-            botGlow.updateGlowSource(bottomGlowTexture, new THREE.Color(0xffffff));
-          } else if (texture instanceof THREE.CanvasTexture) {
-            const bottomGlowTexture = new THREE.CanvasTexture((texture as any).image);
-            bottomGlowTexture.colorSpace = THREE.SRGBColorSpace;
-            bottomGlowTexture.flipY = false; // Flip Y to fix upside down
-            bottomGlowTexture.wrapS = THREE.RepeatWrapping; // Allow wrapping for flipping
-            bottomGlowTexture.repeat.x = -1; // Horizontal flip to match back face overlay
-            bottomGlowTexture.needsUpdate = true;
-            bottomGlowTexture.userData = (texture as any).userData;
-            botGlow.updateGlowSource(bottomGlowTexture, new THREE.Color(0xffffff));
-          } else {
-            const bottomGlowTexture = texture.clone();
-            bottomGlowTexture.flipY = false; // Flip Y to fix upside down
-            bottomGlowTexture.wrapS = THREE.RepeatWrapping; // Allow wrapping for flipping
-            bottomGlowTexture.repeat.x = -1; // Horizontal flip to match back face overlay
-            bottomGlowTexture.needsUpdate = true;
-            botGlow.updateGlowSource(bottomGlowTexture, new THREE.Color(0xffffff));
-          }
-          
-          // Update glow visibility
-          const overlayGlowEnabled = !!currentSettings.overlayGlow;
-          sceneRef.current!.overlayTopGlow.visible = overlayGlowEnabled;
-          sceneRef.current!.overlayBotGlow.visible = overlayGlowEnabled;
         }
       })
       .catch((error) => {
@@ -1762,16 +1698,6 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     // Hide overlay meshes completely
     sceneRef.current.overlayTop.visible = false;
     sceneRef.current.overlayBot.visible = false;
-    
-    // Clear overlay glow textures and hide glow meshes
-    const topGlow = sceneRef.current.overlayTopGlow.material as GlowMapMaterial;
-    const botGlow = sceneRef.current.overlayBotGlow.material as GlowMapMaterial;
-    
-    topGlow.updateGlowSource(null, new THREE.Color(0xffffff));
-    botGlow.updateGlowSource(null, new THREE.Color(0xffffff));
-    
-    sceneRef.current.overlayTopGlow.visible = false;
-    sceneRef.current.overlayBotGlow.visible = false;
     
     // NOTE: Do NOT touch rimMat/faceMat here! They are the coin body materials,
     // not the overlays. The overlays are separate transparent layers on top.

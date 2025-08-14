@@ -25,10 +25,6 @@ export interface CoinSettings {
   bodyMetallic: boolean;          // NEW: Separate from overlay metallic
   bodyMetalness: 'low' | 'normal' | 'high';  // NEW: Body metallic intensity
   bodyRoughness: 'low' | 'normal' | 'high';  // NEW: Body roughness control
-  bodyGlow: boolean;              // NEW: Enable glow effect for body
-  bodyGlowScale: number;          // NEW: Glow size/spread control (1.0 - 1.5)
-  bodyGlowIntensity: number;      // NEW: Glow brightness control (0.5 - 5.0)
-  bodyGlowSharpness: number;      // NEW: Glow edge sharpness (0.1 - 2.0)
   
   // Body Texture Settings
   bodyTextureUrl: string;
@@ -50,10 +46,14 @@ export interface CoinSettings {
   overlayMetallic: boolean;       // NEW: Separate toggle for overlays
   overlayMetalness: 'low' | 'normal' | 'high';
   overlayRoughness: 'low' | 'normal' | 'high';
-  overlayGlow: boolean;           // NEW: Enable glow effect for overlays
-  overlayGlowScale: number;       // NEW: Overlay glow size/spread control (1.0 - 1.5)
-  overlayGlowIntensity: number;   // NEW: Overlay glow brightness control (0.5 - 5.0)
-  overlayGlowSharpness: number;   // NEW: Overlay glow edge sharpness (0.1 - 2.0)
+  
+  // Overlay Enhancement Settings (replaces glow system)
+  overlayEnhancement: boolean;        // Enable overlay enhancement
+  overlayBrightness: number;          // Brightness multiplier (1.0-3.0, default 1.6)
+  overlayContrast: number;            // Contrast multiplier (1.0-2.0, default 1.15)
+  overlayVibrance: number;            // Color vibrance (1.0-2.0, default 1.3)
+  overlayBloom: boolean;              // Enable selective bloom effect
+  
   overlayGifSpeed: 'slow' | 'normal' | 'fast';  // RENAMED: from gifAnimationSpeed
   overlayRotation: number;        // NEW: 0-360 degrees overlay rotation
   overlayScale: number;           // NEW: 0.1-5.0 overlay scale multiplier
@@ -868,67 +868,6 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
               )}
             </div>
 
-            {/* Body Glow Controls */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-gray-900 font-medium text-sm">Body Glow Effect</span>
-                  <p className="text-xs text-gray-500">Adds luminous rim glow to coin body</p>
-                </div>
-                <Toggle 
-                  checked={settings.bodyGlow} 
-                  onChange={(checked) => updateSetting('bodyGlow', checked)} 
-                />
-              </div>
-              
-              {/* Glow Parameters - Show when body glow is enabled */}
-              {settings.bodyGlow && (
-                <div className="space-y-3 pl-4 border-l-2 border-green-200 bg-green-50/30 p-3 rounded-r-lg">
-                  {/* Glow Intensity Control */}
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-gray-800 text-xs font-medium">Intensity</span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="range"
-                        min="0.5"
-                        max="5.0"
-                        step="0.1"
-                        value={settings.bodyGlowIntensity || 2.2}
-                        onChange={(e) => updateSetting('bodyGlowIntensity', parseFloat(e.target.value))}
-                        className="w-20 accent-green-400"
-                      />
-                      <span className="text-xs text-gray-600 w-12 text-right">
-                        {(settings.bodyGlowIntensity || 2.2).toFixed(1)}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Glow Sharpness Control */}
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-gray-800 text-xs font-medium">Sharpness</span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="range"
-                        min="0.1"
-                        max="2.0"
-                        step="0.1"
-                        value={settings.bodyGlowSharpness || 0.6}
-                        onChange={(e) => updateSetting('bodyGlowSharpness', parseFloat(e.target.value))}
-                        className="w-20 accent-green-400"
-                      />
-                      <span className="text-xs text-gray-600 w-12 text-right">
-                        {(settings.bodyGlowSharpness || 0.6).toFixed(1)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
             {/* Body Texture Section (Enhanced) */}
             {settings.fillMode === 'texture' && (
               <div className="space-y-4 p-4 bg-gray-50 rounded-lg border">
@@ -1394,62 +1333,95 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
               )}
             </div>
 
-            {/* Overlay Glow Controls */}
+            {/* Overlay Enhancement Controls */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="text-gray-900 font-medium text-sm">Overlay Glow Effect</span>
-                  <p className="text-xs text-gray-500">Adds luminous rim glow to overlays</p>
+                  <span className="text-gray-900 font-medium text-sm">Overlay Enhancement</span>
+                  <p className="text-xs text-gray-500">Enhances overlay visibility and vibrancy</p>
                 </div>
                 <Toggle 
-                  checked={settings.overlayGlow} 
-                  onChange={(checked) => updateSetting('overlayGlow', checked)} 
+                  checked={settings.overlayEnhancement || false} 
+                  onChange={(checked) => updateSetting('overlayEnhancement', checked)} 
                 />
               </div>
               
-              {/* Overlay Glow Parameters - Show when overlay glow is enabled */}
-              {settings.overlayGlow && (
-                <div className="space-y-3 pl-4 border-l-2 border-purple-200 bg-purple-50/30 p-3 rounded-r-lg">
-                  {/* Overlay Glow Intensity Control */}
+              {/* Enhancement Parameters - Show when overlay enhancement is enabled */}
+              {settings.overlayEnhancement && (
+                <div className="space-y-3 pl-4 border-l-2 border-blue-200 bg-blue-50/30 p-3 rounded-r-lg">
+                  {/* Brightness Control */}
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="text-gray-800 text-xs font-medium">Intensity</span>
+                      <span className="text-gray-800 text-xs font-medium">Brightness</span>
                     </div>
                     <div className="flex items-center space-x-2">
                       <input
                         type="range"
-                        min="0.5"
-                        max="5.0"
+                        min="1.0"
+                        max="3.0"
                         step="0.1"
-                        value={settings.overlayGlowIntensity || 2.8}
-                        onChange={(e) => updateSetting('overlayGlowIntensity', parseFloat(e.target.value))}
-                        className="w-20 accent-purple-500"
+                        value={settings.overlayBrightness || 1.6}
+                        onChange={(e) => updateSetting('overlayBrightness', parseFloat(e.target.value))}
+                        className="w-20 accent-blue-500"
                       />
                       <span className="text-xs text-gray-600 w-12 text-right">
-                        {(settings.overlayGlowIntensity || 2.8).toFixed(1)}
+                        {(settings.overlayBrightness || 1.6).toFixed(1)}x
                       </span>
                     </div>
                   </div>
 
-                  {/* Overlay Glow Sharpness Control */}
+                  {/* Contrast Control */}
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="text-gray-800 text-xs font-medium">Sharpness</span>
+                      <span className="text-gray-800 text-xs font-medium">Contrast</span>
                     </div>
                     <div className="flex items-center space-x-2">
                       <input
                         type="range"
-                        min="0.1"
+                        min="1.0"
                         max="2.0"
-                        step="0.1"
-                        value={settings.overlayGlowSharpness || 0.7}
-                        onChange={(e) => updateSetting('overlayGlowSharpness', parseFloat(e.target.value))}
-                        className="w-20 accent-purple-500"
+                        step="0.05"
+                        value={settings.overlayContrast || 1.15}
+                        onChange={(e) => updateSetting('overlayContrast', parseFloat(e.target.value))}
+                        className="w-20 accent-blue-500"
                       />
                       <span className="text-xs text-gray-600 w-12 text-right">
-                        {(settings.overlayGlowSharpness || 0.7).toFixed(1)}
+                        {(settings.overlayContrast || 1.15).toFixed(2)}x
                       </span>
                     </div>
+                  </div>
+
+                  {/* Vibrance Control */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-gray-800 text-xs font-medium">Vibrance</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="range"
+                        min="1.0"
+                        max="2.0"
+                        step="0.1"
+                        value={settings.overlayVibrance || 1.3}
+                        onChange={(e) => updateSetting('overlayVibrance', parseFloat(e.target.value))}
+                        className="w-20 accent-blue-500"
+                      />
+                      <span className="text-xs text-gray-600 w-12 text-right">
+                        {(settings.overlayVibrance || 1.3).toFixed(1)}x
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Bloom Effect Toggle */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-gray-800 text-xs font-medium">Bloom Effect</span>
+                      <p className="text-xs text-gray-500">Highlights bright areas</p>
+                    </div>
+                    <Toggle 
+                      checked={settings.overlayBloom || true} 
+                      onChange={(checked) => updateSetting('overlayBloom', checked)} 
+                    />
                   </div>
                 </div>
               )}

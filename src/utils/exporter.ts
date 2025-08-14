@@ -393,13 +393,12 @@ export class CoinExporter {
         hasBodyTextureFile: !!this.currentSettings.bodyTextureFile,
         hasOverlayFile: !!this.currentSettings.overlayFile,
         hasOverlayFile2: !!this.currentSettings.overlayFile2,
-        // CRITICAL: Add glow settings debug
-        bodyGlow: this.currentSettings.bodyGlow,
-        bodyGlowIntensity: this.currentSettings.bodyGlowIntensity,
-        bodyGlowSharpness: this.currentSettings.bodyGlowSharpness,
-        overlayGlow: this.currentSettings.overlayGlow,
-        overlayGlowIntensity: this.currentSettings.overlayGlowIntensity,
-        overlayGlowSharpness: this.currentSettings.overlayGlowSharpness
+        // Enhancement settings (server-side overlay enhancement is always enabled)
+        overlayEnhancement: this.currentSettings.overlayEnhancement,
+        overlayBrightness: this.currentSettings.overlayBrightness,
+        overlayContrast: this.currentSettings.overlayContrast,
+        overlayVibrance: this.currentSettings.overlayVibrance,
+        overlayBloom: this.currentSettings.overlayBloom
       });
       return this.currentSettings;
     }
@@ -433,13 +432,12 @@ export class CoinExporter {
       overlayGifSpeed: 'normal' as const,   // New setting name  
       bodyGifSpeed: 'normal' as const,      // Body texture GIF speed
       
-      // Glow settings - CRITICAL: Include all glow parameters for server
-      bodyGlow: false,
-      bodyGlowIntensity: 5.0,
-      bodyGlowSharpness: 0.6,
-      overlayGlow: false,
-      overlayGlowIntensity: 5.0,
-      overlayGlowSharpness: 0.6
+      // Enhancement settings - Default values matching server-side
+      overlayEnhancement: false,      // Disabled by default
+      overlayBrightness: 1.6,         // Server-side default
+      overlayContrast: 1.15,          // Server-side default
+      overlayVibrance: 1.3,           // Server-side default
+      overlayBloom: true              // Enabled by default
     };
   }
 
