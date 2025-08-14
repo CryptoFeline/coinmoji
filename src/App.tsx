@@ -29,10 +29,6 @@ const AppContent: React.FC = () => {
     bodyMetallic: true,          // NEW: Separate from overlay metallic
     bodyMetalness: 'normal',     // NEW: Body metallic intensity
     bodyRoughness: 'normal',     // NEW: Body roughness control
-    // bodyGlow: false,          // doesn't exist anymore
-    // bodyGlowScale: 1.08,      // doesn't exist anymore
-    // bodyGlowIntensity: 2.2,   // doesn't exist anymore
-    // bodyGlowSharpness: 0.6,   // doesn't exist anymore
     
     // Body Texture Settings
     bodyTextureUrl: '',

@@ -659,6 +659,14 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
         updateAnimatedTexture(sceneRef.current.overlayBot.material as THREE.MeshStandardMaterial);
       }
       
+      // CRITICAL FIX: Update body texture animations (rim and face materials)
+      if (sceneRef.current.rimMat) {
+        updateAnimatedTexture(sceneRef.current.rimMat);
+      }
+      if (sceneRef.current.faceMat) {
+        updateAnimatedTexture(sceneRef.current.faceMat);
+      }
+      
       // Update textures on coin faces and rim
       sceneRef.current.coinGroup.children.forEach(child => {
         if (child instanceof THREE.Mesh && child.material) {
@@ -1344,6 +1352,18 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       
       createTextureFromUrl(currentSettings.bodyTextureUrl, fileType, currentSettings.bodyGifSpeed)
         .then((originalTexture) => {
+          console.log('🎯 BODY TEXTURE DEBUG - Successfully created texture:', {
+            textureType: originalTexture.constructor.name,
+            isVideoTexture: originalTexture instanceof THREE.VideoTexture,
+            isCanvasTexture: originalTexture instanceof THREE.CanvasTexture,
+            flipY: originalTexture.flipY,
+            url: currentSettings.bodyTextureUrl?.substring(0, 50),
+            fileType,
+            gifSpeed: currentSettings.bodyGifSpeed,
+            hasUserData: !!originalTexture.userData,
+            userDataKeys: Object.keys(originalTexture.userData || {})
+          });
+          
           let texture = originalTexture;
           
           // Apply body enhancement if enabled (works for all body materials)
@@ -1403,6 +1423,29 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           // Create separate textures for face and rim to allow different UV mappings
           const faceTexture = texture.clone();
           const rimTexture = texture.clone();
+          
+          // CRITICAL FIX: Preserve animation userData when cloning textures
+          if (texture.userData && texture.userData.update) {
+            console.log('🎬 BODY TEXTURE FIX - Preserving animation userData in cloned textures');
+            faceTexture.userData = { ...texture.userData };
+            rimTexture.userData = { ...texture.userData };
+          }
+          
+          // CRITICAL FIX: Set proper flipY for body textures (matching face overlay behavior)
+          // Face overlays explicitly set flipY=true for proper orientation
+          if (texture instanceof THREE.VideoTexture || texture instanceof THREE.CanvasTexture) {
+            console.log('🔧 BODY TEXTURE FIX - Setting flipY=true for video/canvas textures (matching face overlays)');
+            faceTexture.flipY = true;
+            rimTexture.flipY = true;
+          }
+          
+          console.log('🎯 BODY TEXTURE DEBUG - Cloned textures created:', {
+            faceTextureFlipY: faceTexture.flipY,
+            rimTextureFlipY: rimTexture.flipY,
+            originalFlipY: texture.flipY,
+            hasAnimationFunction: !!(faceTexture.userData?.update),
+            userDataKeys: Object.keys(faceTexture.userData || {})
+          });
           
           // Apply face texture transformations
           faceTexture.wrapS = faceTexture.wrapT = THREE.RepeatWrapping;
@@ -1500,6 +1543,15 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           faceMat.color.set('#ffffff');
           rimMat.needsUpdate = true;
           faceMat.needsUpdate = true;
+          
+          console.log('✅ BODY TEXTURE DEBUG - Applied textures to materials:', {
+            rimMatHasMap: !!rimMat.map,
+            faceMatHasMap: !!faceMat.map,
+            rimMatMapType: rimMat.map?.constructor.name,
+            faceMatMapType: faceMat.map?.constructor.name,
+            isVideoTexture: rimMat.map instanceof THREE.VideoTexture,
+            hasUpdateFunction: !!(rimMat.map as any)?.userData?.update
+          });
         })
         .catch((error) => {
           console.error('Failed to load body texture:', error);
@@ -1638,7 +1690,10 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     currentSettings.bodyMetallic, 
     currentSettings.bodyMetalness, 
     currentSettings.bodyRoughness, 
-    currentSettings.bodyTextureUrl, 
+    currentSettings.bodyTextureUrl,
+    currentSettings.bodyTextureMode,     // FIX: Add missing mode dependency
+    currentSettings.bodyTextureFile,     // FIX: Add missing file dependency  
+    currentSettings.bodyTextureBlobUrl,  // FIX: Add missing blob URL dependency
     currentSettings.bodyTextureMapping, 
     currentSettings.bodyTextureRimMapping,
     currentSettings.bodyTextureRotation, 
