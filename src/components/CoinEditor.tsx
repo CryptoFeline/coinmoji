@@ -104,7 +104,8 @@ export interface CoinSettings {
   bodyTextureMode: 'url' | 'upload';
   bodyTextureFile: File | null;
   bodyTextureBlobUrl: string;
-  bodyTextureMapping: 'planar' | 'cylindrical' | 'spherical';  // NEW: Texture mapping options
+  bodyTextureMapping: 'planar' | 'cylindrical' | 'spherical';  // Face texture mapping
+  bodyTextureRimMapping: 'planar' | 'cylindrical' | 'spherical';  // NEW: Rim texture mapping
   bodyTextureRotation: number;    // NEW: 0-360 degrees
   bodyTextureScale: number;       // NEW: 0.1-5.0 scale multiplier
   bodyTextureOffsetX: number;     // NEW: -1 to 1 offset
@@ -280,6 +281,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     bodyTextureFile: null,
     bodyTextureBlobUrl: '',
     bodyTextureMapping: 'planar',
+    bodyTextureRimMapping: 'cylindrical',  // Default to cylindrical for rim
     bodyTextureRotation: 0,
     bodyTextureScale: 1.0,
     bodyTextureOffsetX: 0,
@@ -1273,6 +1275,37 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     return texture;
   };
 
+  // Enhanced gradient texture creation with body enhancement
+  const createEnhancedGradientTexture = (color1: string, color2: string, isRim = false, enhancementSettings: any) => {
+    const texture = createGradientTexture(color1, color2, isRim);
+    const canvas = texture.image;
+    const ctx = canvas.getContext('2d')!;
+    
+    // Apply body enhancement
+    enhanceOverlayTexture(canvas, ctx, enhancementSettings);
+    texture.needsUpdate = true;
+    return texture;
+  };
+
+  // Solid color texture creation with body enhancement
+  const createEnhancedSolidTexture = (color: string, enhancementSettings: any) => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d')!;
+    canvas.width = 256;
+    canvas.height = 256;
+    
+    // Fill with solid color
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Apply body enhancement
+    enhanceOverlayTexture(canvas, ctx, enhancementSettings);
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+  };
+
   // Update coin geometry when shape changes
   useEffect(() => {
     if (!sceneRef.current) return;
@@ -1358,8 +1391,8 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
         .then((originalTexture) => {
           let texture = originalTexture;
           
-          // Apply body enhancement if enabled and metallic is on
-          if (currentSettings.bodyMetallic && currentSettings.bodyEnhancement) {
+          // Apply body enhancement if enabled (works for all body materials)
+          if (currentSettings.bodyEnhancement) {
             console.log('🌟 Applying CLIENT-SIDE body texture enhancement');
             
             if (texture instanceof THREE.CanvasTexture) {
@@ -1412,14 +1445,25 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           rimMat.map?.dispose();
           faceMat.map?.dispose();
           
-          // Apply texture transformations
-          texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-          texture.repeat.set(currentSettings.bodyTextureScale, currentSettings.bodyTextureScale);
-          texture.offset.set(currentSettings.bodyTextureOffsetX, currentSettings.bodyTextureOffsetY);
-          texture.rotation = (currentSettings.bodyTextureRotation * Math.PI) / 180; // Convert to radians
-          texture.center.set(0.5, 0.5); // Rotate around center
+          // Create separate textures for face and rim to allow different UV mappings
+          const faceTexture = texture.clone();
+          const rimTexture = texture.clone();
           
-          // Apply UV mapping based on selected mode
+          // Apply face texture transformations
+          faceTexture.wrapS = faceTexture.wrapT = THREE.RepeatWrapping;
+          faceTexture.repeat.set(currentSettings.bodyTextureScale, currentSettings.bodyTextureScale);
+          faceTexture.offset.set(currentSettings.bodyTextureOffsetX, currentSettings.bodyTextureOffsetY);
+          faceTexture.rotation = (currentSettings.bodyTextureRotation * Math.PI) / 180;
+          faceTexture.center.set(0.5, 0.5);
+          
+          // Apply rim texture transformations (using separate rim mapping if different)
+          rimTexture.wrapS = rimTexture.wrapT = THREE.RepeatWrapping;
+          rimTexture.repeat.set(currentSettings.bodyTextureScale, currentSettings.bodyTextureScale);
+          rimTexture.offset.set(currentSettings.bodyTextureOffsetX, currentSettings.bodyTextureOffsetY);
+          rimTexture.rotation = (currentSettings.bodyTextureRotation * Math.PI) / 180;
+          rimTexture.center.set(0.5, 0.5);
+          
+          // Apply UV mapping to face geometry based on selected mode
           const { coinGroup } = sceneRef.current!;
           const faces = coinGroup.children.filter(child => 
             child instanceof THREE.Mesh && 
@@ -1451,9 +1495,40 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
             }
           });
           
-          // Apply texture to both rim and face materials
-          rimMat.map = texture;
-          faceMat.map = texture;
+          // Apply UV mapping to rim geometry based on rim mapping mode
+          const rims = coinGroup.children.filter(child => 
+            child instanceof THREE.Mesh && 
+            (child.material === rimMat || child.material.uuid === rimMat.uuid)
+          ) as THREE.Mesh[];
+          
+          rims.forEach(rim => {
+            switch (currentSettings.bodyTextureRimMapping) {
+              case 'cylindrical':
+                cylindricalMapUVs(rim.geometry, {
+                  rotation: currentSettings.bodyTextureRotation,
+                  scale: currentSettings.bodyTextureScale,
+                  offsetX: currentSettings.bodyTextureOffsetX,
+                  offsetY: currentSettings.bodyTextureOffsetY
+                });
+                break;
+              case 'spherical':
+                sphericalMapUVs(rim.geometry, {
+                  rotation: currentSettings.bodyTextureRotation,
+                  scale: currentSettings.bodyTextureScale,
+                  offsetX: currentSettings.bodyTextureOffsetX,
+                  offsetY: currentSettings.bodyTextureOffsetY
+                });
+                break;
+              case 'planar':
+              default:
+                planarMapUVs(rim.geometry);
+                break;
+            }
+          });
+          
+          // Apply textures to materials
+          rimMat.map = rimTexture;
+          faceMat.map = faceTexture;
           rimMat.color.set('#ffffff');
           faceMat.color.set('#ffffff');
           rimMat.needsUpdate = true;
@@ -1482,10 +1557,25 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
             rimMat.color.set(currentSettings.bodyColor);
             faceMat.color.set(currentSettings.bodyColor);
           } else {
-            const faceTexture = createGradientTexture(currentSettings.gradientStart, currentSettings.gradientEnd);
-            const rimTexture = createGradientTexture(currentSettings.gradientStart, currentSettings.gradientEnd, true);
-            rimMat.map = rimTexture;
-            faceMat.map = faceTexture;
+            // Apply gradient with enhancement if enabled
+            if (currentSettings.bodyEnhancement) {
+              const enhancementSettings = {
+                brightness: currentSettings.bodyBrightness,
+                contrast: currentSettings.bodyContrast,
+                vibrance: currentSettings.bodyVibrance,
+                bloom: currentSettings.bodyBloom
+              };
+              
+              const faceTexture = createEnhancedGradientTexture(currentSettings.gradientStart, currentSettings.gradientEnd, false, enhancementSettings);
+              const rimTexture = createEnhancedGradientTexture(currentSettings.gradientStart, currentSettings.gradientEnd, true, enhancementSettings);
+              rimMat.map = rimTexture;
+              faceMat.map = faceTexture;
+            } else {
+              const faceTexture = createGradientTexture(currentSettings.gradientStart, currentSettings.gradientEnd);
+              const rimTexture = createGradientTexture(currentSettings.gradientStart, currentSettings.gradientEnd, true);
+              rimMat.map = rimTexture;
+              faceMat.map = faceTexture;
+            }
             rimMat.color.set('#ffffff');
             faceMat.color.set('#ffffff');
           }
@@ -1500,8 +1590,27 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       faceMat.map?.dispose();
       rimMat.map = null;
       faceMat.map = null;
-      rimMat.color.set(currentSettings.bodyColor);
-      faceMat.color.set(currentSettings.bodyColor);
+      
+      if (currentSettings.bodyEnhancement) {
+        // Apply body enhancement to solid color using texture
+        console.log('🌟 Applying CLIENT-SIDE solid color body enhancement');
+        const enhancementSettings = {
+          brightness: currentSettings.bodyBrightness,
+          contrast: currentSettings.bodyContrast,
+          vibrance: currentSettings.bodyVibrance,
+          bloom: currentSettings.bodyBloom
+        };
+        
+        const enhancedTexture = createEnhancedSolidTexture(currentSettings.bodyColor, enhancementSettings);
+        rimMat.map = enhancedTexture.clone();
+        faceMat.map = enhancedTexture;
+        rimMat.color.set('#ffffff');
+        faceMat.color.set('#ffffff');
+      } else {
+        // Standard solid color without enhancement
+        rimMat.color.set(currentSettings.bodyColor);
+        faceMat.color.set(currentSettings.bodyColor);
+      }
       rimMat.needsUpdate = true;
       faceMat.needsUpdate = true;
     } else {
@@ -1512,11 +1621,31 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       faceMat.map?.dispose();
       rimMat.map = null;
       faceMat.map = null;
-      const faceTexture = createGradientTexture(currentSettings.gradientStart, currentSettings.gradientEnd);
-      const rimTexture = createGradientTexture(currentSettings.gradientStart, currentSettings.gradientEnd, true);
       
-      rimMat.map = rimTexture;
-      faceMat.map = faceTexture;
+      if (currentSettings.bodyEnhancement) {
+        // Apply body enhancement to gradient using enhanced textures
+        console.log('🌟 Applying CLIENT-SIDE gradient body enhancement');
+        const enhancementSettings = {
+          brightness: currentSettings.bodyBrightness,
+          contrast: currentSettings.bodyContrast,
+          vibrance: currentSettings.bodyVibrance,
+          bloom: currentSettings.bodyBloom
+        };
+        
+        const faceTexture = createEnhancedGradientTexture(currentSettings.gradientStart, currentSettings.gradientEnd, false, enhancementSettings);
+        const rimTexture = createEnhancedGradientTexture(currentSettings.gradientStart, currentSettings.gradientEnd, true, enhancementSettings);
+        
+        rimMat.map = rimTexture;
+        faceMat.map = faceTexture;
+      } else {
+        // Standard gradient without enhancement
+        const faceTexture = createGradientTexture(currentSettings.gradientStart, currentSettings.gradientEnd);
+        const rimTexture = createGradientTexture(currentSettings.gradientStart, currentSettings.gradientEnd, true);
+        
+        rimMat.map = rimTexture;
+        faceMat.map = faceTexture;
+      }
+      
       rimMat.color.set('#ffffff');
       faceMat.color.set('#ffffff');
       rimMat.needsUpdate = true;
@@ -1544,6 +1673,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
     currentSettings.bodyRoughness, 
     currentSettings.bodyTextureUrl, 
     currentSettings.bodyTextureMapping, 
+    currentSettings.bodyTextureRimMapping,
     currentSettings.bodyTextureRotation, 
     currentSettings.bodyTextureScale, 
     currentSettings.bodyTextureOffsetX, 

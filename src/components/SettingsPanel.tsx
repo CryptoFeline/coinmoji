@@ -31,7 +31,8 @@ export interface CoinSettings {
   bodyTextureMode: 'url' | 'upload';
   bodyTextureFile: File | null;
   bodyTextureBlobUrl: string;
-  bodyTextureMapping: 'planar' | 'cylindrical' | 'spherical';  // NEW: Texture mapping options
+  bodyTextureMapping: 'planar' | 'cylindrical' | 'spherical';  // Face texture mapping
+  bodyTextureRimMapping: 'planar' | 'cylindrical' | 'spherical';  // NEW: Separate rim mapping
   bodyTextureRotation: number;    // NEW: 0-360 degrees
   bodyTextureScale: number;       // NEW: 0.1-5.0 scale multiplier
   bodyTextureOffsetX: number;     // NEW: -1 to 1 offset
@@ -875,97 +876,98 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
               )}
             </div>
 
-            {/* Body Enhancement Section - Only show when metallic is enabled */}
-            {settings.bodyMetallic && (
-              <div className="space-y-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                <div className="flex justify-between items-center">
+            {/* Body Enhancement Section - Always visible for all body materials */}
+            <div className="space-y-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="flex justify-between items-center">
+                <div>
                   <h3 className="text-base font-medium text-gray-900">Body Enhancement</h3>
-                  <Toggle 
-                    checked={settings.bodyEnhancement ?? false} 
-                    onChange={(checked) => updateSetting('bodyEnhancement', checked)} 
-                  />
+                  <p className="text-xs text-gray-500">Enhances body colors, gradients, and textures</p>
                 </div>
-                
-                {settings.bodyEnhancement && (
-                  <div className="space-y-3">
-                    {/* Brightness Control */}
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="text-gray-800 text-xs font-medium">Brightness</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="range"
-                          min="1.0"
-                          max="1.6"
-                          step="0.1"
-                          value={settings.bodyBrightness || 1.2}
-                          onChange={(e) => updateSetting('bodyBrightness', parseFloat(e.target.value))}
-                          className="w-20 accent-blue-500"
-                        />
-                        <span className="text-xs text-gray-600 w-12 text-right">
-                          {(settings.bodyBrightness || 1.2).toFixed(1)}x
-                        </span>
-                      </div>
+                <Toggle 
+                  checked={settings.bodyEnhancement ?? false} 
+                  onChange={(checked) => updateSetting('bodyEnhancement', checked)} 
+                />
+              </div>
+              
+              {settings.bodyEnhancement && (
+                <div className="space-y-3">
+                  {/* Brightness Control */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-gray-800 text-xs font-medium">Brightness</span>
                     </div>
-
-                    {/* Contrast Control */}
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="text-gray-800 text-xs font-medium">Contrast</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="range"
-                          min="1.0"
-                          max="1.15"
-                          step="0.02"
-                          value={settings.bodyContrast || 1.05}
-                          onChange={(e) => updateSetting('bodyContrast', parseFloat(e.target.value))}
-                          className="w-20 accent-blue-500"
-                        />
-                        <span className="text-xs text-gray-600 w-12 text-right">
-                          {(settings.bodyContrast || 1.05).toFixed(2)}x
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Vibrance Control */}
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="text-gray-800 text-xs font-medium">Vibrance</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="range"
-                          min="1.0"
-                          max="1.3"
-                          step="0.05"
-                          value={settings.bodyVibrance || 1.1}
-                          onChange={(e) => updateSetting('bodyVibrance', parseFloat(e.target.value))}
-                          className="w-20 accent-blue-500"
-                        />
-                        <span className="text-xs text-gray-600 w-12 text-right">
-                          {(settings.bodyVibrance || 1.1).toFixed(1)}x
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Bloom Effect Toggle */}
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="text-gray-800 text-xs font-medium">Bloom Effect</span>
-                        <p className="text-xs text-gray-500">Highlights bright areas</p>
-                      </div>
-                      <Toggle 
-                        checked={settings.bodyBloom ?? true} 
-                        onChange={(checked) => updateSetting('bodyBloom', checked)} 
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="range"
+                        min="1.0"
+                        max="1.6"
+                        step="0.1"
+                        value={settings.bodyBrightness || 1.2}
+                        onChange={(e) => updateSetting('bodyBrightness', parseFloat(e.target.value))}
+                        className="w-20 accent-blue-500"
                       />
+                      <span className="text-xs text-gray-600 w-12 text-right">
+                        {(settings.bodyBrightness || 1.2).toFixed(1)}x
+                      </span>
                     </div>
                   </div>
-                )}
-              </div>
-            )}
+
+                  {/* Contrast Control */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-gray-800 text-xs font-medium">Contrast</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="range"
+                        min="1.0"
+                        max="1.15"
+                        step="0.02"
+                        value={settings.bodyContrast || 1.05}
+                        onChange={(e) => updateSetting('bodyContrast', parseFloat(e.target.value))}
+                        className="w-20 accent-blue-500"
+                      />
+                      <span className="text-xs text-gray-600 w-12 text-right">
+                        {(settings.bodyContrast || 1.05).toFixed(2)}x
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Vibrance Control */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-gray-800 text-xs font-medium">Vibrance</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="range"
+                        min="1.0"
+                        max="1.3"
+                        step="0.05"
+                        value={settings.bodyVibrance || 1.1}
+                        onChange={(e) => updateSetting('bodyVibrance', parseFloat(e.target.value))}
+                        className="w-20 accent-blue-500"
+                      />
+                      <span className="text-xs text-gray-600 w-12 text-right">
+                        {(settings.bodyVibrance || 1.1).toFixed(1)}x
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Bloom Effect Toggle */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-gray-800 text-xs font-medium">Bloom Effect</span>
+                      <p className="text-xs text-gray-500">Highlights bright areas</p>
+                    </div>
+                    <Toggle 
+                      checked={settings.bodyBloom ?? true} 
+                      onChange={(checked) => updateSetting('bodyBloom', checked)} 
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Body Texture Section (Enhanced) */}
             {settings.fillMode === 'texture' && (
@@ -1075,23 +1077,46 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                   </div>
                 )}
 
-                {/* Texture Mapping Mode */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">Mapping Mode</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(['planar', 'cylindrical', 'spherical'] as const).map((mode) => (
-                      <button
-                        key={mode}
-                        onClick={() => updateSetting('bodyTextureMapping', mode)}
-                        className={`p-2 rounded-lg border-2 text-sm font-medium transition-all capitalize ${
-                          settings.bodyTextureMapping === mode
-                            ? 'border-green-500 bg-green-50 text-green-600'
-                            : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
-                        }`}
-                      >
-                        {mode}
-                      </button>
-                    ))}
+                {/* Texture Mapping Modes - Separate for Face and Rim */}
+                <div className="space-y-4">
+                  {/* Face Mapping */}
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">Face Mapping</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(['planar', 'cylindrical', 'spherical'] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          onClick={() => updateSetting('bodyTextureMapping', mode)}
+                          className={`p-2 rounded-lg border-2 text-sm font-medium transition-all capitalize ${
+                            settings.bodyTextureMapping === mode
+                              ? 'border-green-500 bg-green-50 text-green-600'
+                              : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
+                          }`}
+                        >
+                          {mode}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Rim Mapping */}
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">Rim Mapping</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(['planar', 'cylindrical', 'spherical'] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          onClick={() => updateSetting('bodyTextureRimMapping', mode)}
+                          className={`p-2 rounded-lg border-2 text-sm font-medium transition-all capitalize ${
+                            settings.bodyTextureRimMapping === mode
+                              ? 'border-green-500 bg-green-50 text-green-600'
+                              : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50'
+                          }`}
+                        >
+                          {mode}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
