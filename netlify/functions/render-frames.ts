@@ -1769,6 +1769,20 @@ export const handler: Handler = async (event) => {
         texture.needsUpdate = true;
       };
 
+      // Helper function to get enhancement multiplier based on user settings
+      const getEnhancementMultiplier = (settings: any): number => {
+        // If enhancement is disabled, return 1.0 (no enhancement)
+        if (!settings.overlayEnhancement) {
+          console.log('🚫 Overlay enhancement DISABLED by user - using original brightness');
+          return 1.0;
+        }
+        
+        // If enhancement is enabled, use user's brightness setting (default 1.6)
+        const brightness = settings.overlayBrightness || 1.6;
+        console.log(`✨ Overlay enhancement ENABLED - using ${brightness}x brightness boost`);
+        return brightness;
+      };
+
       // 🌟 REFINED: Balanced overlay enhancement with sharpness preservation
       const enhanceOverlayTexture = (canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, brightnessBoost: number = 1.6) => {
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -1984,14 +1998,14 @@ export const handler: Handler = async (event) => {
           overlayTexture = await createSpritesheetTexture(
             settings.overlayUrl, // This is now the spritesheet data URL
             spritesheetData,
-            1.6 // REFINED: 60% brightness boost + subtle bloom + clarity
+            getEnhancementMultiplier(settings) // Use dynamic enhancement based on user settings
           );
           
           if (overlayTexture) {
             console.log('✅ Video spritesheet overlay applied');
           } else {
             console.warn('⚠️ Video spritesheet overlay processing failed, using static fallback');
-            overlayTexture = await loadImageTexture(settings.overlayUrl, 1.6); // REFINED: 60% brightness boost + subtle bloom + clarity
+            overlayTexture = await loadImageTexture(settings.overlayUrl, getEnhancementMultiplier(settings)); // Use dynamic enhancement based on user settings
           }
         } else if (textureType === 'gif') {
           // Process GIF with gifuct-js (identical to client-side)
@@ -2016,7 +2030,7 @@ export const handler: Handler = async (event) => {
           }
         } else {
           // Process static image (URLs or local files)
-          overlayTexture = await loadImageTexture(settings.overlayUrl, 1.6); // REFINED: 60% brightness boost + subtle bloom + clarity
+          overlayTexture = await loadImageTexture(settings.overlayUrl, getEnhancementMultiplier(settings)); // Use dynamic enhancement based on user settings
           console.log('✅ Static overlay applied');
         }
         
@@ -2163,14 +2177,14 @@ export const handler: Handler = async (event) => {
           overlayTexture = await createSpritesheetTexture(
             settings.overlayUrl2, // This is now the spritesheet data URL
             spritesheetData,
-            1.6 // REFINED: 60% brightness boost + subtle bloom + clarity
+            getEnhancementMultiplier(settings) // Use dynamic enhancement based on user settings
           );
           
           if (overlayTexture) {
             console.log('✅ Video spritesheet back overlay applied');
           } else {
             console.warn('⚠️ Video spritesheet back overlay processing failed, using static fallback');
-            overlayTexture = await loadImageTexture(settings.overlayUrl2, 1.6); // REFINED: 60% brightness boost + subtle bloom + clarity
+            overlayTexture = await loadImageTexture(settings.overlayUrl2, getEnhancementMultiplier(settings)); // Use dynamic enhancement based on user settings
           }
         } else if (textureType === 'gif') {
           // Process GIF with gifuct-js (identical to client-side)
@@ -2195,7 +2209,7 @@ export const handler: Handler = async (event) => {
           }
         } else {
           // Process static image (URLs or local files)
-          overlayTexture = await loadImageTexture(settings.overlayUrl2, 1.6); // REFINED: 60% brightness boost + subtle bloom + clarity
+          overlayTexture = await loadImageTexture(settings.overlayUrl2, getEnhancementMultiplier(settings)); // Use dynamic enhancement based on user settings
           console.log('✅ Static back overlay applied');
         }
         

@@ -184,24 +184,31 @@ overlayBloom: boolean;              // Enable selective bloom
 
 ## Migration Steps Summary
 
-### Step 1: Implement Client-Side Enhancement ⏳
+### Step 1: Implement Client-Side Enhancement ✅ COMPLETED
 - Create `enhanceOverlayTexture()` function in CoinEditor.tsx
-- Integrate with existing texture loading pipeline
+- Integrate with existing texture loading pipeline  
 - Add enhancement settings to interface
 
-### Step 2: Remove Glow System ⏳ 
+### Step 2: Remove Glow System ✅ COMPLETED
 - Delete GlowMapMaterial.ts
 - Remove glow meshes from CoinEditor.tsx
 - Remove glow UI controls from SettingsPanel.tsx
 - Remove glow settings from exporter.ts
 - Remove glow system from render-frames.ts
 
-### Step 3: Add Enhancement UI ⏳
+### Step 3: Add Enhancement UI ✅ COMPLETED
 - Replace glow controls with enhancement controls
 - Add brightness/contrast/vibrance sliders
 - Update settings interface and defaults
 
-### Step 4: Test & Polish ⏳
+### Step 4: Fix Server-Side Enhancement Toggle ⏳ IN PROGRESS
+- ✅ Add getEnhancementMultiplier() function to server-side
+- ✅ Replace hardcoded 1.6x enhancement with dynamic user settings
+- ✅ Update all loadImageTexture() and createSpritesheetTexture() calls
+- 🔧 Address client-server visual parity issues
+- 🔧 Fix MP4 back face animation speed synchronization
+
+### Step 5: Test & Polish ⏳
 - Validate client-server visual parity
 - Performance testing
 - UI/UX refinements
