@@ -31,8 +31,8 @@ export interface CoinSettings {
   bodyTextureMode: 'url' | 'upload';
   bodyTextureFile: File | null;
   bodyTextureBlobUrl: string;
-  bodyTextureMapping: 'surface' | 'planar' | 'spherical';  // Face texture mapping
-  bodyTextureRimMapping: 'surface' | 'planar' | 'spherical';  // NEW: Separate rim mapping
+  bodyTextureMapping: 'surface' | 'spherical';  // Face texture mapping (removed 'planar')
+  bodyTextureRimMapping: 'surface' | 'spherical';  // NEW: Separate rim mapping (removed 'planar')
   bodyTextureRotation: number;    // NEW: 0-360 degrees
   bodyTextureScale: number;       // NEW: 0.1-5.0 scale multiplier
   bodyTextureOffsetX: number;     // NEW: -1 to 1 offset
@@ -112,6 +112,15 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
   }>({
     bodyTexture: false,
     overlay: false,
+    overlay2: false
+  });
+
+  // Loading states for apply operations
+  const [isApplyingOverlay, setIsApplyingOverlay] = useState<{
+    overlay1: boolean;
+    overlay2: boolean;
+  }>({
+    overlay1: false,
     overlay2: false
   });
   
@@ -485,6 +494,112 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
     }
   };
 
+  // Individual overlay handlers
+  const handleApplyOverlay1 = async () => {
+    setIsApplyingOverlay(prev => ({ ...prev, overlay1: true }));
+    
+    try {
+      // Primary overlay
+      if (settings.overlayMode === 'url' && tempOverlayUrl.trim()) {
+        updateSetting('overlayUrl', tempOverlayUrl.trim());
+        showNotification('Front face image applied successfully', 'success');
+      } else if (settings.overlayMode === 'upload' && settings.overlayFile && settings.overlayBlobUrl) {
+        updateSetting('overlayUrl', settings.overlayBlobUrl);
+        showNotification('Front face image applied successfully', 'success');
+      } else {
+        showNotification('No front face image to apply. Please select an image first.', 'warning');
+      }
+    } finally {
+      setTimeout(() => {
+        setIsApplyingOverlay(prev => ({ ...prev, overlay1: false }));
+      }, 500); // Short delay to show success state
+    }
+  };
+
+  const handleClearOverlay1 = () => {
+    // Clear temp field
+    setTempOverlayUrl('');
+    
+    // Cleanup blob URL to prevent memory leaks
+    if (settings.overlayBlobUrl && settings.overlayBlobUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(settings.overlayBlobUrl);
+      activeBlobUrls.current.delete(settings.overlayBlobUrl);
+    }
+    
+    // Clear file input
+    if (overlayFileRef.current) {
+      overlayFileRef.current.value = '';
+    }
+    
+    // Clear overlay 1 data
+    const clearedSettings = {
+      ...settings,
+      overlayUrl: '',
+      overlayFile: null,
+      overlayBlobUrl: '',
+      overlayTempId: undefined,
+      overlayBase64: undefined
+    };
+    
+    onSettingsChange(clearedSettings);
+    showNotification('Front face image cleared successfully', 'success');
+  };
+
+  const handleApplyOverlay2 = async () => {
+    if (!settings.dualOverlay) return;
+    
+    setIsApplyingOverlay(prev => ({ ...prev, overlay2: true }));
+    
+    try {
+      // Secondary overlay
+      if (settings.overlayMode2 === 'url' && tempOverlayUrl2.trim()) {
+        updateSetting('overlayUrl2', tempOverlayUrl2.trim());
+        showNotification('Back face image applied successfully', 'success');
+      } else if (settings.overlayMode2 === 'upload' && settings.overlayFile2 && settings.overlayBlobUrl2) {
+        updateSetting('overlayUrl2', settings.overlayBlobUrl2);
+        showNotification('Back face image applied successfully', 'success');
+      } else {
+        showNotification('No back face image to apply. Please select an image first.', 'warning');
+      }
+    } finally {
+      setTimeout(() => {
+        setIsApplyingOverlay(prev => ({ ...prev, overlay2: false }));
+      }, 500); // Short delay to show success state
+    }
+  };
+
+  const handleClearOverlay2 = () => {
+    if (!settings.dualOverlay) return;
+    
+    // Clear temp field
+    setTempOverlayUrl2('');
+    
+    // Cleanup blob URL to prevent memory leaks
+    if (settings.overlayBlobUrl2 && settings.overlayBlobUrl2.startsWith('blob:')) {
+      URL.revokeObjectURL(settings.overlayBlobUrl2);
+      activeBlobUrls.current.delete(settings.overlayBlobUrl2);
+    }
+    
+    // Clear file input
+    if (overlayFileRef2.current) {
+      overlayFileRef2.current.value = '';
+    }
+    
+    // Clear overlay 2 data
+    const clearedSettings = {
+      ...settings,
+      overlayUrl2: '',
+      overlayFile2: null,
+      overlayBlobUrl2: '',
+      overlayTempId2: undefined,
+      overlayBase64_2: undefined
+    };
+    
+    onSettingsChange(clearedSettings);
+    showNotification('Back face image cleared successfully', 'success');
+  };
+
+  // Keep existing combined handlers for backward compatibility
   const handleApplyOverlay = () => {
     let hasApplied = false;
     let message = '';
@@ -1089,8 +1204,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                   {/* Face Mapping */}
                   <div className="space-y-2">
                     <label className="block text-sm font-medium text-gray-700">Face Mapping</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {(['surface', 'planar', 'spherical'] as const).map((mode) => (
+                    <div className="grid grid-cols-2 gap-2">
+                      {(['surface', 'spherical'] as const).map((mode) => (
                         <button
                           key={mode}
                           onClick={() => updateSetting('bodyTextureMapping', mode)}
@@ -1109,8 +1224,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                   {/* Rim Mapping */}
                   <div className="space-y-2">
                     <label className="block text-sm font-medium text-gray-700">Rim Mapping</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {(['surface', 'planar', 'spherical'] as const).map((mode) => (
+                    <div className="grid grid-cols-2 gap-2">
+                      {(['surface', 'spherical'] as const).map((mode) => (
                         <button
                           key={mode}
                           onClick={() => updateSetting('bodyTextureRimMapping', mode)}
@@ -1288,6 +1403,31 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                     )}
                   </div>
                 )}
+
+                {/* Individual Apply/Clear buttons for Primary Overlay */}
+                <div className="flex space-x-2">
+                  <button 
+                    onClick={handleApplyOverlay1}
+                    disabled={isApplyingOverlay.overlay1 || isProcessingFile.overlay}
+                    className="flex-1 bg-white border-2 border-purple-500 text-purple-600 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-purple-50 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                  >
+                    {isApplyingOverlay.overlay1 ? (
+                      <>
+                        <div className="animate-spin rounded-full h-3 w-3 border-2 border-purple-500 border-t-transparent mr-2"></div>
+                        Applying...
+                      </>
+                    ) : (
+                      'Apply Image'
+                    )}
+                  </button>
+                  <button 
+                    onClick={handleClearOverlay1}
+                    disabled={isApplyingOverlay.overlay1}
+                    className="flex-1 bg-white border-2 border-gray-300 text-gray-700 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-gray-50 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
 
               {/* Secondary Overlay (only if dual overlay is enabled) */}
@@ -1361,6 +1501,31 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                       )}
                     </div>
                   )}
+
+                  {/* Individual Apply/Clear buttons for Secondary Overlay */}
+                  <div className="flex space-x-2">
+                    <button 
+                      onClick={handleApplyOverlay2}
+                      disabled={isApplyingOverlay.overlay2 || isProcessingFile.overlay2}
+                      className="flex-1 bg-white border-2 border-purple-500 text-purple-600 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-purple-50 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                    >
+                      {isApplyingOverlay.overlay2 ? (
+                        <>
+                          <div className="animate-spin rounded-full h-3 w-3 border-2 border-purple-500 border-t-transparent mr-2"></div>
+                          Applying...
+                        </>
+                      ) : (
+                        'Apply Image'
+                      )}
+                    </button>
+                    <button 
+                      onClick={handleClearOverlay2}
+                      disabled={isApplyingOverlay.overlay2}
+                      className="flex-1 bg-white border-2 border-gray-300 text-gray-700 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-gray-50 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Clear
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -1387,21 +1552,6 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ isOpen, onClose, settings
                 </div>
               </div>
             )}
-
-            <div className="flex space-x-2">
-              <button 
-                onClick={handleApplyOverlay}
-                className="flex-1 bg-white border-2 border-purple-500 text-purple-600 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-purple-50 text-sm"
-              >
-                Apply Images
-              </button>
-              <button 
-                onClick={handleClearOverlay}
-                className="flex-1 bg-white border-2 border-gray-300 text-gray-700 font-medium py-2 px-3 rounded-lg transition-colors hover:bg-gray-50 text-sm"
-              >
-                Clear
-              </button>
-            </div>
 
             {/* Overlay Metallic Controls */}
             <div className="space-y-3">

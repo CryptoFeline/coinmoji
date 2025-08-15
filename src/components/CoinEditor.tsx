@@ -104,8 +104,8 @@ export interface CoinSettings {
   bodyTextureMode: 'url' | 'upload';
   bodyTextureFile: File | null;
   bodyTextureBlobUrl: string;
-  bodyTextureMapping: 'surface' | 'planar' | 'spherical';  // Face texture mapping
-  bodyTextureRimMapping: 'surface' | 'planar' | 'spherical';  // NEW: Rim texture mapping
+  bodyTextureMapping: 'surface' | 'spherical';  // Face texture mapping (removed 'planar')
+  bodyTextureRimMapping: 'surface' | 'spherical';  // NEW: Separate rim mapping (removed 'planar')
   bodyTextureRotation: number;    // NEW: 0-360 degrees
   bodyTextureScale: number;       // NEW: 0.1-5.0 scale multiplier
   bodyTextureOffsetX: number;     // NEW: -1 to 1 offset
@@ -1425,7 +1425,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
               // Create new enhanced texture
               const enhancedTexture = new THREE.CanvasTexture(canvas);
               enhancedTexture.colorSpace = THREE.SRGBColorSpace;
-              enhancedTexture.flipY = texture.flipY;
+              enhancedTexture.flipY = false; // Consistent flipY for all body textures
               enhancedTexture.needsUpdate = true;
               
               // Replace with enhanced version
@@ -1455,13 +1455,10 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
             rimTexture.userData = { ...texture.userData };
           }
           
-          // CRITICAL FIX: Set proper flipY for body textures (matching face overlay behavior)
-          // Face overlays explicitly set flipY=true for proper orientation
-          if (texture instanceof THREE.VideoTexture || texture instanceof THREE.CanvasTexture) {
-            console.log('🔧 BODY TEXTURE FIX - Setting flipY=true for video/canvas textures (matching face overlays)');
-            faceTexture.flipY = true;
-            rimTexture.flipY = true;
-          }
+          // CRITICAL FIX: Set consistent flipY for all body textures for proper orientation
+          // Use flipY=false to match standard Three.js texture behavior and server-side settings
+          faceTexture.flipY = false;
+          rimTexture.flipY = false;
           
           console.log('🎯 BODY TEXTURE DEBUG - Cloned textures created:', {
             faceTextureFlipY: faceTexture.flipY,
@@ -1511,8 +1508,8 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
                   offsetY: currentSettings.bodyTextureOffsetY
                 });
                 break;
-              case 'planar':
               default:
+                // Default to surface mapping (same as planar)
                 planarMapUVs(face.geometry, {
                   rotation: currentSettings.bodyTextureRotation,
                   scale: currentSettings.bodyTextureScale,
@@ -1548,8 +1545,8 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
                   offsetY: currentSettings.bodyTextureOffsetY
                 });
                 break;
-              case 'planar':
               default:
+                // Default to surface mapping (same as planar)
                 planarMapUVs(rim.geometry, {
                   rotation: currentSettings.bodyTextureRotation,
                   scale: currentSettings.bodyTextureScale,
@@ -1656,7 +1653,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       }
       rimMat.needsUpdate = true;
       faceMat.needsUpdate = true;
-    } else {
+    } else if (currentSettings.fillMode === 'gradient') {
       // Clear texture and apply gradient (this handles the "clear" case)
       (rimMat.map as any)?.userData?.dispose?.();
       (faceMat.map as any)?.userData?.dispose?.();
@@ -1691,6 +1688,21 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       
       rimMat.color.set('#ffffff');
       faceMat.color.set('#ffffff');
+      rimMat.needsUpdate = true;
+      faceMat.needsUpdate = true;
+    } else if (currentSettings.fillMode === 'texture') {
+      // TEXTURE MODE: Clear materials when no texture is applied yet
+      // Only show plain metallic surface until texture is explicitly applied
+      (rimMat.map as any)?.userData?.dispose?.();
+      (faceMat.map as any)?.userData?.dispose?.();
+      rimMat.map?.dispose();
+      faceMat.map?.dispose();
+      rimMat.map = null;
+      faceMat.map = null;
+      
+      // Use default solid color for texture mode when no texture applied
+      rimMat.color.set(currentSettings.bodyColor);
+      faceMat.color.set(currentSettings.bodyColor);
       rimMat.needsUpdate = true;
       faceMat.needsUpdate = true;
     }

@@ -2650,17 +2650,29 @@ export const handler: Handler = async (event) => {
                 texture.rotation = rotationRadians;
               }
               
-              // Texture scale
+              // Texture scale - FIXED: Use center-based scaling (matching client-side behavior)
               if (settings.bodyTextureScale !== undefined && settings.bodyTextureScale !== 1) {
-                texture.repeat.set(settings.bodyTextureScale, settings.bodyTextureScale);
-              }
-              
-              // Texture offset
-              if (settings.bodyTextureOffsetX !== undefined || settings.bodyTextureOffsetY !== undefined) {
+                const scale = settings.bodyTextureScale;
+                texture.repeat.set(scale, scale);
+                // Center-based scaling: adjust offset to keep texture centered
+                // When scale < 1 (zooming out), we need to offset towards center
+                // When scale > 1 (zooming in), the default behavior is fine
+                const centerOffset = (1 - scale) * 0.5;
+                const baseOffsetX = settings.bodyTextureOffsetX || 0;
+                const baseOffsetY = settings.bodyTextureOffsetY || 0;
                 texture.offset.set(
-                  settings.bodyTextureOffsetX || 0,
-                  settings.bodyTextureOffsetY || 0
+                  baseOffsetX + centerOffset,
+                  baseOffsetY + centerOffset
                 );
+                texture.center.set(0.5, 0.5); // Ensure center point is set
+              } else {
+                // No scaling, just apply offset
+                if (settings.bodyTextureOffsetX !== undefined || settings.bodyTextureOffsetY !== undefined) {
+                  texture.offset.set(
+                    settings.bodyTextureOffsetX || 0,
+                    settings.bodyTextureOffsetY || 0
+                  );
+                }
               }
               
               // Texture mapping (basic implementation)
@@ -2702,13 +2714,13 @@ export const handler: Handler = async (event) => {
             faces.forEach(face => {
               switch (settings.bodyTextureMapping) {
                 case 'surface':
-                case 'planar':
                   planarMapUVs(face.geometry, textureSettings);
                   break;
                 case 'spherical':
                   sphericalMapUVs(face.geometry, textureSettings);
                   break;
                 default:
+                  // Default to surface mapping (same as removed planar)
                   planarMapUVs(face.geometry, textureSettings);
                   break;
               }
@@ -2724,7 +2736,6 @@ export const handler: Handler = async (event) => {
             
             switch (settings.bodyTextureRimMapping || settings.bodyTextureMapping) {
               case 'surface':
-              case 'planar':
                 // Apply planar mapping to cylinder (rim) if needed
                 planarMapUVs(cylinder.geometry, rimTextureSettings);
                 break;
@@ -2732,6 +2743,7 @@ export const handler: Handler = async (event) => {
                 sphericalMapUVs(cylinder.geometry, rimTextureSettings);
                 break;
               default:
+                // Default to surface mapping (same as removed planar)
                 planarMapUVs(cylinder.geometry, rimTextureSettings);
                 break;
             }
