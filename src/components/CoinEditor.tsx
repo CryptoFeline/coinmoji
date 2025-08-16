@@ -1402,7 +1402,61 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           if (currentSettings.bodyEnhancement) {
             console.log('🌟 Applying CLIENT-SIDE body texture enhancement');
             
-            if (texture instanceof THREE.CanvasTexture) {
+            if (texture instanceof THREE.VideoTexture) {
+              // FIXED: Handle VideoTexture for MP4/WebM enhancement
+              console.log('🎥 Applying enhancement to VideoTexture (MP4/WebM)');
+              const video = texture.image as HTMLVideoElement;
+              
+              // Create canvas to capture enhanced frames
+              const canvas = document.createElement('canvas');
+              const ctx = canvas.getContext('2d')!;
+              canvas.width = video.videoWidth || 256;
+              canvas.height = video.videoHeight || 256;
+              
+              // Create enhanced CanvasTexture
+              const enhancedTexture = new THREE.CanvasTexture(canvas);
+              enhancedTexture.colorSpace = THREE.SRGBColorSpace;
+              enhancedTexture.flipY = true;
+              
+              // Enhanced update function that applies effects to video frames
+              const updateEnhancedVideo = () => {
+                if (video.readyState >= 2) { // HAVE_CURRENT_DATA or higher
+                  // Draw current video frame
+                  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                  
+                  // Apply body enhancement
+                  enhanceOverlayTexture(canvas, ctx, {
+                    brightness: currentSettings.bodyBrightness,
+                    contrast: currentSettings.bodyContrast,
+                    vibrance: currentSettings.bodyVibrance,
+                    bloom: currentSettings.bodyBloom
+                  });
+                  
+                  enhancedTexture.needsUpdate = true;
+                }
+              };
+              
+              // Set up enhanced texture with update function
+              enhancedTexture.userData = {
+                update: updateEnhancedVideo,
+                dispose: () => {
+                  video.removeEventListener('timeupdate', updateEnhancedVideo);
+                }
+              };
+              
+              // Update on video frame changes
+              video.addEventListener('timeupdate', updateEnhancedVideo);
+              
+              // Initial frame
+              updateEnhancedVideo();
+              
+              // Replace with enhanced version
+              texture.dispose();
+              texture = enhancedTexture;
+              
+              console.log('✅ Created enhanced VideoTexture for MP4/WebM');
+              
+            } else if (texture instanceof THREE.CanvasTexture) {
               // For animated textures (GIF, video), enhance the canvas
               const canvas = texture.image;
               const ctx = canvas.getContext('2d')!;

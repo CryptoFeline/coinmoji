@@ -1831,37 +1831,30 @@ export const handler: Handler = async (event) => {
         offsetX: number = 0, 
         offsetY: number = 0
       ) => {
-        // Texture rotation
+        // FIXED: Match exact client-side transformation behavior
+        // Set center point first for consistent rotation behavior
+        texture.center.set(0.5, 0.5);
+        
+        // Apply rotation
         if (rotation !== undefined && rotation !== 0) {
           const rotationRadians = (rotation * Math.PI) / 180;
-          texture.center.set(0.5, 0.5);
           texture.rotation = rotationRadians;
         } else {
-          texture.center.set(0.5, 0.5); // Always set center point for consistency
+          texture.rotation = 0;
         }
         
-        // Texture scale with center-based scaling (matching client-side behavior)
-        if (scale !== undefined && scale !== 1) {
+        // Apply scale (direct repeat setting like client-side)
+        if (scale !== undefined) {
           texture.repeat.set(scale, scale);
-          // Center-based scaling: adjust offset to keep texture centered
-          // When scale < 1 (zooming out), we need to offset towards center
-          // When scale > 1 (zooming in), the default behavior is fine
-          const centerOffset = (1 - scale) * 0.5;
-          const baseOffsetX = offsetX || 0;
-          const baseOffsetY = offsetY || 0;
-          texture.offset.set(
-            baseOffsetX + centerOffset,
-            baseOffsetY + centerOffset
-          );
-          texture.center.set(0.5, 0.5); // Ensure center point is set
         } else {
-          // No scaling, just apply offset
-          texture.repeat.set(1, 1); // FIXED: Ensure repeat is reset
-          if (offsetX !== undefined || offsetY !== undefined) {
-            texture.offset.set(offsetX || 0, offsetY || 0);
-          } else {
-            texture.offset.set(0, 0); // FIXED: Reset offset when no offset specified
-          }
+          texture.repeat.set(1, 1);
+        }
+        
+        // Apply offset (direct offset setting like client-side)
+        if (offsetX !== undefined || offsetY !== undefined) {
+          texture.offset.set(offsetX || 0, offsetY || 0);
+        } else {
+          texture.offset.set(0, 0);
         }
         
         texture.needsUpdate = true;
@@ -2659,59 +2652,37 @@ export const handler: Handler = async (event) => {
             
             // Apply texture transformations to both textures
             [rimTexture, faceTexture].forEach(texture => {
-              // Texture rotation
+              // FIXED: Match exact client-side transformation behavior
+              // Set center point first for consistent rotation behavior
+              texture.center.set(0.5, 0.5);
+              
+              // Apply rotation (direct rotation setting like client-side)
               if (settings.bodyTextureRotation !== undefined && settings.bodyTextureRotation !== 0) {
                 const rotationRadians = (settings.bodyTextureRotation * Math.PI) / 180;
-                texture.center.set(0.5, 0.5);
                 texture.rotation = rotationRadians;
               } else {
-                texture.center.set(0.5, 0.5); // FIXED: Always set center point for consistency
                 texture.rotation = 0;
               }
               
-              // Texture scale - FIXED: Use center-based scaling (matching client-side behavior)
-              if (settings.bodyTextureScale !== undefined && settings.bodyTextureScale !== 1) {
-                const scale = settings.bodyTextureScale;
-                texture.repeat.set(scale, scale);
-                // Center-based scaling: adjust offset to keep texture centered
-                // When scale < 1 (zooming out), we need to offset towards center
-                // When scale > 1 (zooming in), the default behavior is fine
-                const centerOffset = (1 - scale) * 0.5;
-                const baseOffsetX = settings.bodyTextureOffsetX || 0;
-                const baseOffsetY = settings.bodyTextureOffsetY || 0;
-                texture.offset.set(
-                  baseOffsetX + centerOffset,
-                  baseOffsetY + centerOffset
-                );
-                texture.center.set(0.5, 0.5); // Ensure center point is set
+              // Apply scale (direct repeat setting like client-side)
+              if (settings.bodyTextureScale !== undefined) {
+                texture.repeat.set(settings.bodyTextureScale, settings.bodyTextureScale);
               } else {
-                // No scaling, just apply offset
-                texture.repeat.set(1, 1); // FIXED: Ensure repeat is reset
-                if (settings.bodyTextureOffsetX !== undefined || settings.bodyTextureOffsetY !== undefined) {
-                  texture.offset.set(
-                    settings.bodyTextureOffsetX || 0,
-                    settings.bodyTextureOffsetY || 0
-                  );
-                } else {
-                  texture.offset.set(0, 0); // FIXED: Reset offset when no offset specified
-                }
+                texture.repeat.set(1, 1);
+              }
+              
+              // Apply offset (direct offset setting like client-side)
+              if (settings.bodyTextureOffsetX !== undefined || settings.bodyTextureOffsetY !== undefined) {
+                texture.offset.set(
+                  settings.bodyTextureOffsetX || 0,
+                  settings.bodyTextureOffsetY || 0
+                );
+              } else {
+                texture.offset.set(0, 0);
               }
               
               // Texture mapping (basic implementation)
-              if (settings.bodyTextureMapping) {
-                // Note: Three.js UV mapping is handled by geometry, 
-                // but we can adjust texture wrapping and filtering
-                switch (settings.bodyTextureMapping) {
-                  case 'planar':
-                    texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
-                    break;
-                  case 'surface':
-                  case 'spherical':
-                    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-                    break;
-                }
-              }
-              
+              texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
               texture.needsUpdate = true;
             });
             
@@ -3003,14 +2974,38 @@ export const handler: Handler = async (event) => {
         if (overlayTop.material && overlayTop.material.map && overlayTop.material.map.userData?.update) {
           // Pass current frame for spritesheet animation
           if (overlayTop.material.map.userData.isSpritesheetVideo) {
-            // FIXED: Faster video frame calculation to match client-side speed
-            // Use direct frame mapping for better animation speed
+            // FIXED: Apply speed control to match client-side frame intervals
+            // Get speed setting (from overlayGifSpeed setting)
+            const overlaySpeed = settings.overlayGifSpeed || 'normal';
+            const speedMap = {
+              slow: 4,    // Change frame every 4 renders
+              normal: 2,  // Change frame every 2 renders
+              fast: 1     // Change frame every render
+            };
+            const frameInterval = speedMap[overlaySpeed] || speedMap.normal;
+            
             const videoFrameCount = overlayTop.material.map.userData.metadata.frameCount;
-            const videoFrame = i % videoFrameCount; // Direct frame mapping for faster animation
+            // Calculate effective frame index accounting for speed control
+            const effectiveFrameIndex = Math.floor(i / frameInterval);
+            const videoFrame = effectiveFrameIndex % videoFrameCount;
+            
             overlayTop.material.map.userData.update(videoFrame);
-            console.log(`🎞️ Front face video frame: ${videoFrame}/${videoFrameCount} (render frame ${i}/${renderRequest.exportSettings.frames})`);
+            console.log(`🎞️ Front face video frame: ${videoFrame}/${videoFrameCount} (render frame ${i}/${renderRequest.exportSettings.frames}, speed: ${overlaySpeed}, interval: ${frameInterval})`);
           } else {
-            overlayTop.material.map.userData.update();
+            // For GIFs, apply speed control through frame counter simulation
+            const overlaySpeed = settings.overlayGifSpeed || 'normal';
+            const speedMap = {
+              slow: 4,    // Change frame every 4 renders
+              normal: 2,  // Change frame every 2 renders
+              fast: 1     // Change frame every render
+            };
+            const frameInterval = speedMap[overlaySpeed] || speedMap.normal;
+            
+            // Simulate frame counter for GIF speed control
+            const shouldUpdateFrame = (i % frameInterval) === 0;
+            if (shouldUpdateFrame) {
+              overlayTop.material.map.userData.update();
+            }
           }
         }
         
@@ -3021,14 +3016,38 @@ export const handler: Handler = async (event) => {
           if (!isSharedUserData) {
             // Pass current frame for spritesheet animation
             if (overlayBot.material.map.userData.isSpritesheetVideo) {
-              // FIXED: Faster video frame calculation to match client-side speed
-              // Use direct frame mapping for better animation speed
+              // FIXED: Apply speed control to match client-side frame intervals
+              // Get speed setting (from overlayGifSpeed setting)
+              const overlaySpeed = settings.overlayGifSpeed || 'normal';
+              const speedMap = {
+                slow: 4,    // Change frame every 4 renders
+                normal: 2,  // Change frame every 2 renders
+                fast: 1     // Change frame every render
+              };
+              const frameInterval = speedMap[overlaySpeed] || speedMap.normal;
+              
               const videoFrameCount = overlayBot.material.map.userData.metadata.frameCount;
-              const videoFrame = i % videoFrameCount; // Direct frame mapping for faster animation
+              // Calculate effective frame index accounting for speed control
+              const effectiveFrameIndex = Math.floor(i / frameInterval);
+              const videoFrame = effectiveFrameIndex % videoFrameCount;
+              
               overlayBot.material.map.userData.update(videoFrame);
-              console.log(`🎞️ Back face video frame: ${videoFrame}/${videoFrameCount} (render frame ${i}/${renderRequest.exportSettings.frames})`);
+              console.log(`🎞️ Back face video frame: ${videoFrame}/${videoFrameCount} (render frame ${i}/${renderRequest.exportSettings.frames}, speed: ${overlaySpeed}, interval: ${frameInterval})`);
             } else {
-              overlayBot.material.map.userData.update();
+              // For GIFs, apply speed control through frame counter simulation
+              const overlaySpeed = settings.overlayGifSpeed || 'normal';
+              const speedMap = {
+                slow: 4,    // Change frame every 4 renders
+                normal: 2,  // Change frame every 2 renders
+                fast: 1     // Change frame every render
+              };
+              const frameInterval = speedMap[overlaySpeed] || speedMap.normal;
+              
+              // Simulate frame counter for GIF speed control
+              const shouldUpdateFrame = (i % frameInterval) === 0;
+              if (shouldUpdateFrame) {
+                overlayBot.material.map.userData.update();
+              }
             }
           } else {
             console.log(`🔗 Back face sharing userData with front face - skipping duplicate update`);
@@ -3039,23 +3058,73 @@ export const handler: Handler = async (event) => {
         if (rimMat.map && rimMat.map.userData?.update) {
           // Pass current frame for spritesheet animation
           if (rimMat.map.userData.isSpritesheetVideo) {
-            // FIXED: Faster video frame calculation to match client-side speed
+            // FIXED: Apply speed control to match client-side frame intervals
+            // Get speed setting (from bodyGifSpeed setting)
+            const bodySpeed = settings.bodyGifSpeed || 'normal';
+            const speedMap = {
+              slow: 4,    // Change frame every 4 renders
+              normal: 2,  // Change frame every 2 renders
+              fast: 1     // Change frame every render
+            };
+            const frameInterval = speedMap[bodySpeed] || speedMap.normal;
+            
             const videoFrameCount = rimMat.map.userData.metadata.frameCount;
-            const videoFrame = i % videoFrameCount; // Direct frame mapping for faster animation
+            // Calculate effective frame index accounting for speed control
+            const effectiveFrameIndex = Math.floor(i / frameInterval);
+            const videoFrame = effectiveFrameIndex % videoFrameCount;
+            
             rimMat.map.userData.update(videoFrame);
           } else {
-            rimMat.map.userData.update();
+            // For GIFs, apply speed control through frame counter simulation
+            const bodySpeed = settings.bodyGifSpeed || 'normal';
+            const speedMap = {
+              slow: 4,    // Change frame every 4 renders
+              normal: 2,  // Change frame every 2 renders
+              fast: 1     // Change frame every render
+            };
+            const frameInterval = speedMap[bodySpeed] || speedMap.normal;
+            
+            // Simulate frame counter for GIF speed control
+            const shouldUpdateFrame = (i % frameInterval) === 0;
+            if (shouldUpdateFrame) {
+              rimMat.map.userData.update();
+            }
           }
         }
         if (faceMat.map && faceMat.map.userData?.update && faceMat.map !== rimMat.map) {
           // Pass current frame for spritesheet animation
           if (faceMat.map.userData.isSpritesheetVideo) {
-            // FIXED: Faster video frame calculation to match client-side speed
+            // FIXED: Apply speed control to match client-side frame intervals
+            // Get speed setting (from bodyGifSpeed setting)
+            const bodySpeed = settings.bodyGifSpeed || 'normal';
+            const speedMap = {
+              slow: 4,    // Change frame every 4 renders
+              normal: 2,  // Change frame every 2 renders
+              fast: 1     // Change frame every render
+            };
+            const frameInterval = speedMap[bodySpeed] || speedMap.normal;
+            
             const videoFrameCount = faceMat.map.userData.metadata.frameCount;
-            const videoFrame = i % videoFrameCount; // Direct frame mapping for faster animation
+            // Calculate effective frame index accounting for speed control
+            const effectiveFrameIndex = Math.floor(i / frameInterval);
+            const videoFrame = effectiveFrameIndex % videoFrameCount;
+            
             faceMat.map.userData.update(videoFrame);
           } else {
-            faceMat.map.userData.update();
+            // For GIFs, apply speed control through frame counter simulation
+            const bodySpeed = settings.bodyGifSpeed || 'normal';
+            const speedMap = {
+              slow: 4,    // Change frame every 4 renders
+              normal: 2,  // Change frame every 2 renders
+              fast: 1     // Change frame every render
+            };
+            const frameInterval = speedMap[bodySpeed] || speedMap.normal;
+            
+            // Simulate frame counter for GIF speed control
+            const shouldUpdateFrame = (i % frameInterval) === 0;
+            if (shouldUpdateFrame) {
+              faceMat.map.userData.update();
+            }
           }
         }
 
