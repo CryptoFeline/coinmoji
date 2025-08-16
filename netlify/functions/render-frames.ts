@@ -1836,6 +1836,8 @@ export const handler: Handler = async (event) => {
           const rotationRadians = (rotation * Math.PI) / 180;
           texture.center.set(0.5, 0.5);
           texture.rotation = rotationRadians;
+        } else {
+          texture.center.set(0.5, 0.5); // Always set center point for consistency
         }
         
         // Texture scale with center-based scaling (matching client-side behavior)

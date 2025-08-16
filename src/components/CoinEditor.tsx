@@ -641,15 +641,22 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
         const map = material.map as any;
         if (!map) return;
         if (map instanceof THREE.VideoTexture) {
-          // FIXED: Ensure video is playing and update texture every frame
+          // FIXED: Ensure video is playing and update texture every frame for smooth playback
           const video = map.source.data as HTMLVideoElement;
           if (video) {
             // Ensure video is playing for smooth animation
             if (video.paused && video.readyState >= 2) {
               video.play().catch(() => {}); // Ignore play errors
             }
-            // Mark texture for update every frame for smooth video playback
+            
+            // CRITICAL FIX: Force texture update every frame for smooth video playback
+            // Video textures need constant updates to maintain proper frame rate
             map.needsUpdate = true;
+            
+            // Additional fix: Ensure video playback rate matches display
+            if (video.playbackRate !== 1.0) {
+              video.playbackRate = 1.0; // Normal speed
+            }
           }
         } else if (map instanceof THREE.CanvasTexture) {
           // Our GIF driver exposes userData.update()
@@ -1056,6 +1063,10 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
         video.preload = 'auto';
         video.autoplay = true;
         
+        // FIXED: Additional video properties for smoother playback
+        video.playbackRate = 1.0; // Ensure normal playback speed
+        video.defaultPlaybackRate = 1.0;
+        
         const handleVideoSuccess = () => {
           try {
             const videoTexture = new THREE.VideoTexture(video);
@@ -1073,6 +1084,9 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
                 video.play().catch(err => console.warn('Video autoplay failed:', err));
               }, { once: true });
             }
+            
+            // Store video reference for debugging
+            (videoTexture as any).video = video;
             
             resolve(videoTexture);
           } catch (error) {
@@ -1173,7 +1187,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
               // Create texture from enhanced canvas
               const texture = new THREE.CanvasTexture(canvas);
               texture.colorSpace = THREE.SRGBColorSpace;
-              texture.flipY = false; // Match server-side setting
+              texture.flipY = true; // FIXED: Client-side overlay textures need flipY=true
               texture.needsUpdate = true;
               
               if (sceneRef.current) {
@@ -1186,7 +1200,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
               const texture = new THREE.Texture(img);
               texture.needsUpdate = true;
               texture.colorSpace = THREE.SRGBColorSpace;
-              texture.flipY = false;
+              texture.flipY = true; // FIXED: Client-side textures need flipY=true
               
               if (sceneRef.current) {
                 texture.anisotropy = sceneRef.current.renderer.capabilities.getMaxAnisotropy();
@@ -1443,7 +1457,7 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
               // Create new enhanced texture
               const enhancedTexture = new THREE.CanvasTexture(canvas);
               enhancedTexture.colorSpace = THREE.SRGBColorSpace;
-              enhancedTexture.flipY = false; // Consistent flipY for all body textures
+              enhancedTexture.flipY = true; // FIXED: Match client-side flipY expectations
               enhancedTexture.needsUpdate = true;
               
               // Replace with enhanced version
@@ -1474,9 +1488,9 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
           }
           
           // CRITICAL FIX: Set consistent flipY for all body textures for proper orientation
-          // Use flipY=false to match standard Three.js texture behavior and server-side settings
-          faceTexture.flipY = false;
-          rimTexture.flipY = false;
+          // Use flipY=true to match client-side display expectations (opposite of server-side)
+          faceTexture.flipY = true;
+          rimTexture.flipY = true;
           
           console.log('🎯 BODY TEXTURE DEBUG - Cloned textures created:', {
             faceTextureFlipY: faceTexture.flipY,
