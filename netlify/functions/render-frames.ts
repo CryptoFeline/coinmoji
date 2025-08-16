@@ -1856,8 +1856,11 @@ export const handler: Handler = async (event) => {
           texture.center.set(0.5, 0.5); // Ensure center point is set
         } else {
           // No scaling, just apply offset
+          texture.repeat.set(1, 1); // FIXED: Ensure repeat is reset
           if (offsetX !== undefined || offsetY !== undefined) {
             texture.offset.set(offsetX || 0, offsetY || 0);
+          } else {
+            texture.offset.set(0, 0); // FIXED: Reset offset when no offset specified
           }
         }
         
@@ -2661,6 +2664,9 @@ export const handler: Handler = async (event) => {
                 const rotationRadians = (settings.bodyTextureRotation * Math.PI) / 180;
                 texture.center.set(0.5, 0.5);
                 texture.rotation = rotationRadians;
+              } else {
+                texture.center.set(0.5, 0.5); // FIXED: Always set center point for consistency
+                texture.rotation = 0;
               }
               
               // Texture scale - FIXED: Use center-based scaling (matching client-side behavior)
@@ -2680,11 +2686,14 @@ export const handler: Handler = async (event) => {
                 texture.center.set(0.5, 0.5); // Ensure center point is set
               } else {
                 // No scaling, just apply offset
+                texture.repeat.set(1, 1); // FIXED: Ensure repeat is reset
                 if (settings.bodyTextureOffsetX !== undefined || settings.bodyTextureOffsetY !== undefined) {
                   texture.offset.set(
                     settings.bodyTextureOffsetX || 0,
                     settings.bodyTextureOffsetY || 0
                   );
+                } else {
+                  texture.offset.set(0, 0); // FIXED: Reset offset when no offset specified
                 }
               }
               
@@ -2994,12 +3003,12 @@ export const handler: Handler = async (event) => {
         if (overlayTop.material && overlayTop.material.map && overlayTop.material.map.userData?.update) {
           // Pass current frame for spritesheet animation
           if (overlayTop.material.map.userData.isSpritesheetVideo) {
-            // For spritesheet videos, calculate proper video frame based on animation progress
+            // FIXED: Faster video frame calculation to match client-side speed
+            // Use direct frame mapping for better animation speed
             const videoFrameCount = overlayTop.material.map.userData.metadata.frameCount;
-            const totalRenderFrames = renderRequest.exportSettings.frames;
-            const videoFrame = Math.floor((i / totalRenderFrames) * videoFrameCount) % videoFrameCount;
+            const videoFrame = i % videoFrameCount; // Direct frame mapping for faster animation
             overlayTop.material.map.userData.update(videoFrame);
-            console.log(`🎞️ Front face video frame: ${videoFrame}/${videoFrameCount} (render frame ${i}/${totalRenderFrames})`);
+            console.log(`🎞️ Front face video frame: ${videoFrame}/${videoFrameCount} (render frame ${i}/${renderRequest.exportSettings.frames})`);
           } else {
             overlayTop.material.map.userData.update();
           }
@@ -3012,12 +3021,12 @@ export const handler: Handler = async (event) => {
           if (!isSharedUserData) {
             // Pass current frame for spritesheet animation
             if (overlayBot.material.map.userData.isSpritesheetVideo) {
-              // For spritesheet videos, calculate proper video frame based on animation progress
+              // FIXED: Faster video frame calculation to match client-side speed
+              // Use direct frame mapping for better animation speed
               const videoFrameCount = overlayBot.material.map.userData.metadata.frameCount;
-              const totalRenderFrames = renderRequest.exportSettings.frames;
-              const videoFrame = Math.floor((i / totalRenderFrames) * videoFrameCount) % videoFrameCount;
+              const videoFrame = i % videoFrameCount; // Direct frame mapping for faster animation
               overlayBot.material.map.userData.update(videoFrame);
-              console.log(`🎞️ Back face video frame: ${videoFrame}/${videoFrameCount} (render frame ${i}/${totalRenderFrames})`);
+              console.log(`🎞️ Back face video frame: ${videoFrame}/${videoFrameCount} (render frame ${i}/${renderRequest.exportSettings.frames})`);
             } else {
               overlayBot.material.map.userData.update();
             }
@@ -3030,10 +3039,9 @@ export const handler: Handler = async (event) => {
         if (rimMat.map && rimMat.map.userData?.update) {
           // Pass current frame for spritesheet animation
           if (rimMat.map.userData.isSpritesheetVideo) {
-            // For spritesheet videos, calculate proper video frame based on animation progress
+            // FIXED: Faster video frame calculation to match client-side speed
             const videoFrameCount = rimMat.map.userData.metadata.frameCount;
-            const totalRenderFrames = renderRequest.exportSettings.frames;
-            const videoFrame = Math.floor((i / totalRenderFrames) * videoFrameCount) % videoFrameCount;
+            const videoFrame = i % videoFrameCount; // Direct frame mapping for faster animation
             rimMat.map.userData.update(videoFrame);
           } else {
             rimMat.map.userData.update();
@@ -3042,10 +3050,9 @@ export const handler: Handler = async (event) => {
         if (faceMat.map && faceMat.map.userData?.update && faceMat.map !== rimMat.map) {
           // Pass current frame for spritesheet animation
           if (faceMat.map.userData.isSpritesheetVideo) {
-            // For spritesheet videos, calculate proper video frame based on animation progress
+            // FIXED: Faster video frame calculation to match client-side speed
             const videoFrameCount = faceMat.map.userData.metadata.frameCount;
-            const totalRenderFrames = renderRequest.exportSettings.frames;
-            const videoFrame = Math.floor((i / totalRenderFrames) * videoFrameCount) % videoFrameCount;
+            const videoFrame = i % videoFrameCount; // Direct frame mapping for faster animation
             faceMat.map.userData.update(videoFrame);
           } else {
             faceMat.map.userData.update();
