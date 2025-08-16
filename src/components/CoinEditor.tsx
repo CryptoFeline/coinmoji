@@ -641,8 +641,16 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
         const map = material.map as any;
         if (!map) return;
         if (map instanceof THREE.VideoTexture) {
-          // Video frames advance on their own; we just mark dirty
-          map.needsUpdate = true;
+          // FIXED: Ensure video is playing and update texture every frame
+          const video = map.source.data as HTMLVideoElement;
+          if (video) {
+            // Ensure video is playing for smooth animation
+            if (video.paused && video.readyState >= 2) {
+              video.play().catch(() => {}); // Ignore play errors
+            }
+            // Mark texture for update every frame for smooth video playback
+            map.needsUpdate = true;
+          }
         } else if (map instanceof THREE.CanvasTexture) {
           // Our GIF driver exposes userData.update()
           if (typeof map.userData?.update === 'function') {
@@ -1056,6 +1064,16 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
             videoTexture.magFilter = THREE.LinearFilter;
             videoTexture.format = THREE.RGBAFormat;
             videoTexture.flipY = true; // Video textures need flipY=true (opposite of images)
+            
+            // FIXED: Ensure video starts playing immediately for smooth animation
+            if (video.readyState >= 2) {
+              video.play().catch(err => console.warn('Video autoplay failed:', err));
+            } else {
+              video.addEventListener('loadeddata', () => {
+                video.play().catch(err => console.warn('Video autoplay failed:', err));
+              }, { once: true });
+            }
+            
             resolve(videoTexture);
           } catch (error) {
             console.warn('VideoTexture creation failed, falling back to image:', error);
@@ -1778,6 +1796,68 @@ const CoinEditor = forwardRef<CoinEditorRef, CoinEditorProps>(({ className = '',
       metalnessEnabled: currentSettings.metallic
     });
   }, [currentSettings.overlayMetallic, currentSettings.overlayMetalness, currentSettings.overlayRoughness]);
+
+  // Apply overlay texture transformations (scale, rotation, offset) to match server-side behavior
+  useEffect(() => {
+    if (!sceneRef.current) return;
+    
+    const { overlayTop, overlayBot } = sceneRef.current;
+    
+    const applyOverlayTransformations = (material: THREE.MeshStandardMaterial) => {
+      if (!material.map) return;
+      
+      const texture = material.map;
+      
+      // Texture rotation
+      if (currentSettings.overlayRotation !== undefined && currentSettings.overlayRotation !== 0) {
+        const rotationRadians = (currentSettings.overlayRotation * Math.PI) / 180;
+        texture.center.set(0.5, 0.5);
+        texture.rotation = rotationRadians;
+      } else {
+        texture.center.set(0.5, 0.5);
+        texture.rotation = 0;
+      }
+      
+      // Texture scale with center-based scaling (matching server-side behavior)
+      const scale = currentSettings.overlayScale || 1;
+      if (scale !== 1) {
+        texture.repeat.set(scale, scale);
+        // Center-based scaling: adjust offset to keep texture centered
+        const centerOffset = (1 - scale) * 0.5;
+        const baseOffsetX = currentSettings.overlayOffsetX || 0;
+        const baseOffsetY = currentSettings.overlayOffsetY || 0;
+        texture.offset.set(
+          baseOffsetX + centerOffset,
+          baseOffsetY + centerOffset
+        );
+      } else {
+        texture.repeat.set(1, 1);
+        // No scaling, just apply offset
+        texture.offset.set(
+          currentSettings.overlayOffsetX || 0,
+          currentSettings.overlayOffsetY || 0
+        );
+      }
+      
+      texture.needsUpdate = true;
+    };
+    
+    // Apply transformations to both overlay materials if they have textures
+    if (overlayTop.material instanceof THREE.MeshStandardMaterial) {
+      applyOverlayTransformations(overlayTop.material);
+    }
+    
+    if (overlayBot.material instanceof THREE.MeshStandardMaterial) {
+      applyOverlayTransformations(overlayBot.material);
+    }
+    
+    console.log('🎯 Applied overlay transformations:', {
+      rotation: currentSettings.overlayRotation || 0,
+      scale: currentSettings.overlayScale || 1,
+      offsetX: currentSettings.overlayOffsetX || 0,
+      offsetY: currentSettings.overlayOffsetY || 0
+    });
+  }, [currentSettings.overlayScale, currentSettings.overlayRotation, currentSettings.overlayOffsetX, currentSettings.overlayOffsetY]);
 
   // Note: Coin shape changes require rebuilding geometry, so we handle this in the initial setup
   // The shape setting is applied during the createFace function using dynamic bulge value

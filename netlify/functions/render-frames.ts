@@ -1838,14 +1838,25 @@ export const handler: Handler = async (event) => {
           texture.rotation = rotationRadians;
         }
         
-        // Texture scale
+        // Texture scale with center-based scaling (matching client-side behavior)
         if (scale !== undefined && scale !== 1) {
           texture.repeat.set(scale, scale);
-        }
-        
-        // Texture offset
-        if (offsetX !== undefined || offsetY !== undefined) {
-          texture.offset.set(offsetX || 0, offsetY || 0);
+          // Center-based scaling: adjust offset to keep texture centered
+          // When scale < 1 (zooming out), we need to offset towards center
+          // When scale > 1 (zooming in), the default behavior is fine
+          const centerOffset = (1 - scale) * 0.5;
+          const baseOffsetX = offsetX || 0;
+          const baseOffsetY = offsetY || 0;
+          texture.offset.set(
+            baseOffsetX + centerOffset,
+            baseOffsetY + centerOffset
+          );
+          texture.center.set(0.5, 0.5); // Ensure center point is set
+        } else {
+          // No scaling, just apply offset
+          if (offsetX !== undefined || offsetY !== undefined) {
+            texture.offset.set(offsetX || 0, offsetY || 0);
+          }
         }
         
         texture.needsUpdate = true;
@@ -2093,7 +2104,7 @@ export const handler: Handler = async (event) => {
           // Create CanvasTexture
           const texture = new THREE.CanvasTexture(canvas);
           texture.colorSpace = THREE.SRGBColorSpace;
-          texture.flipY = false;
+          texture.flipY = true; // FIXED: Match client-side flipY = true for video textures
           
           // Add animation metadata to userData
           texture.userData = {
@@ -3017,7 +3028,11 @@ export const handler: Handler = async (event) => {
         if (rimMat.map && rimMat.map.userData?.update) {
           // Pass current frame for spritesheet animation
           if (rimMat.map.userData.isSpritesheetVideo) {
-            rimMat.map.userData.update(i); // Pass frame index for video animation
+            // For spritesheet videos, calculate proper video frame based on animation progress
+            const videoFrameCount = rimMat.map.userData.metadata.frameCount;
+            const totalRenderFrames = renderRequest.exportSettings.frames;
+            const videoFrame = Math.floor((i / totalRenderFrames) * videoFrameCount) % videoFrameCount;
+            rimMat.map.userData.update(videoFrame);
           } else {
             rimMat.map.userData.update();
           }
@@ -3025,7 +3040,11 @@ export const handler: Handler = async (event) => {
         if (faceMat.map && faceMat.map.userData?.update && faceMat.map !== rimMat.map) {
           // Pass current frame for spritesheet animation
           if (faceMat.map.userData.isSpritesheetVideo) {
-            faceMat.map.userData.update(i); // Pass frame index for video animation
+            // For spritesheet videos, calculate proper video frame based on animation progress
+            const videoFrameCount = faceMat.map.userData.metadata.frameCount;
+            const totalRenderFrames = renderRequest.exportSettings.frames;
+            const videoFrame = Math.floor((i / totalRenderFrames) * videoFrameCount) % videoFrameCount;
+            faceMat.map.userData.update(videoFrame);
           } else {
             faceMat.map.userData.update();
           }
